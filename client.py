@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from websockets.sync.client import connect
-from realityapi_pb2 import Packet
+from realityapi_pb2 import Packet, Vector3
 def hello():
     uri = "ws://localhost:8765"
     with connect(uri) as websocket:
@@ -11,10 +11,9 @@ def hello():
         y = float(input("Y coordinate?"))
         z = float(input("Z coordinate?"))
 
-        pkt = Packet()
-        pkt.body.position = Vector()
-        websocket.send(name)
-        print(f">>> {name}")
+        pkt = Packet(position=Vector3(x=x, y=y, z=z))
+        websocket.send(pkt.SerializeToString())
+        print(f">>> {pkt.position}")
 
         greeting = websocket.recv()
         print(f"<<< {greeting}")
