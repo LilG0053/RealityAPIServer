@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package realityapi;
+
+message Vector3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message Hello {
+  string name = 1;
+}
+
+message Text {
+  string text = 1;
+}
+
+message Packet {
+  oneof body {
+    Hello hello = 1;
+    Text text = 2;
+    Vector3 position = 3;
+  }
+}
