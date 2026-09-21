@@ -3,7 +3,7 @@
 from websockets.sync.client import connect
 from realityapi_pb2 import Packet, Vector3
 def hello():
-    uri = "ws://localhost:8765"
+    uri = "ws://10.89.53.91:65432"
     with connect(uri) as websocket:
         name = input("What's your name? ")
         text = input("What's your message? ")

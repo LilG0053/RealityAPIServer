@@ -54,8 +54,8 @@ async def handler(websocket):
 
 
 async def main():
-    server = await serve(handler, "0.0.0.0", 8765)
-    print("realityapi server on ws://0.0.0.0:8765")
+    server = await serve(handler, "0.0.0.0", 65432)
+    print("realityapi server on ws://0.0.0.0:65432")
     await server.serve_forever()
 
 
