@@ -1,71 +1,57 @@
-"""
-Generic TCP socket client — reuse this on each device (TurtleBot, UR7e
-driver PC, VR headset, etc.) by giving it a unique name at startup.
+#!/usr/bin/env python
 
-Run:  python client.py <name> <server_ip>
-e.g.  python client.py turtlebot 192.168.1.50
-"""
+from websockets.sync.client import connect
+from realityapi_pb2 import Packet, Vector3, Hello, Text
 
-import socket
-import json
-import sys
-import threading
-
-PORT = 65432
+URI = "ws://10.89.53.91:65432"
 
 
-def listen(sock):
-    """Background thread: print whatever the server sends."""
-    buffer = ""
+def ask_float(prompt: str) -> float:
     while True:
-        data = sock.recv(4096)
-        if not data:
-            print("Server closed the connection.")
-            break
-        buffer += data.decode()
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            if line.strip():
-                print("Received:", json.loads(line))
+        try:
+            return float(input(prompt))
+        except ValueError:
+            print("Please enter a number.")
 
 
-def send(sock, message: dict):
-    sock.sendall((json.dumps(message) + "\n").encode())
+def describe(pkt: Packet) -> str:
+    kind = pkt.WhichOneof("body")
+    if kind == "position":
+        p = pkt.position
+        return f"position ({p.x}, {p.y}, {p.z})"
+    if kind == "text":
+        return f"text: {pkt.text.text}"
+    if kind == "hello":
+        return f"hello from {pkt.hello.name}"
+    return "empty packet"
 
 
-def main():
-    if len(sys.argv) < 3:
-        print("Usage: python client.py <name> <server_ip>")
-        sys.exit(1)
+def exchange(websocket, pkt: Packet) -> Packet:
+    websocket.send(pkt.SerializeToString())
+    reply = Packet()
+    reply.ParseFromString(websocket.recv())
+    return reply
 
-    name, server_ip = sys.argv[1], sys.argv[2]
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    print(f"Connecting to {server_ip}:{PORT} ...")
-    try:
-        sock.connect((server_ip, PORT))
-    except OSError as e:
-        print(f"Could not connect: {e}")
-        sys.exit(1)
-    print("Connected. Sending identity...")
-    send(sock, {"name": name})  # identify to the server
-    print(f"Ready as '{name}'. Type a message and press Enter (or 'quit').")
+def hello():
+    name = input("What's your name? ")
+    text = input("What's your message? ")
+    x = ask_float("X coordinate? ")
+    y = ask_float("Y coordinate? ")
+    z = ask_float("Z coordinate? ")
 
-    threading.Thread(target=listen, args=(sock,), daemon=True).start()
+    packets = [
+        Packet(hello=Hello(name=name)),
+        Packet(text=Text(text=text)),
+        Packet(position=Vector3(x=x, y=y, z=z)),
+    ]
 
-    # Replace this loop with real data: odometry reads, joint states,
-    # VR pose updates, etc. This is just a manual test harness for now.
-    try:
-        while True:
-            text = input("> ")
-            if text == "quit":
-                break
-            send(sock, {"text": text})
-    except KeyboardInterrupt:
-        pass
-    finally:
-        sock.close()
+    with connect(URI) as websocket:
+        for pkt in packets:
+            print(f">>> {describe(pkt)}")
+            reply = exchange(websocket, pkt)
+            print(f"<<< {describe(reply)}")
 
 
 if __name__ == "__main__":
-    main()
+    hello()

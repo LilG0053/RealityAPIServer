@@ -1,98 +1,63 @@
-"""
-TCP socket server for the laptop side of the robot + VR control system.
-Accepts connections from multiple named clients (e.g. "turtlebot", "ur7e",
-"vr_headset") and exchanges newline-delimited JSON messages with each.
-"""
+#!/usr/bin/env python
 
-import socket
-import threading
-import json
+import asyncio
 
-HOST = "0.0.0.0"      # listen on all network interfaces
-PORT = 65432
+from websockets.asyncio.server import serve
+from realityapi_pb2 import Packet, Vector3, Text
 
-clients = {}           # name -> socket connection
-clients_lock = threading.Lock()
+# Offset added to every incoming position vector. Adjust to your task's spec.
+OFFSET = (1.0, 2.0, 3.0)
 
 
-def send_to(name, message: dict):
-    """Send a JSON message to one named client."""
-    with clients_lock:
-        conn = clients.get(name)
-    if conn is None:
-        print(f"[!] No client named '{name}' connected")
-        return
-    conn.sendall((json.dumps(message) + "\n").encode())
+def translate(vec: Vector3, offset=OFFSET) -> Vector3:
+    """Return a new Vector3 shifted by the offset."""
+    return Vector3(
+        x=vec.x + offset[0],
+        y=vec.y + offset[1],
+        z=vec.z + offset[2],
+    )
 
 
-def handle_client(conn, addr):
-    name = None
-    buffer = ""
-    try:
-        while True:
-            data = conn.recv(4096)
-            if not data:
-                break
-            buffer += data.decode()
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                if not line.strip():
-                    continue
-                msg = json.loads(line)
+def handle_packet(pkt: Packet) -> Packet:
+    """Decode which oneof field is set, act on it, return a reply Packet."""
+    kind = pkt.WhichOneof("body")          # 'hello', 'text', 'position', or None
 
-                if name is None:
-                    # first message from a client is its identity
-                    name = msg.get("name", str(addr))
-                    with clients_lock:
-                        clients[name] = conn
-                    print(f"[+] {name} connected from {addr}")
-                    continue
+    if kind == "position":
+        updated = translate(pkt.position)
+        print(f"<<< position ({pkt.position.x}, {pkt.position.y}, {pkt.position.z})")
+        print(f">>> position ({updated.x}, {updated.y}, {updated.z})")
+        return Packet(position=updated)
 
-                print(f"[{name}] {msg}")
-                # TODO: route incoming positional data / instructions here.
-                # e.g. if name == "turtlebot": update_turtlebot_state(msg)
-    except (ConnectionResetError, json.JSONDecodeError) as e:
-        print(f"[!] {name or addr}: {e}")
-    finally:
-        if name:
-            with clients_lock:
-                clients.pop(name, None)
-            print(f"[-] {name} disconnected")
-        conn.close()
+    if kind == "hello":
+        print(f"<<< hello from {pkt.hello.name}")
+        return Packet(text=Text(text=f"Hello {pkt.hello.name}!"))
+
+    if kind == "text":
+        print(f"<<< text: {pkt.text.text}")
+        return Packet(text=Text(text="ack"))
+
+    print("[!] empty packet (no oneof field set)")
+    return Packet(text=Text(text="error: empty packet"))
 
 
-def console_input():
-    """Type '<name>: <message>' in the server terminal to send a message
-    to a connected client — lets you test the server -> client direction
-    without any real robot in the loop."""
-    while True:
-        line = input()
-        if ":" not in line:
-            print("Format: <client_name>: <message>")
+async def handler(websocket):
+    async for message in websocket:
+        if isinstance(message, str):
+            print("[!] ignoring text frame (expected binary protobuf)")
             continue
-        name, _, text = line.partition(":")
-        send_to(name.strip(), {"text": text.strip()})
+
+        pkt = Packet()
+        pkt.ParseFromString(message)                      # decode
+
+        reply = handle_packet(pkt)
+        await websocket.send(reply.SerializeToString())   # encode + send binary
 
 
-def main():
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((HOST, PORT))
-    server.listen()
-    print(f"Server listening on {HOST}:{PORT}")
-    print("Type '<client_name>: <message>' here to send to a client.")
-
-    threading.Thread(target=console_input, daemon=True).start()
-
-    try:
-        while True:
-            conn, addr = server.accept()
-            threading.Thread(target=handle_client, args=(conn, addr), daemon=True).start()
-    except KeyboardInterrupt:
-        print("\nShutting down.")
-    finally:
-        server.close()
+async def main():
+    server = await serve(handler, "0.0.0.0", 65432)
+    print("realityapi server on ws://0.0.0.0:65432")
+    await server.serve_forever()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
