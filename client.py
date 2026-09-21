@@ -15,8 +15,5 @@ def hello():
         websocket.send(pkt.SerializeToString())
         print(f">>> {pkt.position}")
 
-        greeting = websocket.recv()
-        print(f"<<< {greeting}")
-
 if __name__ == "__main__":
     hello()
