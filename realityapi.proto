@@ -23,9 +23,3 @@ message Packet {
     Vector3 position = 3;
   }
 }
-
-enum Devices{
-  Robot,
-  Dog,
-  Arm,
-}
