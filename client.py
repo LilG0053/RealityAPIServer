@@ -12,7 +12,7 @@ def hello():
         z = float(input("Z coordinate?"))
 
         pkt = Packet()
-        pkt.body.position = Vecotr()
+        pkt.body.position = Vector()
         websocket.send(name)
         print(f">>> {name}")
 
