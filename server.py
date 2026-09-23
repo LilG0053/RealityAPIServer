@@ -120,6 +120,8 @@ async def monitor(map: Map):
     while True:
         map.check_all(TIMEOUT)
         await asyncio.sleep(MONITOR_INTERVAL)
+        reply = handle_packet(pkt)
+        await websocket.send(reply.SerializeToString())   # encode + send binary
 
 
 async def main():
