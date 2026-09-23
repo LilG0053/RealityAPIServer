@@ -41,14 +41,24 @@ def to_map_device_type(devicetype: int) -> MapDeviceType:
 
 def handle_packet(pkt: Packet) -> Packet:
     """Decode which oneof field is set, act on it, return a reply Packet."""
-    updated = translate(pkt.position)
-    print(f"<<< position ({pkt.position.x}, {pkt.position.y}, {pkt.position.z})")
-    print(f">>> position ({updated.x}, {updated.y}, {updated.z})")
+    kind = pkt.WhichOneof("body")          # 'hello', 'text', 'position', or None
 
-    print(f"Device type: {DeviceType.Name(pkt.devicetype)}")
-    print(f"ID: {pkt.id}")
+    if kind == "position":
+        updated = translate(pkt.position)
+        print(f"<<< position ({pkt.position.x}, {pkt.position.y}, {pkt.position.z})")
+        print(f">>> position ({updated.x}, {updated.y}, {updated.z})")
+        return Packet(position=updated)
 
-    return Packet(position=updated, devicetype=pkt.devicetype, id=pkt.id)
+    if kind == "hello":
+        print(f"<<< hello from {pkt.hello.name}")
+        return Packet(text=Text(text=f"Hello {pkt.hello.name}!"))
+
+    if kind == "text":
+        print(f"<<< text: {pkt.text.text}")
+        return Packet(text=Text(text="ack"))
+
+    print("[!] empty packet (no oneof field set)")
+    return Packet(text=Text(text="error: empty packet"))
 
 
 def handle_heartbeat(pkt: Packet) -> Packet:
@@ -91,6 +101,14 @@ async def handler(websocket):
             handled_packet = handle_packet(pkt)
             update_map(handled_packet)
 
+        reply = handle_packet(pkt)
+        await websocket.send(reply.SerializeToString())   # encode + send binary
+
+        pkt = Packet()
+        pkt.ParseFromString(message)                      # decode
+
+        handled_packet = handle_packet(pkt)
+        update_map(handled_packet)
         await websocket.send(handled_packet.SerializeToString())   # encode + send binary
 
 def update_map(pkt: Packet):

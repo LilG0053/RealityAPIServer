@@ -1,79 +1,164 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-from time import sleep, time
+import asyncio
+import json
+import logging
+import os
+from time import time
+from contextlib import suppress
+from typing import Any, Dict
 
-from websockets.sync.client import connect
-from realityapi_pb2 import Packet, DeviceType, Heartbeat
+import websockets
+from google.protobuf.message import DecodeError
+from websockets.exceptions import ConnectionClosed
 
-URI = "ws://10.89.53.91:65432"
-
-# Seconds between keepalives. Must be well under the server's TIMEOUT.
-HEARTBEAT_INTERVAL = 0.05
+from realityapi_pb2 import DeviceType, Heartbeat, Packet, Vector3
 
 
-def ask_float(prompt: str) -> float:
+ROSBRIDGE_URI = os.getenv("ROSBRIDGE_URI", "ws://127.0.0.1:9090")
+SERVER_URI = os.getenv("SERVER_URI", "ws://10.89.53.91:65432")
+ROS_TOPIC = os.getenv("ROS_TOPIC", "/robot/pose")
+ROS_MESSAGE_TYPE = os.getenv("ROS_MESSAGE_TYPE", "geometry_msgs/Pose")
+DEVICE_ID = os.getenv("DEVICE_ID", "robot")
+DEVICE_TYPE = os.getenv("DEVICE_TYPE", "DOG").upper()
+HEARTBEAT_INTERVAL = float(os.getenv("HEARTBEAT_INTERVAL", "1.0"))
+RECONNECT_DELAY_SECONDS = 1.5
+
+logger = logging.getLogger("client")
+
+
+def build_subscription() -> Dict[str, Any]:
+    subscription: Dict[str, Any] = {
+        "op": "subscribe",
+        "topic": ROS_TOPIC,
+        "queue_length": 1,
+        "throttle_rate": 0,
+    }
+    if ROS_MESSAGE_TYPE:
+        subscription["type"] = ROS_MESSAGE_TYPE
+    return subscription
+
+
+def _coordinate(payload: Dict[str, Any], name: str) -> float:
+    value = payload.get(name)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"pose position has an invalid {name} coordinate")
+    return float(value)
+
+
+def build_position_packet(message: Dict[str, Any]) -> Packet:
+    topic = message.get("topic")
+    payload = message.get("msg")
+    if not isinstance(topic, str) or not isinstance(payload, dict):
+        raise ValueError("rosbridge publish message has an invalid topic or payload")
+
+    position = payload.get("position")
+    if not isinstance(position, dict):
+        raise ValueError("rosbridge pose message has no position object")
+
+    try:
+        device_type = DeviceType.Value(DEVICE_TYPE)
+    except ValueError as error:
+        raise ValueError(f"unknown DEVICE_TYPE: {DEVICE_TYPE}") from error
+
+    return Packet(
+        position=Vector3(
+            x=_coordinate(position, "x"),
+            y=_coordinate(position, "y"),
+            z=_coordinate(position, "z"),
+        ),
+        devicetype=device_type,
+        id=DEVICE_ID,
+    )
+
+
+def build_heartbeat_packet() -> Packet:
+    try:
+        device_type = DeviceType.Value(DEVICE_TYPE)
+    except ValueError as error:
+        raise ValueError(f"unknown DEVICE_TYPE: {DEVICE_TYPE}") from error
+
+    return Packet(
+        heartbeat=Heartbeat(current_time=time()),
+        devicetype=device_type,
+        id=DEVICE_ID,
+    )
+
+
+async def send_heartbeats(server_socket: Any) -> None:
+    while True:
+        await server_socket.send(build_heartbeat_packet().SerializeToString())
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
+
+
+async def receive_server_replies(server_socket: Any) -> None:
+    async for raw_message in server_socket:
+        if isinstance(raw_message, str):
+            logger.warning("Ignoring text frame received from GTXR server")
+            continue
+
+        reply = Packet()
+        try:
+            reply.ParseFromString(raw_message)
+        except DecodeError:
+            logger.warning("Ignoring invalid protobuf received from GTXR server")
+            continue
+
+        logger.debug("Received server reply: %s", reply)
+
+
+async def bridge_once() -> None:
+    async with websockets.connect(ROSBRIDGE_URI) as ros_socket:
+        logger.info("Connected to rosbridge at %s", ROSBRIDGE_URI)
+        async with websockets.connect(SERVER_URI) as server_socket:
+            logger.info("Connected to GTXR server at %s", SERVER_URI)
+            await ros_socket.send(json.dumps(build_subscription()))
+            logger.info("Subscribed to ROS topic %s", ROS_TOPIC)
+
+            heartbeat_task = asyncio.create_task(send_heartbeats(server_socket))
+            reply_task = asyncio.create_task(receive_server_replies(server_socket))
+            try:
+                async for raw_message in ros_socket:
+                    try:
+                        message = json.loads(raw_message)
+                    except json.JSONDecodeError:
+                        logger.warning("Ignoring invalid JSON received from rosbridge")
+                        continue
+
+                    if message.get("op") != "publish":
+                        continue
+
+                    try:
+                        packet = build_position_packet(message)
+                    except ValueError as error:
+                        logger.warning("Ignoring malformed rosbridge message: %s", error)
+                        continue
+
+                    await server_socket.send(packet.SerializeToString())
+                    logger.debug("Forwarded %s pose for device %s", ROS_TOPIC, DEVICE_ID)
+            finally:
+                for task in (heartbeat_task, reply_task):
+                    task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await asyncio.gather(heartbeat_task, reply_task)
+
+
+async def run_forever() -> None:
     while True:
         try:
-            return float(input(prompt))
-        except ValueError:
-            print("Please enter a number.")
+            await bridge_once()
+        except (ConnectionClosed, OSError, asyncio.TimeoutError) as error:
+            logger.warning("Connection lost: %s; retrying", error)
+            await asyncio.sleep(RECONNECT_DELAY_SECONDS)
 
 
-def describe(pkt: Packet) -> str:
-    if pkt.HasField("heartbeat"):
-        return f"heartbeat at {pkt.heartbeat.current_time:.3f}, id {pkt.id}"
-
-    p = pkt.position
-    return (f"position ({p.x}, {p.y}, {p.z}), "
-            f"devicetype {DeviceType.Name(pkt.devicetype)}, id {pkt.id}")
-
-
-def exchange(websocket, pkt: Packet) -> Packet:
-    websocket.send(pkt.SerializeToString())
-    reply = Packet()
-    reply.ParseFromString(websocket.recv())
-    return reply
-
-
-def build_packet() -> Packet:
-    device_id = input("What's your id? ")
-    device_type = input("What's your device? ")
-    x = ask_float("X coordinate? ")
-    y = ask_float("Y coordinate? ")
-    z = ask_float("Z coordinate? ")
-
-    pkt = Packet()
-    pkt.id = device_id                 # use int(device_id) if id is an int field
-    pkt.devicetype = DeviceType.Value(device_type)
-    pkt.position.x = x                 # sets the 'position' branch of the oneof
-    pkt.position.y = y
-    pkt.position.z = z
-    return pkt
-
-
-def send_heartbeats(websocket, pkt: Packet):
-    """Keep telling the server this device is alive until interrupted."""
-    while True:
-        beat = Packet(
-            heartbeat=Heartbeat(current_time=time()),
-            devicetype=pkt.devicetype,
-            id=pkt.id,
-        )
-        print(f">>> {describe(beat)}")
-        reply = exchange(websocket, beat)
-        print(f"<<< {describe(reply)}")
-
-        sleep(HEARTBEAT_INTERVAL)
-
-
-def main():
-    pkt = build_packet()
-    with connect(URI) as websocket:
-        print(f">>> {describe(pkt)}")
-        reply = exchange(websocket, pkt)
-        print(f"<<< {describe(reply)}")
-
-        send_heartbeats(websocket, pkt)
+def main() -> None:
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    logger.info("Starting ROS bridge client for %s", ROS_TOPIC)
+    asyncio.run(run_forever())
 
 
 if __name__ == "__main__":

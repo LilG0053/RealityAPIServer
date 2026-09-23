@@ -41,3 +41,11 @@ class TurtleBot(Device):
     
     def update_position(self, pos: Vector3):
         self.pos = pos
+
+class RobotDog(Device):
+    def __init__(self, id: str, pos: Vector3, last_heartbeat: float):
+        super().__init__(id, DeviceType.DOG, pos, last_heartbeat)
+    
+    def update_position(self, pos: Vector3):
+        self.pos = pos
+
