@@ -3,7 +3,7 @@
 import asyncio
 
 from websockets.asyncio.server import serve
-from realityapi_pb2 import Packet, Vector3, Text
+from realityapi_pb2 import Packet, Vector3, DeviceType
 from enum import Enum
 from map.map import Map
 
@@ -29,7 +29,7 @@ def handle_packet(pkt: Packet) -> Packet:
     print(f"<<< position ({pkt.position.x}, {pkt.position.y}, {pkt.position.z})")
     print(f">>> position ({updated.x}, {updated.y}, {updated.z})")
 
-    print(f"Device type: {pkt.devicetype.name}")
+    print(f"Device type: {DeviceType.Name(pkt.devicetype)}")
     print(f"ID: {pkt.id}")
 
     return Packet(position=updated, devicetype=pkt.devicetype, id=pkt.id)

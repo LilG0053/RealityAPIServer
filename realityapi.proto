@@ -17,11 +17,11 @@ message Text {
 }
 
 enum DeviceType {
-  VR = 1;
-  AR = 2;
-  DOG = 3;
-  ARM = 4;
-  TURTLE = 5;
+  VR = 0;
+  AR = 1;
+  DOG = 2;
+  ARM = 3;
+  TURTLE = 4;
 }
 
 message Packet {
