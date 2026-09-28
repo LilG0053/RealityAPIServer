@@ -1,6 +1,6 @@
 from typing import Iterator
 from uuid import UUID
-from device import Device, DeviceType
+from map.device import Device, DeviceType
 from realityapi_pb2 import Vector3
 
 
@@ -12,14 +12,13 @@ class Map:
         self._devices[id] = Device(id=id, device_type=device_type, pos=pos)
         print(f"Added device: {self._devices.id} to dict")
 
-    def set_device_position(self, id: str, pos: Vector3) -> bool:
+    def set_device_position(self, id: str, pos: Vector3, device_type: DeviceType):
         if id in self._devices:
             device = self._devices[id]
             device.pos = pos
             print(f"Set position for device: {device.id}")
-            return True
-        print(f"Device {device.id} not found")
-        return False
+        else:
+            self.add_device(id, device_type=device_type, pos=pos)
 
     def get_device_pos(self, id: str) -> Vector3:
         if id in self._devices:
