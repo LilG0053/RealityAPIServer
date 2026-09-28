@@ -15,15 +15,11 @@ def ask_float(prompt: str) -> float:
 
 
 def describe(pkt: Packet) -> str:
-    kind = pkt.WhichOneof("body")
-    if kind == "position":
-        p = pkt.position
-        return f"position ({p.x}, {p.y}, {p.z})"
-    if kind == "text":
-        return f"text: {pkt.text.text}"
-    if kind == "hello":
-        return f"hello from {pkt.hello.name}"
-    return "empty packet"
+    p = pkt.position
+    device_type = pkt.devicetype.name
+    id = pkt.id
+
+    return f"position ({p.x}, {p.y}, {p.z}, devicetype {device_type}, id {id})"
 
 
 def exchange(websocket, pkt: Packet) -> Packet:

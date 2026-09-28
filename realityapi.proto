@@ -16,10 +16,16 @@ message Text {
   string text = 1;
 }
 
+enum DeviceType {
+  VR = 1;
+  AR = 2;
+  DOG = 3;
+  ARM = 4;
+  TURTLE = 5;
+}
+
 message Packet {
-  oneof body {
-    Hello hello = 1;
-    Text text = 2;
-    Vector3 position = 3;
-  }
+  Vector3 position = 3;
+  DeviceType devicetype = 4;
+  string id = 5;
 }

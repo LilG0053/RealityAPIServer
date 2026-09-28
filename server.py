@@ -4,10 +4,13 @@ import asyncio
 
 from websockets.asyncio.server import serve
 from realityapi_pb2 import Packet, Vector3, Text
+from enum import Enum
+from map.map import Map
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
 OFFSET = (1.0, 2.0, 3.0)
 
+map = Map()
 
 def translate(vec: Vector3, offset=OFFSET) -> Vector3:
     """Return a new Vector3 shifted by the offset."""
@@ -22,22 +25,14 @@ def handle_packet(pkt: Packet) -> Packet:
     """Decode which oneof field is set, act on it, return a reply Packet."""
     kind = pkt.WhichOneof("body")          # 'hello', 'text', 'position', or None
 
-    if kind == "position":
-        updated = translate(pkt.position)
-        print(f"<<< position ({pkt.position.x}, {pkt.position.y}, {pkt.position.z})")
-        print(f">>> position ({updated.x}, {updated.y}, {updated.z})")
-        return Packet(position=updated)
+    updated = translate(pkt.position)
+    print(f"<<< position ({pkt.position.x}, {pkt.position.y}, {pkt.position.z})")
+    print(f">>> position ({updated.x}, {updated.y}, {updated.z})")
 
-    if kind == "hello":
-        print(f"<<< hello from {pkt.hello.name}")
-        return Packet(text=Text(text=f"Hello {pkt.hello.name}!"))
+    print(f"Device type: {pkt.devicetype.name}")
+    print(f"ID: {pkt.id}")
 
-    if kind == "text":
-        print(f"<<< text: {pkt.text.text}")
-        return Packet(text=Text(text="ack"))
-
-    print("[!] empty packet (no oneof field set)")
-    return Packet(text=Text(text="error: empty packet"))
+    return Packet(position=updated, devicetype=pkt.devicetype, id=pkt.id)
 
 
 async def handler(websocket):
@@ -49,9 +44,13 @@ async def handler(websocket):
         pkt = Packet()
         pkt.ParseFromString(message)                      # decode
 
-        reply = handle_packet(pkt)
-        await websocket.send(reply.SerializeToString())   # encode + send binary
+        handled_packet = handle_packet(pkt)
+        update_map(handled_packet)
+        await websocket.send(handled_packet.SerializeToString())   # encode + send binary
 
+def update_map(pkt: Packet):
+    map.set_device_position(pkt.id, pkt.position, pkt.devicetype)
+    
 
 async def main():
     server = await serve(handler, "0.0.0.0", 65432)
