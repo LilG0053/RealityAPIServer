@@ -10,7 +10,7 @@ class Map:
 
     def add_device(self, id: str, device_type: DeviceType, pos: Vector3):
         self._devices[id] = Device(id=id, device_type=device_type, pos=pos)
-        print(f"Added device: {self._devices.id} to dict")
+        print(f"Added device: {self._devices[id]} to dict")
 
     def set_device_position(self, id: str, pos: Vector3, device_type: DeviceType):
         if id in self._devices:
