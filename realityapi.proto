@@ -16,10 +16,17 @@ message Text {
   string text = 1;
 }
 
+message Heartbeat {
+  double current_time = 1;
+  string name = 2
+}
+
 message Packet {
   oneof body {
     Hello hello = 1;
     Text text = 2;
     Vector3 position = 3;
+    Heartbeat heartbeat = 4;
+
   }
 }

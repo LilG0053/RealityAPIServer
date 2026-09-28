@@ -3,7 +3,7 @@
 import asyncio
 
 from websockets.asyncio.server import serve
-from realityapi_pb2 import Packet, Vector3, Text
+from realityapi_pb2 import Packet, Vector3, Text, Heartbeat
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
 OFFSET = (1.0, 2.0, 3.0)
@@ -36,11 +36,18 @@ def handle_packet(pkt: Packet) -> Packet:
         print(f"<<< text: {pkt.text.text}")
         return Packet(text=Text(text="ack"))
 
+    if kind == "heartbeat":
+        current_time = {pkt.heartbeat.current_time}
+        name = pkt.heartbeat.name
+        print(f"recieved heartbeat")
+        return Packet(heartbeat = Heartbeat(current_time=current_time), name=name)
+
     print("[!] empty packet (no oneof field set)")
     return Packet(text=Text(text="error: empty packet"))
 
 
 async def handler(websocket):
+    devices = {}
     async for message in websocket:
         if isinstance(message, str):
             print("[!] ignoring text frame (expected binary protobuf)")
@@ -50,12 +57,13 @@ async def handler(websocket):
         pkt.ParseFromString(message)                      # decode
 
         reply = handle_packet(pkt)
+
         await websocket.send(reply.SerializeToString())   # encode + send binary
 
 
 async def main():
-    server = await serve(handler, "0.0.0.0", 65432)
-    print("realityapi server on ws://0.0.0.0:65432")
+    server = await serve(handler, "0.0.0.0", 8765)
+    print("realityapi server on ws://0.0.0.0:8765")
     await server.serve_forever()
 
 
