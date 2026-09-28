@@ -21,9 +21,9 @@ class Map:
         print(f"Device {device.id} not found")
         return False
 
-    def get_device_(self, id: str) -> Vector3:
-        self._device 
-
-    def get_positions(self) -> dict[str, Device]:
-
-    # ... same methods as before
+    def get_device_pos(self, id: str) -> Vector3:
+        if id in self._devices:
+            return self._devices[id].pos
+        
+        print(f"Device with id {id} does not exist")
+        return Vector3(0, 0, 0)
