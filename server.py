@@ -3,8 +3,9 @@
 import asyncio
 
 from websockets.asyncio.server import serve
-from realityapi_pb2 import Packet, Vector3, DeviceType
+from realityapi_pb2 import Packet, Vector3, DeviceType, Heartbeat
 from enum import Enum
+from time import time
 from map.map import Map
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
@@ -33,6 +34,17 @@ def handle_packet(pkt: Packet) -> Packet:
     return Packet(position=updated, devicetype=pkt.devicetype, id=pkt.id)
 
 
+def handle_heartbeat(pkt: Packet) -> Packet:
+    """Acknowledge a keepalive, stamped with the server's own clock."""
+    print(f"<<< heartbeat from {pkt.id} ({DeviceType.Name(pkt.devicetype)})")
+
+    return Packet(
+        heartbeat=Heartbeat(current_time=time()),
+        devicetype=pkt.devicetype,
+        id=pkt.id,
+    )
+
+
 async def handler(websocket):
     async for message in websocket:
         if isinstance(message, str):
@@ -42,8 +54,13 @@ async def handler(websocket):
         pkt = Packet()
         pkt.ParseFromString(message)                      # decode
 
-        handled_packet = handle_packet(pkt)
-        update_map(handled_packet)
+        # A heartbeat carries no position, so it must not touch the map.
+        if pkt.HasField("heartbeat"):
+            handled_packet = handle_heartbeat(pkt)
+        else:
+            handled_packet = handle_packet(pkt)
+            update_map(handled_packet)
+
         await websocket.send(handled_packet.SerializeToString())   # encode + send binary
 
 def update_map(pkt: Packet):
