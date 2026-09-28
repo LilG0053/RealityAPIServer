@@ -12,7 +12,6 @@ class Map:
         self._devices[id] = Device(id=id, device_type=device_type, pos=pos)
         print(f"Added device: {self._devices.id} to dict")
 
-
     def set_device_position(self, id: str, pos: Vector3) -> bool:
         if id in self._devices:
             device = self._devices[id]
@@ -21,5 +20,10 @@ class Map:
             return True
         print(f"Device {device.id} not found")
         return False
+
+    def get_device_(self, id: str) -> Vector3:
+        self._device 
+
+    def get_positions(self) -> dict[str, Device]:
 
     # ... same methods as before
