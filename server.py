@@ -23,8 +23,6 @@ def translate(vec: Vector3, offset=OFFSET) -> Vector3:
 
 def handle_packet(pkt: Packet) -> Packet:
     """Decode which oneof field is set, act on it, return a reply Packet."""
-    kind = pkt.WhichOneof("body")          # 'hello', 'text', 'position', or None
-
     updated = translate(pkt.position)
     print(f"<<< position ({pkt.position.x}, {pkt.position.y}, {pkt.position.z})")
     print(f">>> position ({updated.x}, {updated.y}, {updated.z})")
