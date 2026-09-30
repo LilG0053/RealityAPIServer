@@ -158,72 +158,38 @@ const roomOutline = new THREE.LineLoop(
 );
 scene.add(roomOutline);
 
-// Helper function to create robot marker and add log entry
-function createRobotMarker(robot) {
-  const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.2, 32, 32),
-    new THREE.MeshBasicMaterial({ color: robot.color })
-  );
-  marker.position.set(robot.x, 0.3, robot.z);
-  scene.add(marker);
+// Store 3D markers by device ID
+const robotMarkers = {};
 
-  // Add log entry to dashboard
-  const logContainer = document.getElementById("log-container");
-  const logEntry = document.createElement("div");
-  logEntry.className = "log-entry";
-  const colorHex = "#" + robot.color.toString(16).padStart(6, "0");
-  logEntry.innerHTML = `
-    <span class="name" style="color: ${colorHex}">${robot.name}</span>
-    <span class="status" style="color: ${colorHex}">connected!</span>
-    <div class="coordinates">X: ${robot.x.toFixed(2)} m · Z: ${robot.z.toFixed(2)} m</div>
-  `;
-  logContainer.appendChild(logEntry);
+// Generate consistent color from string
+function stringToColor(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+  return "#" + "00000".substring(0, 6 - c.length) + c;
 }
 
-// Instantiating TurtleBot 1 Marker
-const tb1 = {
-  name: "TurtleBot 1",
-  x: 0.29,
-  z: 10.17,
-  color: 0xFF0000
-};
-createRobotMarker(tb1);
+// Helper function to create or update robot marker
+function updateRobotMarker(device) {
+  const key = `${device.id}-${device.device_type}`;
+  const color = stringToColor(device.id);
 
-// Instantiating TurtleBot 2 Marker
-const tb2 = {
-  name: "TurtleBot 2",
-  x: 0.25,
-  z: 10.68,
-  color: 0x00FF00
-};
-createRobotMarker(tb2);
-
-// Instantiating TurtleBot 3 Marker
-const tb3 = {
-  name: "TurtleBot 3",
-  x: 0.24,
-  z: 11.28,
-  color: 0x0000FF
-};
-createRobotMarker(tb3);
-
-// Instantiating TurtleBot 4 Marker
-const tb4 = {
-  name: "TurtleBot 4",
-  x: 0.25,
-  z: 11.86,
-  color: 0xFF00FF
-};
-createRobotMarker(tb4);
-
-// Instantiating Robot Arm Marker
-const robotArm = {
-  name: "Robot Arm",
-  x: 0.48,
-  z: 8.48,
-  color: 0x00FFFF
-};
-createRobotMarker(robotArm);
+  if (robotMarkers[key]) {
+    // Update existing marker position
+    robotMarkers[key].position.set(device.pos.x, 0.3, device.pos.z);
+  } else {
+    // Create new marker
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.2, 32, 32),
+      new THREE.MeshBasicMaterial({ color: parseInt(color.replace('#', '0x')) })
+    );
+    marker.position.set(device.pos.x, 0.3, device.pos.z);
+    scene.add(marker);
+    robotMarkers[key] = marker;
+  }
+}
 
 // Rendering and window behavior
 function animate() {
@@ -239,4 +205,46 @@ function resizeRenderer() {
 }
 
 window.addEventListener("resize", resizeRenderer);
+
+// Poll positions from JSON file
+let lastPositions = {};
+
+async function fetchPositions() {
+  try {
+    const response = await fetch('updated_pos.json');
+    const devices = await response.json();
+
+    devices.forEach(device => {
+      const key = `${device.id}-${device.device_type}`;
+      const newPos = { x: device.pos.x, z: device.pos.z };
+
+      // Update 3D marker
+      updateRobotMarker(device);
+
+      // Check if position changed or device is new
+      if (!lastPositions[key] ||
+        (lastPositions[key].x !== newPos.x || lastPositions[key].z !== newPos.z)) {
+        // Update log
+        const logContainer = document.getElementById("log-container");
+        const logEntry = document.createElement("div");
+        logEntry.className = "log-entry";
+        const status = lastPositions[key] ? "moved" : "connected";
+        const color = stringToColor(device.id);
+        logEntry.innerHTML = `
+          <span class="name" style="color: ${color}">${device.id}</span>
+          <span class="status" style="color: ${color}">${status}</span>
+          <div class="coordinates">X: ${device.pos.x.toFixed(2)} m · Z: ${device.pos.z.toFixed(2)} m</div>
+        `;
+        logContainer.appendChild(logEntry);
+      }
+
+      lastPositions[key] = newPos;
+    });
+  } catch (error) {
+    console.error("Error fetching positions:", error);
+  }
+}
+
+// Poll every 500ms
+setInterval(fetchPositions, 500);
 animate();
