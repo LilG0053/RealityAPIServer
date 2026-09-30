@@ -15,3 +15,4 @@ class Device:
     id : str
     device_type: DeviceType
     pos : Vector3
+    last_heartbeat: float
