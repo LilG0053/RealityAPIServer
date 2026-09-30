@@ -214,8 +214,12 @@ async function fetchPositions() {
     const response = await fetch('updated_pos.json');
     const devices = await response.json();
 
+    // Get current device keys from JSON
+    const currentKeys = new Set();
     devices.forEach(device => {
       const key = `${device.id}-${device.device_type}`;
+      currentKeys.add(key);
+
       const newPos = { x: device.pos.x, z: device.pos.z };
 
       // Update 3D marker
@@ -239,6 +243,15 @@ async function fetchPositions() {
       }
 
       lastPositions[key] = newPos;
+    });
+
+    // Remove devices that are no longer in JSON
+    Object.keys(robotMarkers).forEach(key => {
+      if (!currentKeys.has(key)) {
+        scene.remove(robotMarkers[key]);
+        delete robotMarkers[key];
+        delete lastPositions[key];
+      }
     });
   } catch (error) {
     console.error("Error fetching positions:", error);
