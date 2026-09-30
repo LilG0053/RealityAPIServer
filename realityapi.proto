@@ -18,7 +18,8 @@ message Text {
 
 message Heartbeat {
   double current_time = 1;
-  string name = 2
+  string name = 2;
+  string device_type = 3;
 }
 
 message Packet {

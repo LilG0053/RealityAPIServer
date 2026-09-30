@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10realityapi.proto\x12\nrealityapi\"*\n\x07Vector3\x12\t\n\x01x\x18\x01 \x01(\x02\x12\t\n\x01y\x18\x02 \x01(\x02\x12\t\n\x01z\x18\x03 \x01(\x02\"\x15\n\x05Hello\x12\x0c\n\x04name\x18\x01 \x01(\t\"\x14\n\x04Text\x12\x0c\n\x04text\x18\x01 \x01(\t\"\x7f\n\x06Packet\x12\"\n\x05hello\x18\x01 \x01(\x0b\x32\x11.realityapi.HelloH\x00\x12 \n\x04text\x18\x02 \x01(\x0b\x32\x10.realityapi.TextH\x00\x12\'\n\x08position\x18\x03 \x01(\x0b\x32\x13.realityapi.Vector3H\x00\x42\x06\n\x04\x62odyb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10realityapi.proto\x12\nrealityapi\"*\n\x07Vector3\x12\t\n\x01x\x18\x01 \x01(\x02\x12\t\n\x01y\x18\x02 \x01(\x02\x12\t\n\x01z\x18\x03 \x01(\x02\"\x15\n\x05Hello\x12\x0c\n\x04name\x18\x01 \x01(\t\"\x14\n\x04Text\x12\x0c\n\x04text\x18\x01 \x01(\t\"D\n\tHeartbeat\x12\x14\n\x0c\x63urrent_time\x18\x01 \x01(\x01\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x13\n\x0b\x64\x65vice_type\x18\x03 \x01(\t\"\xab\x01\n\x06Packet\x12\"\n\x05hello\x18\x01 \x01(\x0b\x32\x11.realityapi.HelloH\x00\x12 \n\x04text\x18\x02 \x01(\x0b\x32\x10.realityapi.TextH\x00\x12\'\n\x08position\x18\x03 \x01(\x0b\x32\x13.realityapi.Vector3H\x00\x12*\n\theartbeat\x18\x04 \x01(\x0b\x32\x15.realityapi.HeartbeatH\x00\x42\x06\n\x04\x62odyb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -37,6 +37,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_HELLO']._serialized_end=97
   _globals['_TEXT']._serialized_start=99
   _globals['_TEXT']._serialized_end=119
-  _globals['_PACKET']._serialized_start=121
-  _globals['_PACKET']._serialized_end=248
+  _globals['_HEARTBEAT']._serialized_start=121
+  _globals['_HEARTBEAT']._serialized_end=189
+  _globals['_PACKET']._serialized_start=192
+  _globals['_PACKET']._serialized_end=363
 # @@protoc_insertion_point(module_scope)
