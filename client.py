@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 from websockets.sync.client import connect
-from realityapi_pb2 import Packet, Vector3, Hello, Text
+from realityapi_pb2 import Packet, DeviceType
 
 URI = "ws://10.89.53.91:65432"
 
@@ -15,15 +15,9 @@ def ask_float(prompt: str) -> float:
 
 
 def describe(pkt: Packet) -> str:
-    kind = pkt.WhichOneof("body")
-    if kind == "position":
-        p = pkt.position
-        return f"position ({p.x}, {p.y}, {p.z})"
-    if kind == "text":
-        return f"text: {pkt.text.text}"
-    if kind == "hello":
-        return f"hello from {pkt.hello.name}"
-    return "empty packet"
+    p = pkt.position
+    return (f"position ({p.x}, {p.y}, {p.z}), "
+            f"devicetype {DeviceType.Name(pkt.devicetype)}, id {pkt.id}")
 
 
 def exchange(websocket, pkt: Packet) -> Packet:
@@ -33,25 +27,29 @@ def exchange(websocket, pkt: Packet) -> Packet:
     return reply
 
 
-def hello():
-    name = input("What's your name? ")
-    text = input("What's your message? ")
+def build_packet() -> Packet:
+    device_id = input("What's your id? ")
+    device_type = input("What's your device? ")
     x = ask_float("X coordinate? ")
     y = ask_float("Y coordinate? ")
     z = ask_float("Z coordinate? ")
 
-    packets = [
-        Packet(hello=Hello(name=name)),
-        Packet(text=Text(text=text)),
-        Packet(position=Vector3(x=x, y=y, z=z)),
-    ]
+    pkt = Packet()
+    pkt.id = device_id                 # use int(device_id) if id is an int field
+    pkt.devicetype = DeviceType.Value(device_type)
+    pkt.position.x = x                 # sets the 'position' branch of the oneof
+    pkt.position.y = y
+    pkt.position.z = z
+    return pkt
 
+
+def main():
+    pkt = build_packet()
     with connect(URI) as websocket:
-        for pkt in packets:
-            print(f">>> {describe(pkt)}")
-            reply = exchange(websocket, pkt)
-            print(f"<<< {describe(reply)}")
+        print(f">>> {describe(pkt)}")
+        reply = exchange(websocket, pkt)
+        print(f"<<< {describe(reply)}")
 
 
 if __name__ == "__main__":
-    hello()
+    main()
