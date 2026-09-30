@@ -9,7 +9,7 @@ body {
 body {
   overflow: hidden;
   background: #20232a;
-  font-family: Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
 }
 
 /* Application layout */
@@ -101,65 +101,48 @@ body {
   font-size: 1.6rem;
 }
 
-.robot-card {
-  padding: 1rem;
-  border: 1px solid #3a414c;
-  border-radius: 0.75rem;
-  background: #20262f;
-}
-
-.robot-card-heading {
+#log-container {
   display: flex;
+  flex-direction: column;
   gap: 0.75rem;
-  align-items: center;
 }
 
-.robot-dot {
-  width: 0.9rem;
-  height: 0.9rem;
-  border-radius: 50%;
-  background: #3b82f6;
-  box-shadow: 0 0 0 0.28rem rgb(59 130 246 / 20%);
+.log-entry {
+  padding: 1rem 1.25rem;
+  border-radius: 0.5rem;
+  background: #20262f;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  animation: fadeIn 0.3s ease-in;
 }
 
-.robot-card h2,
-.robot-card p {
-  margin: 0;
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.robot-card h2 {
-  font-size: 1rem;
+.log-entry .name {
+  font-weight: 600;
+  font-size: 0.95rem;
 }
 
-.robot-card p {
-  margin-top: 0.2rem;
-  color: #8fdbad;
-  font-size: 0.8rem;
+.log-entry .status {
+  margin-left: 0.5rem;
+  font-weight: 500;
 }
 
-.coordinates {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-  margin: 1.2rem 0 0;
-}
-
-.coordinates div {
-  padding: 0.65rem;
-  border-radius: 0.45rem;
-  background: #15191f;
-}
-
-.coordinates dt {
+.log-entry .coordinates {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
   color: #8f9baa;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
-.coordinates dd {
-  margin: 0.3rem 0 0;
-  font-variant-numeric: tabular-nums;
+  font-weight: 400;
 }
 
 /* Responsive layout */

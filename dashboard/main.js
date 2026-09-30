@@ -158,25 +158,72 @@ const roomOutline = new THREE.LineLoop(
 );
 scene.add(roomOutline);
 
-// Test robot and dashboard data
-const turtleBot = {
-  name: "Turtle Bot",
-  x: 4.2,
-  z: 6.8,
-  color: 0x3b82f6
+// Helper function to create robot marker and add log entry
+function createRobotMarker(robot) {
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 32, 32),
+    new THREE.MeshBasicMaterial({ color: robot.color })
+  );
+  marker.position.set(robot.x, 0.3, robot.z);
+  scene.add(marker);
+
+  // Add log entry to dashboard
+  const logContainer = document.getElementById("log-container");
+  const logEntry = document.createElement("div");
+  logEntry.className = "log-entry";
+  const colorHex = "#" + robot.color.toString(16).padStart(6, "0");
+  logEntry.innerHTML = `
+    <span class="name" style="color: ${colorHex}">${robot.name}</span>
+    <span class="status" style="color: ${colorHex}">connected!</span>
+    <div class="coordinates">X: ${robot.x.toFixed(2)} m · Z: ${robot.z.toFixed(2)} m</div>
+  `;
+  logContainer.appendChild(logEntry);
+}
+
+// Instantiating TurtleBot 1 Marker
+const tb1 = {
+  name: "TurtleBot 1",
+  x: 0.29,
+  z: 10.17,
+  color: 0xFF0000
 };
+createRobotMarker(tb1);
 
-const turtleBotMarker = new THREE.Mesh(
-  new THREE.CircleGeometry(0.35, 32),
-  new THREE.MeshBasicMaterial({ color: turtleBot.color })
-);
-turtleBotMarker.rotation.x = Math.PI / 2;
-turtleBotMarker.position.set(turtleBot.x, 0.04, turtleBot.z);
-scene.add(turtleBotMarker);
+// Instantiating TurtleBot 2 Marker
+const tb2 = {
+  name: "TurtleBot 2",
+  x: 0.25,
+  z: 10.68,
+  color: 0x00FF00
+};
+createRobotMarker(tb2);
 
-createMapLabel(turtleBot.name, "#dbeafe", [turtleBot.x, 0.15, turtleBot.z + 0.65], 0.75);
-document.getElementById("turtle-bot-x").textContent = `${turtleBot.x.toFixed(2)} m`;
-document.getElementById("turtle-bot-z").textContent = `${turtleBot.z.toFixed(2)} m`;
+// Instantiating TurtleBot 3 Marker
+const tb3 = {
+  name: "TurtleBot 3",
+  x: 0.24,
+  z: 11.28,
+  color: 0x0000FF
+};
+createRobotMarker(tb3);
+
+// Instantiating TurtleBot 4 Marker
+const tb4 = {
+  name: "TurtleBot 4",
+  x: 0.25,
+  z: 11.86,
+  color: 0xFF00FF
+};
+createRobotMarker(tb4);
+
+// Instantiating Robot Arm Marker
+const robotArm = {
+  name: "Robot Arm",
+  x: 0.48,
+  z: 8.48,
+  color: 0x00FFFF
+};
+createRobotMarker(robotArm);
 
 // Rendering and window behavior
 function animate() {
