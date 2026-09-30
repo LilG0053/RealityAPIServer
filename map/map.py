@@ -27,7 +27,6 @@ class Map:
 
         with open(filepath, 'w') as f:
             import json
-            import os
             json.dump(devices_data, f, indent=2)
 
     def set_device_position(self, id: str, pos: Vector3, device_type: DeviceType):
