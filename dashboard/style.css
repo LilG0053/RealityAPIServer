@@ -1,0 +1,165 @@
+/* Shared page styles */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: #20232a;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+}
+
+/* Application layout */
+.app-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(17rem, 24vw, 22rem);
+  width: 100%;
+  height: 100%;
+}
+
+/* Room visualization */
+.visualization-panel {
+  position: relative;
+  min-width: 0;
+}
+
+#scene-container,
+#scene-container canvas {
+  width: 100%;
+  height: 100%;
+}
+
+#scene-container canvas {
+  display: block;
+}
+
+/* Room-view instructions */
+.instructions {
+  position: fixed;
+  z-index: 1;
+  top: 1rem;
+  left: 1rem;
+  margin: 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.45rem;
+  background: rgb(0 0 0 / 70%);
+  color: #ffffff;
+  font-size: 0.875rem;
+  pointer-events: none;
+}
+
+/* Coordinate-axis key */
+.axis-key {
+  position: fixed;
+  z-index: 1;
+  top: 4.25rem;
+  left: 1rem;
+  margin: 0;
+  padding: 0.5rem 0.8rem;
+  border-radius: 0.45rem;
+  background: rgb(0 0 0 / 70%);
+  color: #ffffff;
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+
+.x-axis {
+  color: #ff5555;
+}
+
+.y-axis {
+  color: #65dc65;
+}
+
+.z-axis {
+  color: #6fa8ff;
+}
+
+/* Robot status dashboard */
+.dashboard {
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 2rem 1.5rem;
+  border-left: 1px solid #3a414c;
+  background: #15191f;
+  color: #f5f7fa;
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  color: #8f9baa;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.dashboard h1 {
+  margin: 0 0 1.5rem;
+  font-size: 1.6rem;
+}
+
+#log-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.log-entry {
+  padding: 1rem 1.25rem;
+  border-radius: 0.5rem;
+  background: #20262f;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.log-entry .name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.log-entry .status {
+  margin-left: 0.5rem;
+  font-weight: 500;
+}
+
+.log-entry .coordinates {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #8f9baa;
+  font-weight: 400;
+}
+
+/* Responsive layout */
+@media (max-width: 720px) {
+  body {
+    overflow: auto;
+  }
+
+  .app-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(28rem, 70vh) auto;
+    height: auto;
+    min-height: 100%;
+  }
+
+  .dashboard {
+    border-top: 1px solid #3a414c;
+    border-left: 0;
+  }
+}

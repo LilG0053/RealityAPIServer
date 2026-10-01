@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Robot Room</title>
+  <link rel="stylesheet" href="style.css" />
+
+  <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.180.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.180.0/examples/jsm/"
+        }
+      }
+    </script>
+</head>
+
+<body>
+  <main class="app-layout">
+    <section class="visualization-panel" aria-label="Room map">
+      <p class="instructions">Drag to rotate · Right-drag to pan · Scroll to zoom</p>
+      <p class="axis-key"><span class="x-axis">X</span> width · <span class="y-axis">Y</span> height · <span
+          class="z-axis">Z</span> depth</p>
+      <div id="scene-container"></div>
+    </section>
+
+    <aside class="dashboard" aria-labelledby="dashboard-title">
+      <h1 id="dashboard-title">DASHBOARD</h1>
+      <div id="log-container"></div>
+    </aside>
+  </main>
+
+  <script type="module" src="main.js"></script>
+</body>
+
+</html>
