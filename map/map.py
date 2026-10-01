@@ -12,6 +12,7 @@ class Map:
         self._devices[id] = Device(id=id, device_type=device_type, pos=pos)
         print(f"Added device: {self._devices[id]} to dict")
 
+    # function that defines what values are sent to updated_pos.json
     def export_to_json(self, filepath: str):
         devices_data = []
         for device in self._devices.values():
@@ -29,14 +30,16 @@ class Map:
             import json
             json.dump(devices_data, f, indent=2)
 
+    # function called every time new device/changing existing device position
     def set_device_position(self, id: str, pos: Vector3, device_type: DeviceType):
-        if id in self._devices:
+        if id in self._devices: # if id of robot exists, set new position
             device = self._devices[id]
             device.pos = pos
             print(f"Set position for device: {device.id}")
-        else:
+        else: # if robot id does not exist, add it as a device
             self.add_device(id, device_type=device_type, pos=pos)
 
+        # exports file to dashboard folder which updates the visual dashboard
         self.export_to_json("dashboard/updated_pos.json")
 
     def get_device_pos(self, id: str) -> Vector3:
