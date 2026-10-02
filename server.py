@@ -13,7 +13,7 @@ from map.device import DeviceType as MapDeviceType
 OFFSET = (1.0, 2.0, 3.0)
 
 # A device is dropped from the map once it has been quiet this long (seconds).
-TIMEOUT = 0.12
+TIMEOUT = 2.0
 
 # How often the monitor task sweeps the map for timed-out devices (seconds).
 MONITOR_INTERVAL = 0.04
