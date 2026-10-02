@@ -24,8 +24,15 @@ enum DeviceType {
   TURTLE = 4;
 }
 
+// Keepalive sent by a device so the server can tell when it goes away.
+// The device is identified by the Packet's own id and devicetype fields.
+message Heartbeat {
+  double current_time = 1;
+}
+
 message Packet {
   Vector3 position = 3;
   DeviceType devicetype = 4;
   string id = 5;
+  Heartbeat heartbeat = 6;
 }
