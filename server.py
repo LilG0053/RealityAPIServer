@@ -6,11 +6,13 @@ from websockets.asyncio.server import serve
 from realityapi_pb2 import Packet, Vector3, DeviceType
 from enum import Enum
 from map.map import Map
+from map.device import DeviceType as MapDeviceType
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
 OFFSET = (1.0, 2.0, 3.0)
 
 map = Map()
+map.load_from_json("dashboard/updated_pos.json")
 
 def translate(vec: Vector3, offset=OFFSET) -> Vector3:
     """Return a new Vector3 shifted by the offset."""
@@ -47,7 +49,16 @@ async def handler(websocket):
         await websocket.send(handled_packet.SerializeToString())   # encode + send binary
 
 def update_map(pkt: Packet):
-    map.set_device_position(pkt.id, pkt.position, pkt.devicetype)
+    # Convert protobuf DeviceType integer to MapDeviceType enum
+    device_type_map = {
+        0: MapDeviceType.VR,
+        1: MapDeviceType.AR,
+        2: MapDeviceType.DOG,
+        3: MapDeviceType.ARM,
+        4: MapDeviceType.TURTLE,
+    }
+    map_device_type = device_type_map.get(pkt.devicetype, MapDeviceType.TURTLE)
+    map.set_device_position(pkt.id, pkt.position, map_device_type)
     
 
 async def main():
