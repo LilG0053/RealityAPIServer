@@ -36,6 +36,7 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(-3, 15, 10);
 camera.lookAt(0, 0, 0);
 
+// Mirror the full scene so positive sensor Z values match the physical room layout.
 scene.scale.z = -1;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -260,6 +261,6 @@ async function fetchPositions() {
   }
 }
 
-// Poll every 500ms
+// Poll latest exported device snapshot from updated_pos.json every 0.5s
 setInterval(fetchPositions, 500);
 animate();
