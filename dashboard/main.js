@@ -230,7 +230,7 @@ async function fetchPositions() {
 
       // Check if position changed or device is new
       if (!lastPositions[key] ||
-        (lastPositions[key].x !== newPos.x || lastPositions[key].z !== newPos.z)) {
+        (Math.abs(lastPositions[key].x - newPos.x) > 0.01 || Math.abs(lastPositions[key].z - newPos.z) > 0.01)) {
         // Update log
         const logContainer = document.getElementById("log-container");
         const logEntry = document.createElement("div");
@@ -243,6 +243,9 @@ async function fetchPositions() {
           <div class="coordinates">X: ${device.pos.x.toFixed(2)} m · Z: ${device.pos.z.toFixed(2)} m</div>
         `;
         logContainer.appendChild(logEntry);
+        // Auto-scroll to bottom (scroll the dashboard parent)
+        const dashboard = document.querySelector('.dashboard');
+        dashboard.scrollTop = dashboard.scrollHeight;
       }
 
       lastPositions[key] = newPos;

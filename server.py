@@ -19,6 +19,7 @@ TIMEOUT = 2.0
 MONITOR_INTERVAL = 0.04
 
 map = Map()
+map.load_from_json("dashboard/updated_pos.json")
 
 def translate(vec: Vector3, offset=OFFSET) -> Vector3:
     """Return a new Vector3 shifted by the offset."""
