@@ -215,7 +215,7 @@ let lastPositions = {};
 
 async function fetchPositions() {
   try {
-    const response = await fetch('updated_pos.json');
+    const response = await fetch(`updated_pos.json?t=${Date.now()}`);
     const devices = await response.json();
     console.log('Fetched devices:', devices.length, devices);
 
@@ -231,12 +231,12 @@ async function fetchPositions() {
       updateRobotMarker(device);
 
       // Check if position changed or device is new
+      console.log('Device:', device.id, 'lastPos:', lastPositions[key], 'newPos:', newPos);
       if (!lastPositions[key] ||
         (Math.abs(lastPositions[key].x - newPos.x) > 0.01 || Math.abs(lastPositions[key].z - newPos.z) > 0.01)) {
-        console.log('Logging device:', device.id, 'status:', lastPositions[key] ? 'moved' : 'connected');
+        console.log('Updating device:', device.id);
         // Update log
         const logContainer = document.getElementById("log-container");
-        console.log('logContainer:', logContainer);
         const logEntry = document.createElement("div");
         logEntry.className = "log-entry";
         const status = lastPositions[key] ? "moved" : "connected";
