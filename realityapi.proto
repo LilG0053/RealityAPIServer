@@ -31,8 +31,13 @@ message Heartbeat {
 }
 
 message Packet {
-  Vector3 position = 3;
+  oneof body {
+    Hello hello = 1;
+    Text text = 2;
+    Vector3 position = 3;
+    Heartbeat heartbeat = 6;
+  }
+
   DeviceType devicetype = 4;
   string id = 5;
-  Heartbeat heartbeat = 6;
 }
