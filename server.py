@@ -10,7 +10,7 @@ from map.map import Map
 from map.device import DeviceType as MapDeviceType
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
-OFFSET = (1.0, 2.0, 3.0)
+OFFSET = (0.1, 0.1, 2.0)
 
 # A device is dropped from the map once it has been quiet this long (seconds).
 TIMEOUT = 2.0
