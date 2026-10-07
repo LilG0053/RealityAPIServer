@@ -209,12 +209,158 @@ function resizeRenderer() {
 
 window.addEventListener("resize", resizeRenderer);
 
-// Poll positions from JSON file
+// A device keeps one dashboard card with movement added beneath it
+const deviceActivityPanels = {};
+const ACTIVITY_HISTORY_STORAGE_KEY = "robot-room-device-activity";
+const MAX_ACTIVITY_EVENTS_PER_DEVICE = 40;
+let nextActivityListId = 0;
 
-// Position history across preview reloads
+function loadDeviceActivityHistory() {
+  try {
+    const savedHistory = sessionStorage.getItem(ACTIVITY_HISTORY_STORAGE_KEY);
+    const parsedHistory = savedHistory ? JSON.parse(savedHistory) : {};
+
+    return parsedHistory && typeof parsedHistory === "object" && !Array.isArray(parsedHistory)
+      ? parsedHistory
+      : {};
+  } catch (error) {
+    console.warn("Could not restore robot activity history:", error);
+    return {};
+  }
+}
+
+function saveDeviceActivityHistory() {
+  sessionStorage.setItem(ACTIVITY_HISTORY_STORAGE_KEY, JSON.stringify(deviceActivityHistory));
+}
+
+let deviceActivityHistory = loadDeviceActivityHistory();
+
+function formatCoordinates(position) {
+  return `X ${position.x.toFixed(2)} m · Z ${position.z.toFixed(2)} m`;
+}
+
+function createDeviceActivityPanel(device, key) {
+  const logContainer = document.getElementById("log-container");
+  const panel = document.createElement("section");
+  const header = document.createElement("header");
+  const name = document.createElement("h2");
+  const headerActions = document.createElement("div");
+  const status = document.createElement("span");
+  const toggle = document.createElement("button");
+  const toggleIcon = document.createElement("span");
+  const latestPosition = document.createElement("p");
+  const activityList = document.createElement("ul");
+  const color = stringToColor(device.id);
+
+  panel.className = "device-activity";
+  panel.dataset.deviceKey = key;
+  header.className = "device-activity__header";
+  name.className = "device-activity__name";
+  name.textContent = device.id;
+  name.style.setProperty("--device-color", color);
+  headerActions.className = "device-activity__actions";
+  status.className = "device-activity__status";
+  toggle.className = "device-activity__toggle";
+  toggle.type = "button";
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.setAttribute("aria-label", `Show movement history for ${device.id}`);
+  toggleIcon.className = "device-activity__toggle-icon";
+  toggleIcon.setAttribute("aria-hidden", "true");
+  toggleIcon.textContent = "⌄";
+  latestPosition.className = "device-activity__position";
+  activityList.className = "device-activity__events";
+  activityList.id = `device-activity-events-${nextActivityListId}`;
+  nextActivityListId += 1;
+  activityList.setAttribute("aria-live", "polite");
+  activityList.setAttribute("aria-hidden", "true");
+  toggle.setAttribute("aria-controls", activityList.id);
+
+  toggle.appendChild(toggleIcon);
+  headerActions.append(status, toggle);
+  header.append(name, headerActions);
+  panel.append(header, latestPosition, activityList);
+  logContainer.appendChild(panel);
+
+  for (const event of deviceActivityHistory[key] || []) {
+    renderDeviceActivity(activityList, event);
+  }
+
+  toggle.addEventListener("click", () => {
+    const isOpen = panel.classList.contains("is-history-open");
+    setDeviceActivityHistoryOpen({ panel, toggle, activityList }, !isOpen, device.id);
+  });
+
+  return { panel, status, toggle, latestPosition, activityList };
+}
+
+function getDeviceActivityPanel(device, key) {
+  if (deviceActivityPanels[key]) {
+    return { activityPanel: deviceActivityPanels[key], isNew: false };
+  }
+
+  const activityPanel = createDeviceActivityPanel(device, key);
+  deviceActivityPanels[key] = activityPanel;
+  return { activityPanel, isNew: true };
+}
+
+function setDevicePanelStatus(activityPanel, status) {
+  const isOnline = status === "live";
+
+  activityPanel.panel.classList.toggle("is-offline", !isOnline);
+  activityPanel.status.textContent = isOnline ? "LIVE" : "OFFLINE";
+  activityPanel.status.classList.toggle("is-offline", !isOnline);
+}
+
+function setDeviceActivityHistoryOpen(activityPanel, isOpen, deviceId) {
+  activityPanel.panel.classList.toggle("is-history-open", isOpen);
+  activityPanel.toggle.setAttribute("aria-expanded", String(isOpen));
+  activityPanel.toggle.setAttribute(
+    "aria-label",
+    `${isOpen ? "Hide" : "Show"} movement history for ${deviceId}`
+  );
+  activityPanel.activityList.setAttribute("aria-hidden", String(!isOpen));
+
+  if (isOpen) {
+    activityPanel.activityList.scrollTop = activityPanel.activityList.scrollHeight;
+  }
+}
+
+function renderDeviceActivity(activityList, event) {
+  const eventElement = document.createElement("li");
+  const eventLabel = document.createElement("span");
+  const eventDetail = document.createElement("span");
+
+  eventElement.className = `device-activity__event device-activity__event--${event.eventType}`;
+  eventLabel.className = "device-activity__event-label";
+  eventDetail.className = "device-activity__event-detail";
+  eventLabel.textContent = event.label;
+  eventDetail.textContent = event.detail;
+  eventElement.append(eventLabel, eventDetail);
+  activityList.insertBefore(eventElement, activityList.firstElementChild);
+}
+
+function addDeviceActivity(activityPanel, key, label, detail, eventType) {
+  const event = { label, detail, eventType };
+  const activityHistory = deviceActivityHistory[key] || [];
+
+  activityHistory.push(event);
+  if (activityHistory.length > MAX_ACTIVITY_EVENTS_PER_DEVICE) {
+    activityHistory.shift();
+    activityPanel.activityList.firstElementChild?.remove();
+  }
+
+  deviceActivityHistory[key] = activityHistory;
+  saveDeviceActivityHistory();
+  renderDeviceActivity(activityPanel.activityList, event);
+
+  if (activityPanel.panel.classList.contains("is-history-open")) {
+    activityPanel.activityList.scrollTop = activityPanel.activityList.scrollHeight;
+  }
+}
+
+// Browser position history
 // The marker should disappear when a device goes offline, but its last known
 // location must survive a brief missing JSON snapshot or Live Server reload.
-// Otherwise the same device is incorrectly logged as newly connected again.
 const POSITION_HISTORY_STORAGE_KEY = "robot-room-last-positions";
 
 function loadLastPositions() {
@@ -248,30 +394,35 @@ async function fetchPositions() {
       currentKeys.add(key);
 
       const newPos = { x: device.pos.x, z: device.pos.z };
+      const previousPos = lastPositions[key];
+      const positionChanged = previousPos && (
+        Math.abs(previousPos.x - newPos.x) > 0.01 ||
+        Math.abs(previousPos.z - newPos.z) > 0.01
+      );
+      const { activityPanel, isNew } = getDeviceActivityPanel(device, key);
+
+      setDevicePanelStatus(activityPanel, "live");
+      activityPanel.latestPosition.textContent = `Latest: ${formatCoordinates(newPos)}`;
 
       // Update 3D marker
       updateRobotMarker(device);
 
-      // Check if position changed or device is new
-      console.log('Device:', device.id, 'lastPos:', lastPositions[key], 'newPos:', newPos);
-      if (!lastPositions[key] ||
-        (Math.abs(lastPositions[key].x - newPos.x) > 0.01 || Math.abs(lastPositions[key].z - newPos.z) > 0.01)) {
-        console.log('Updating device:', device.id);
-        // Update log
-        const logContainer = document.getElementById("log-container");
-        const logEntry = document.createElement("div");
-        logEntry.className = "log-entry";
-        const status = lastPositions[key] ? "moved" : "connected";
-        const color = stringToColor(device.id);
-        logEntry.innerHTML = `
-          <span class="name" style="color: ${color}">${device.id}</span>
-          <span class="status" style="color: ${color}">${status}</span>
-          <div class="coordinates">X: ${device.pos.x.toFixed(2)} m · Z: ${device.pos.z.toFixed(2)} m</div>
-        `;
-        logContainer.appendChild(logEntry);
-        // Auto-scroll to bottom (scroll the dashboard parent)
-        const dashboard = document.querySelector('.dashboard');
+      if (!previousPos) {
+        addDeviceActivity(activityPanel, key, "Connected", formatCoordinates(newPos), "connected");
+      } else if (positionChanged) {
+        addDeviceActivity(
+          activityPanel,
+          key,
+          "Previous",
+          `${formatCoordinates(previousPos)}}`,
+          "moved"
+        );
+
+        const dashboard = document.querySelector(".dashboard");
         dashboard.scrollTop = dashboard.scrollHeight;
+      } else if (isNew && !deviceActivityHistory[key]?.length) {
+        // origin point when device is first added
+        addDeviceActivity(activityPanel, key, "Origin", formatCoordinates(newPos), "connected");
       }
 
       lastPositions[key] = newPos;
@@ -283,6 +434,10 @@ async function fetchPositions() {
       if (!currentKeys.has(key)) {
         scene.remove(robotMarkers[key]);
         delete robotMarkers[key];
+
+        if (deviceActivityPanels[key]) {
+          setDevicePanelStatus(deviceActivityPanels[key], "offline");
+        }
       }
     });
   } catch (error) {

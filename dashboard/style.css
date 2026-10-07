@@ -97,52 +97,178 @@ body {
 }
 
 .dashboard h1 {
-  margin: 0 0 1.5rem;
-  font-size: 1.6rem;
+  margin: 0 0 1.35rem;
+  font-size: 1.35rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
 }
 
+/* Device activity cards */
 #log-container {
   display: flex;
   flex-direction: column;
+  gap: 1rem;
+}
+
+.device-activity {
+  overflow: hidden;
+  border: 1px solid #323b48;
+  border-radius: 0.7rem;
+  background: #1c222b;
+  box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 12%);
+}
+
+.device-activity.is-offline {
+  opacity: 0.65;
+}
+
+.device-activity__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
+  padding: 0.9rem 1rem 0.45rem;
 }
 
-.log-entry {
-  padding: 1rem 1.25rem;
-  border-radius: 0.5rem;
-  background: #20262f;
-  font-size: 0.9rem;
-  line-height: 1.5;
-  animation: fadeIn 0.3s ease-in;
+.device-activity__name {
+  margin: 0;
+  color: var(--device-color);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
-@keyframes fadeIn {
+.device-activity__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.device-activity__status {
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  color: #94e493;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.device-activity__status.is-offline {
+  background: rgb(143 155 170 / 16%);
+  color: #a9b3c0;
+}
+
+.device-activity__toggle {
+  display: grid;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 1px solid #3d4756;
+  border-radius: 0.4rem;
+  place-items: center;
+  background: #252d38;
+  color: #c5cfdd;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.device-activity__toggle:hover {
+  border-color: #6e8199;
+  background: #303b49;
+  color: #ffffff;
+}
+
+.device-activity__toggle:focus-visible {
+  outline: 2px solid #82aaff;
+  outline-offset: 2px;
+}
+
+.device-activity__toggle-icon {
+  display: block;
+  font-size: 1rem;
+  line-height: 1;
+  transform: translateY(-0.1rem);
+  transition: transform 0.18s ease;
+}
+
+.device-activity.is-history-open .device-activity__toggle-icon {
+  transform: translateY(0.05rem) rotate(180deg);
+}
+
+.device-activity__position {
+  margin: 0;
+  padding: 0 1rem 0.9rem;
+  color: #b8c3d1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.device-activity__events {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  max-height: 0;
+  margin: 0;
+  padding: 0 0.45rem;
+  overflow: hidden;
+  border-top: 1px solid transparent;
+  list-style: none;
+  opacity: 0;
+  transition: max-height 0.22s ease, padding 0.22s ease, border-color 0.22s ease, opacity 0.16s ease;
+}
+
+.device-activity.is-history-open .device-activity__events {
+  max-height: 9.35rem;
+  padding: 0.45rem;
+  overflow-y: auto;
+  border-top-color: #323b48;
+  opacity: 1;
+  scrollbar-color: #536174 transparent;
+}
+
+.device-activity__event {
+  display: grid;
+  grid-template-columns: 4.8rem minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.55rem 0.6rem;
+  border-radius: 0.4rem;
+  color: #b8c3d1;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  animation: activity-entry 0.2s ease-out;
+}
+
+.device-activity__event--moved {
+  background: rgb(116 168 255 / 9%);
+}
+
+.device-activity__event-label {
+  color: #dce5f1;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+.device-activity__event-detail {
+  color: #94a3b6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes activity-entry {
   from {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(-0.25rem);
   }
 
   to {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-.log-entry .name {
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.log-entry .status {
-  margin-left: 0.5rem;
-  font-weight: 500;
-}
-
-.log-entry .coordinates {
-  margin-top: 0.5rem;
-  font-size: 0.85rem;
-  color: #8f9baa;
-  font-weight: 400;
 }
 
 /* Responsive layout */
