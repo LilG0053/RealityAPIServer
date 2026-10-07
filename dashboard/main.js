@@ -1,4 +1,3 @@
-console.log('main.js loaded');
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
@@ -217,7 +216,6 @@ async function fetchPositions() {
   try {
     const response = await fetch(`updated_pos.json?t=${Date.now()}`);
     const devices = await response.json();
-    console.log('Fetched devices:', devices.length, devices);
 
     // Get current device keys from JSON
     const currentKeys = new Set();
