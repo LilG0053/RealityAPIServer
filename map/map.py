@@ -32,9 +32,9 @@ class Map:
                 "id": device.id,
                 "device_type": device.device_type.name,
                 "pos": {
-                    "x": device.pos.x,
-                    "y": device.pos.y,
-                    "z": device.pos.z
+                    "x": round(device.pos.x, 2),
+                    "y": round(device.pos.y, 2),
+                    "z": round(device.pos.z, 2)
                 }
             })
 
@@ -42,7 +42,30 @@ class Map:
             import json
             json.dump(devices_data, f, indent=2)
 
-    # function called every time new device/changing existing device position
+    def load_from_json(self, filepath: str):
+        import json
+        try:
+            with open(filepath, 'r') as f:
+                devices_data = json.load(f)
+            
+            for device_data in devices_data:
+                device_type = DeviceType[device_data["device_type"]]
+                pos = Vector3(
+                    x=device_data["pos"]["x"],
+                    y=device_data["pos"]["y"],
+                    z=device_data["pos"]["z"]
+                )
+                self._devices[device_data["id"]] = Device(
+                    id=device_data["id"],
+                    device_type=device_type,
+                    pos=pos
+                )
+            print(f"Loaded {len(devices_data)} devices from {filepath}")
+        except FileNotFoundError:
+            print(f"No existing JSON file at {filepath}, starting with empty map")
+        except Exception as e:
+            print(f"Error loading from JSON: {e}")
+
     def set_device_position(self, id: str, pos: Vector3, device_type: DeviceType):
         if id in self._devices: # if id of robot exists, set new position
             device = self._devices[id]
