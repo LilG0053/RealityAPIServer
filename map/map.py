@@ -55,11 +55,7 @@ class Map:
                     y=device_data["pos"]["y"],
                     z=device_data["pos"]["z"]
                 )
-                self._devices[device_data["id"]] = Device(
-                    id=device_data["id"],
-                    device_type=device_type,
-                    pos=pos
-                )
+                self.add_device(device_data["id"], device_type, pos)
             print(f"Loaded {len(devices_data)} devices from {filepath}")
         except FileNotFoundError:
             print(f"No existing JSON file at {filepath}, starting with empty map")
