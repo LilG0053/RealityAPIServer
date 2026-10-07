@@ -210,13 +210,37 @@ function resizeRenderer() {
 window.addEventListener("resize", resizeRenderer);
 
 // Poll positions from JSON file
-let lastPositions = {};
+
+// Position history across preview reloads
+// The marker should disappear when a device goes offline, but its last known
+// location must survive a brief missing JSON snapshot or Live Server reload.
+// Otherwise the same device is incorrectly logged as newly connected again.
+const POSITION_HISTORY_STORAGE_KEY = "robot-room-last-positions";
+
+function loadLastPositions() {
+  try {
+    const savedPositions = sessionStorage.getItem(POSITION_HISTORY_STORAGE_KEY);
+    const parsedPositions = savedPositions ? JSON.parse(savedPositions) : {};
+
+    return parsedPositions && typeof parsedPositions === "object" && !Array.isArray(parsedPositions)
+      ? parsedPositions
+      : {};
+  } catch (error) {
+    console.warn("Could not restore robot position history:", error);
+    return {};
+  }
+}
+
+function saveLastPositions() {
+  sessionStorage.setItem(POSITION_HISTORY_STORAGE_KEY, JSON.stringify(lastPositions));
+}
+
+let lastPositions = loadLastPositions();
 
 async function fetchPositions() {
   try {
     const response = await fetch(`updated_pos.json?t=${Date.now()}`);
     const devices = await response.json();
-
     // Get current device keys from JSON
     const currentKeys = new Set();
     devices.forEach(device => {
@@ -251,6 +275,7 @@ async function fetchPositions() {
       }
 
       lastPositions[key] = newPos;
+      saveLastPositions();
     });
 
     // Remove devices that are no longer in JSON
@@ -258,7 +283,6 @@ async function fetchPositions() {
       if (!currentKeys.has(key)) {
         scene.remove(robotMarkers[key]);
         delete robotMarkers[key];
-        delete lastPositions[key];
       }
     });
   } catch (error) {

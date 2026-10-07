@@ -161,7 +161,6 @@ body {
   .dashboard {
     border-top: 1px solid #3a414c;
     border-left: 0;
-
     overflow-y: auto;
   }
 }
