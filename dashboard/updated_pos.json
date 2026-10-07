@@ -1,47 +1,11 @@
 [
-    {
-        "id": "turtlebot1",
-        "device_type": "TURTLE",
-        "pos": {
-            "x": 0.23,
-            "y": 0.0,
-            "z": 10.17
-        }
-    },
-    {
-        "id": "turtlebot2",
-        "device_type": "TURTLE",
-        "pos": {
-            "x": 0.25,
-            "y": 0.0,
-            "z": 10.68
-        }
-    },
-    {
-        "id": "turtlebot3",
-        "device_type": "TURTLE",
-        "pos": {
-            "x": 0.24,
-            "y": 0.0,
-            "z": 11.28
-        }
-    },
-    {
-        "id": "turtlebot4",
-        "device_type": "TURTLE",
-        "pos": {
-            "x": 0.25,
-            "y": 0.0,
-            "z": 11.86
-        }
-    },
-    {
-        "id": "robotArm",
-        "device_type": "ARM",
-        "pos": {
-            "x": 0.48,
-            "y": 0.0,
-            "z": 8.48
-        }
+  {
+    "id": "turtlebot1",
+    "device_type": "TURTLE",
+    "pos": {
+      "x": 2.5432467460632324,
+      "y": 0.2802819013595581,
+      "z": 2.998793363571167
     }
+  }
 ]
