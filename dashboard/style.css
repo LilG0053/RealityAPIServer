@@ -156,10 +156,13 @@ body {
     grid-template-rows: minmax(28rem, 70vh) auto;
     height: auto;
     min-height: 100%;
+    .
   }
 
   .dashboard {
     border-top: 1px solid #3a414c;
     border-left: 0;
+
+    overflow-y: auto;
   }
 }

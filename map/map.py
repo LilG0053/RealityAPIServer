@@ -20,9 +20,9 @@ class Map:
                 "id": device.id,
                 "device_type": device.device_type.name,
                 "pos": {
-                    "x": device.pos.x,
-                    "y": device.pos.y,
-                    "z": device.pos.z
+                    "x": round(device.pos.x, 2),
+                    "y": round(device.pos.y, 2),
+                    "z": round(device.pos.z, 2)
                 }
             })
 

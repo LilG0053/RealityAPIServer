@@ -1,3 +1,4 @@
+console.log('main.js loaded');
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
@@ -216,6 +217,7 @@ async function fetchPositions() {
   try {
     const response = await fetch('updated_pos.json');
     const devices = await response.json();
+    console.log('Fetched devices:', devices.length, devices);
 
     // Get current device keys from JSON
     const currentKeys = new Set();
@@ -230,9 +232,11 @@ async function fetchPositions() {
 
       // Check if position changed or device is new
       if (!lastPositions[key] ||
-        (lastPositions[key].x !== newPos.x || lastPositions[key].z !== newPos.z)) {
+        (Math.abs(lastPositions[key].x - newPos.x) > 0.01 || Math.abs(lastPositions[key].z - newPos.z) > 0.01)) {
+        console.log('Logging device:', device.id, 'status:', lastPositions[key] ? 'moved' : 'connected');
         // Update log
         const logContainer = document.getElementById("log-container");
+        console.log('logContainer:', logContainer);
         const logEntry = document.createElement("div");
         logEntry.className = "log-entry";
         const status = lastPositions[key] ? "moved" : "connected";
@@ -243,6 +247,9 @@ async function fetchPositions() {
           <div class="coordinates">X: ${device.pos.x.toFixed(2)} m · Z: ${device.pos.z.toFixed(2)} m</div>
         `;
         logContainer.appendChild(logEntry);
+        // Auto-scroll to bottom (scroll the dashboard parent)
+        const dashboard = document.querySelector('.dashboard');
+        dashboard.scrollTop = dashboard.scrollHeight;
       }
 
       lastPositions[key] = newPos;
