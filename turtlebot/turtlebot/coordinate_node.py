@@ -10,7 +10,7 @@ from websockets.sync.client import connect
 from init_turtlebot import create_turtlebot
 from realityapi_pb2 import Packet, Vector3
 
-SERVER_URI = "ws://127.0.0.1:65432"
+SERVER_URI = "ws://10.89.51.240:65432"
 
 # The server drops a device after 2 seconds of silence.
 HEARTBEAT_INTERVAL = 1.0
@@ -33,7 +33,7 @@ class CoordinateNode(Node):
 
     def position_update_callback(self, data: Odometry):
         position = data.pose.pose.position
-        new_pos = Vector3(x=position.x, y=position.y, z=position.z)
+        new_pos = Vector3(x=position.x, y=position.z, z=position.y)
         if (new_pos.x == self.robot.pos.x
                 and new_pos.y == self.robot.pos.y
                 and new_pos.z == self.robot.pos.z):
