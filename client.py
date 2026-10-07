@@ -1,91 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
-import asyncio
-import json
-import logging
-import os
-from time import time
-from contextlib import suppress
-from typing import Any, Dict
+from websockets.sync.client import connect
+from realityapi_pb2 import Packet, DeviceType
 
-import websockets
-from google.protobuf.message import DecodeError
-from websockets.exceptions import ConnectionClosed
-
-from realityapi_pb2 import DeviceType, Heartbeat, Packet, Vector3
+URI = "ws://10.89.53.91:65432"
 
 
-ROSBRIDGE_URI = os.getenv("ROSBRIDGE_URI", "ws://127.0.0.1:9090")
-SERVER_URI = os.getenv("SERVER_URI", "ws://10.89.53.91:65432")
-ROS_TOPIC = os.getenv("ROS_TOPIC", "/robot/pose")
-ROS_MESSAGE_TYPE = os.getenv("ROS_MESSAGE_TYPE", "geometry_msgs/Pose")
-DEVICE_ID = os.getenv("DEVICE_ID", "robot")
-DEVICE_TYPE = os.getenv("DEVICE_TYPE", "DOG").upper()
-HEARTBEAT_INTERVAL = float(os.getenv("HEARTBEAT_INTERVAL", "1.0"))
-RECONNECT_DELAY_SECONDS = 1.5
-
-logger = logging.getLogger("client")
-
-
-def build_subscription() -> Dict[str, Any]:
-    subscription: Dict[str, Any] = {
-        "op": "subscribe",
-        "topic": ROS_TOPIC,
-        "queue_length": 1,
-        "throttle_rate": 0,
-    }
-    if ROS_MESSAGE_TYPE:
-        subscription["type"] = ROS_MESSAGE_TYPE
-    return subscription
-
-
-def _coordinate(payload: Dict[str, Any], name: str) -> float:
-    value = payload.get(name)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"pose position has an invalid {name} coordinate")
-    return float(value)
-
-
-def build_position_packet(message: Dict[str, Any]) -> Packet:
-    topic = message.get("topic")
-    payload = message.get("msg")
-    if not isinstance(topic, str) or not isinstance(payload, dict):
-        raise ValueError("rosbridge publish message has an invalid topic or payload")
-
-    position = payload.get("position")
-    if not isinstance(position, dict):
-        raise ValueError("rosbridge pose message has no position object")
-
-    try:
-        device_type = DeviceType.Value(DEVICE_TYPE)
-    except ValueError as error:
-        raise ValueError(f"unknown DEVICE_TYPE: {DEVICE_TYPE}") from error
-
-    return Packet(
-        position=Vector3(
-            x=_coordinate(position, "x"),
-            y=_coordinate(position, "y"),
-            z=_coordinate(position, "z"),
-        ),
-        devicetype=device_type,
-        id=DEVICE_ID,
-    )
-
-
-def build_heartbeat_packet() -> Packet:
-    try:
-        device_type = DeviceType.Value(DEVICE_TYPE)
-    except ValueError as error:
-        raise ValueError(f"unknown DEVICE_TYPE: {DEVICE_TYPE}") from error
-
-    return Packet(
-        heartbeat=Heartbeat(current_time=time()),
-        devicetype=device_type,
-        id=DEVICE_ID,
-    )
-
-
-async def send_heartbeats(server_socket: Any) -> None:
+def ask_float(prompt: str) -> float:
     while True:
         await server_socket.send(build_heartbeat_packet().SerializeToString())
         await asyncio.sleep(HEARTBEAT_INTERVAL)
@@ -162,4 +83,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    hello()
+    main()
