@@ -5,7 +5,8 @@ from time import sleep, time
 from websockets.sync.client import connect
 from realityapi_pb2 import Packet, DeviceType, Heartbeat
 
-URI = "ws://10.89.53.91:65432"
+URI = "ws://localhost:65432"
+#"ws://10.89.53.91:65432"
 
 # Seconds between keepalives. Must be well under the server's TIMEOUT.
 HEARTBEAT_INTERVAL = 0.05
@@ -39,14 +40,13 @@ def build_packet() -> Packet:
     device_id = input("What's your id? ")
     device_type = input("What's your device? ")
     x = ask_float("X coordinate? ")
-    y = ask_float("Y coordinate? ")
     z = ask_float("Z coordinate? ")
 
     pkt = Packet()
     pkt.id = device_id                 # use int(device_id) if id is an int field
     pkt.devicetype = DeviceType.Value(device_type)
     pkt.position.x = x                 # sets the 'position' branch of the oneof
-    pkt.position.y = y
+    pkt.position.y = 0
     pkt.position.z = z
     return pkt
 
