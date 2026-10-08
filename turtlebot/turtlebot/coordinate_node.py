@@ -10,7 +10,7 @@ from websockets.sync.client import connect
 from init_turtlebot import create_turtlebot
 from realityapi_pb2 import Packet, Vector3
 
-SERVER_URI = "ws://10.89.51.240:65432"
+SERVER_URI = "ws://10.89.40.182:65432"
 
 # The server drops a device after 2 seconds of silence.
 HEARTBEAT_INTERVAL = 1.0
