@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
+// === Dashboard DOM and room measurements ===
+
 const sceneContainer = document.getElementById("scene-container");
 
 // Room measurements
@@ -20,7 +22,8 @@ const roomCorners = [
   { x: 9.07, z: 0 }
 ];
 
-// Scene, camera, and renderer
+// === Three.js scene setup ===
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x20232a);
 
@@ -44,7 +47,8 @@ renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(sceneContainer.clientWidth, sceneContainer.clientHeight);
 sceneContainer.appendChild(renderer.domElement);
 
-// Camera controls
+// === Camera controls and lighting ===
+
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0, 0);
 controls.enableDamping = true;
@@ -68,7 +72,8 @@ const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
 directionalLight.position.set(5, 10, 5);
 scene.add(directionalLight);
 
-// Room floor
+// === Room geometry ===
+
 // ShapeGeometry fills the exact L-shaped outline from roomCorners.
 const floorShape = new THREE.Shape();
 floorShape.moveTo(roomCorners[0].x, roomCorners[0].z);
@@ -161,7 +166,9 @@ const roomOutline = new THREE.LineLoop(
 );
 scene.add(roomOutline);
 
-// Store 3D markers by device ID
+// === Robot markers on the room map ===
+
+// Store 3D markers by device ID.
 const robotMarkers = {};
 
 // Generate consistent color from string
@@ -194,7 +201,8 @@ function updateRobotMarker(device) {
   }
 }
 
-// Rendering and window behavior
+// === Rendering and window behavior ===
+
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
@@ -209,7 +217,9 @@ function resizeRenderer() {
 
 window.addEventListener("resize", resizeRenderer);
 
-// A device keeps one dashboard card with movement added beneath it
+// === Device activity cards and browser-saved history ===
+
+// A device keeps one dashboard card with movement added beneath it.
 const deviceActivityPanels = {};
 const ACTIVITY_HISTORY_STORAGE_KEY = "robot-room-device-activity";
 const MAX_ACTIVITY_EVENTS_PER_DEVICE = 40;
@@ -236,7 +246,7 @@ function saveDeviceActivityHistory() {
 let deviceActivityHistory = loadDeviceActivityHistory();
 
 function formatCoordinates(position) {
-  return `X ${position.x.toFixed(2)} m · Z ${position.z.toFixed(2)} m`;
+  return `X: ${position.x.toFixed(2)} m · Z: ${position.z.toFixed(2)} m`;
 }
 
 function createDeviceActivityPanel(device, key) {
@@ -303,7 +313,8 @@ function getDeviceActivityPanel(device, key) {
   return { activityPanel, isNew: true };
 }
 
-function setDevicePanelStatus(activityPanel, status) {
+function setDevicePanelStatus(activityPanel, status) { // this can be changed
+  // This is the single place that turns an online/offline value into card text and styling.
   const isOnline = status === "live";
 
   activityPanel.panel.classList.toggle("is-offline", !isOnline);
@@ -358,7 +369,8 @@ function addDeviceActivity(activityPanel, key, label, detail, eventType) {
   }
 }
 
-// Browser position history
+// === Browser-saved position history ===
+
 // The marker should disappear when a device goes offline, but its last known
 // location must survive a brief missing JSON snapshot or Live Server reload.
 const POSITION_HISTORY_STORAGE_KEY = "robot-room-last-positions";
@@ -383,6 +395,8 @@ function saveLastPositions() {
 
 let lastPositions = loadLastPositions();
 
+// === JSON polling and device connection state ===
+
 async function fetchPositions() {
   try {
     const response = await fetch(`updated_pos.json?t=${Date.now()}`);
@@ -401,6 +415,8 @@ async function fetchPositions() {
       );
       const { activityPanel, isNew } = getDeviceActivityPanel(device, key);
 
+      // Today, appearing in updated_pos.json means LIVE. When server.py exports
+      // device status, use that JSON value here instead of the fixed "live".
       setDevicePanelStatus(activityPanel, "live");
       activityPanel.latestPosition.textContent = `Latest: ${formatCoordinates(newPos)}`;
 
@@ -429,7 +445,8 @@ async function fetchPositions() {
       saveLastPositions();
     });
 
-    // Remove devices that are no longer in JSON
+    // A missing device is offline for this browser session: remove its map marker,
+    // but keep its activity card and last-known position visible in the dashboard.
     Object.keys(robotMarkers).forEach(key => {
       if (!currentKeys.has(key)) {
         scene.remove(robotMarkers[key]);
@@ -445,6 +462,8 @@ async function fetchPositions() {
   }
 }
 
-// Poll latest exported device snapshot from updated_pos.json every 0.5s
+// === Dashboard startup ===
+
+// Poll latest exported device snapshot from updated_pos.json every 0.5s.
 setInterval(fetchPositions, 500);
 animate();

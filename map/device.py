@@ -11,12 +11,17 @@ class DeviceType(Enum):
     ARM = auto()
     TURTLE = auto()
 
+class DeviceStatus(Enum):
+    ONLINE = "online"
+    OFFLINE = "offline"
+
 @dataclass
 class Device:
     id : str
     device_type: DeviceType
     pos : Vector3
     last_heartbeat: float
+    device_status: DeviceStatus
 
     # position updated, heartbeat not provided
     def get_position_packet(self) -> Packet:

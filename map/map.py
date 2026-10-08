@@ -1,7 +1,7 @@
 from typing import Iterator
 from uuid import UUID
 from time import time
-from map.device import Device, DeviceType
+from map.device import Device, DeviceType, DeviceStatus
 from realityapi_pb2 import Vector3
 
 
@@ -9,7 +9,7 @@ class Map:
     def __init__(self) -> None:
         self._devices: dict[str, Device] = {}
 
-    def add_device(self, id: str, device_type: DeviceType, pos: Vector3, last_heartbeat: float = None):
+    def add_device(self, id: str, device_type: DeviceType, pos: Vector3, device_status: DeviceStatus, last_heartbeat: float = None):
         if last_heartbeat is None:
             last_heartbeat = time()
 
@@ -17,6 +17,7 @@ class Map:
             id=id,
             device_type=device_type,
             pos=pos,
+            device_status=device_status,
             last_heartbeat=last_heartbeat,
         )
         print(f"Added device: {self._devices[id]} to dict")
@@ -35,7 +36,8 @@ class Map:
                     "x": round(device.pos.x, 2),
                     "y": round(device.pos.y, 2),
                     "z": round(device.pos.z, 2)
-                }
+                },
+                "status": device.device_status.name
             })
 
         with open(filepath, 'w') as f:
@@ -55,7 +57,8 @@ class Map:
                     y=device_data["pos"]["y"],
                     z=device_data["pos"]["z"]
                 )
-                self.add_device(device_data["id"], device_type, pos)
+                device_status = device_data["status"]
+                self.add_device(device_data["id"], device_type, pos, device_status)
             print(f"Loaded {len(devices_data)} devices from {filepath}")
         except FileNotFoundError:
             print(f"No existing JSON file at {filepath}, starting with empty map")
@@ -70,7 +73,7 @@ class Map:
             device.last_heartbeat = time()
             print(f"Set position for device: {device.id}")
         else: # if robot id does not exist, add it as a device
-            self.add_device(id, device_type=device_type, pos=pos)
+            self.add_device(id, device_type=device_type, pos=pos, device_status=DeviceStatus.ONLINE)
 
         # exports file to dashboard folder which updates the visual dashboard
         self.export_to_json("dashboard/updated_pos.json")
@@ -82,19 +85,19 @@ class Map:
         print(f"Device with id {id} does not exist")
         return Vector3(0, 0, 0)
 
-    def del_device(self, id: str) -> Device:
+    def del_device(self, id: str) -> Device: # don't think needed anymore
         return self._devices.pop(id)
 
     def update_last_time(self, id: str, new_time: float):
         self._devices[id].last_heartbeat = new_time
 
     def heartbeat_check(self, id: str, timeout: float) -> bool:
-        """Drop a device that has not been heard from within timeout seconds."""
+        """Turn device offline if not heard from within timeout seconds."""
         device = self._devices[id]
 
         if (time() - device.last_heartbeat) >= timeout:
             print(f"Device {id} is inactive")
-            self.del_device(id)
+            device.device_status = DeviceStatus.OFFLINE
             return True
 
         return False
