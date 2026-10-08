@@ -7,6 +7,7 @@ from realityapi_pb2 import Packet, Vector3, Text, Heartbeat
 from map.map import Map
 from map.device import Device,DeviceType
 from time import time
+import websockets
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
 OFFSET = (1.0, 2.0, 3.0)
@@ -58,17 +59,21 @@ def handle_packet(pkt: Packet, map:Map) -> Packet:
 
 
 async def handler(websocket):
-    async for message in websocket:
-        if isinstance(message, str):
-            print("[!] ignoring text frame (expected binary protobuf)")
-            continue
+    try:
+        async for message in websocket:
+            if isinstance(message, str):
+                print("[!] ignoring text frame (expected binary protobuf)")
+                continue
 
-        pkt = Packet()
-        pkt.ParseFromString(message)                     # decode
-        reply = handle_packet(pkt, map)
+            pkt = Packet()
+            pkt.ParseFromString(message)                     # decode
+            reply = handle_packet(pkt, map)
 
-        
-        await websocket.send(reply.SerializeToString())   # encode + send binary
+            
+            await websocket.send(reply.SerializeToString())   # encode + send binary
+
+    except websockets.exceptions.ConnectionClosed:
+        pass
 
 async def monitor(map: Map):
     global TIMEOUT

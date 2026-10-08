@@ -46,7 +46,7 @@ class Map:
         last_time = name.last_heartbeat
 
         if (current_time-last_time) >= TIMEOUT:
-            print(f"Device {id} is inactive")
+            print(f"[-] {id} disconnected")
             self.del_device(id)
     def update_last_time(self, id:str, new_time: int):
         self._devices[id].last_heartbeat = new_time
