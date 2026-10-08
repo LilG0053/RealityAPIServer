@@ -184,16 +184,20 @@ function stringToColor(str) {
 // Helper function to create or update robot marker
 function updateRobotMarker(device) {
   const key = `${device.id}-${device.device_type}`;
-  const color = stringToColor(device.id);
+
+  // handles color if 
+  const isOnline = device.status === "online";
+  const markerColor = isOnline ? parseInt(stringToColor(device.id).replace("#", "0x")) : 0x7b8494;
 
   if (robotMarkers[key]) {
     // Update existing marker position
     robotMarkers[key].position.set(device.pos.x, 0.3, device.pos.z);
+    robotMarkers[key].material.color.setHex(markerColor);
   } else {
     // Create new marker
     const marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.2, 32, 32),
-      new THREE.MeshBasicMaterial({ color: parseInt(color.replace('#', '0x')) })
+      new THREE.MeshBasicMaterial({ color: markerColor })
     );
     marker.position.set(device.pos.x, 0.3, device.pos.z);
     scene.add(marker);
@@ -315,11 +319,12 @@ function getDeviceActivityPanel(device, key) {
 
 function setDevicePanelStatus(activityPanel, status) { // this can be changed
   // This is the single place that turns an online/offline value into card text and styling.
-  const isOnline = status === "live";
+  const isOnline = status === "online";
 
   activityPanel.panel.classList.toggle("is-offline", !isOnline);
-  activityPanel.status.textContent = isOnline ? "LIVE" : "OFFLINE";
   activityPanel.status.classList.toggle("is-offline", !isOnline);
+
+  activityPanel.status.textContent = isOnline ? "ONLINE" : "OFFLINE";
 }
 
 function setDeviceActivityHistoryOpen(activityPanel, isOpen, deviceId) {
@@ -415,29 +420,28 @@ async function fetchPositions() {
       );
       const { activityPanel, isNew } = getDeviceActivityPanel(device, key);
 
-      // Today, appearing in updated_pos.json means LIVE. When server.py exports
-      // device status, use that JSON value here instead of the fixed "live".
-      setDevicePanelStatus(activityPanel, "live");
+      // setting Panel status based on device status
+      setDevicePanelStatus(activityPanel, device.status);
       activityPanel.latestPosition.textContent = `Latest: ${formatCoordinates(newPos)}`;
 
       // Update 3D marker
       updateRobotMarker(device);
 
       if (!previousPos) {
-        addDeviceActivity(activityPanel, key, "Connected", formatCoordinates(newPos), "connected");
+        // origin point when device is first added
+        addDeviceActivity(activityPanel, key, "Origin", formatCoordinates(newPos), "connected");
       } else if (positionChanged) {
         addDeviceActivity(
           activityPanel,
           key,
           "Previous",
-          `${formatCoordinates(previousPos)}}`,
+          `${formatCoordinates(previousPos)}`,
           "moved"
         );
 
         const dashboard = document.querySelector(".dashboard");
         dashboard.scrollTop = dashboard.scrollHeight;
       } else if (isNew && !deviceActivityHistory[key]?.length) {
-        // origin point when device is first added
         addDeviceActivity(activityPanel, key, "Origin", formatCoordinates(newPos), "connected");
       }
 

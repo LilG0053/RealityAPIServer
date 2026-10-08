@@ -7,7 +7,7 @@ from realityapi_pb2 import Packet, Vector3, DeviceType, Heartbeat
 from enum import Enum
 from time import time
 from map.map import Map
-from map.device import DeviceType as MapDeviceType
+from map.device import DeviceType as MapDeviceType, DeviceStatus
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
 OFFSET = (0.1, 0.1, 2.0)
@@ -64,6 +64,7 @@ def handle_heartbeat(pkt: Packet) -> Packet:
             device_type=to_map_device_type(pkt.devicetype),
             pos=Vector3(x=0, y=0, z=0),
             last_heartbeat=now,
+            device_status=DeviceStatus.ONLINE
         )
 
     print(f"<<< heartbeat from {pkt.id} ({DeviceType.Name(pkt.devicetype)})")
@@ -82,7 +83,7 @@ async def handler(websocket):
             continue
 
         pkt = Packet()
-        pkt.ParseFromString(message)                      # decode
+        pkt.ParseFromString(message) # decode
 
         # A heartbeat carries no position, so it must not move the device.
         if pkt.HasField("heartbeat"):

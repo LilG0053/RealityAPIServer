@@ -1,0 +1,8 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "liveServer.settings.ignoreFiles": [
+        "**/dashboard/updated_pos.json"
+    ]
+}
+
+  

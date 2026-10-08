@@ -24,21 +24,33 @@ class Map:
 
     def exists(self, id: str) -> bool:
         return id in self._devices
-
+    
+    # helper method that creates dictionary with device info
+    def create_device_data(self, device: Device):
+        return {
+            "id": device.id,
+            "device_type": device.device_type.name,
+            "pos": {
+                "x": round(device.pos.x, 2),
+                "y": round(device.pos.y, 2),
+                "z": round(device.pos.z, 2)
+            },
+            "status": device.device_status.value
+        }
+        
     # function that defines what values are sent to updated_pos.json
     def export_to_json(self, filepath: str):
         devices_data = []
+
+        # seperate online and offline devices so ONLINE appears first
+        online_devices = []
+        offline_devices = []
         for device in self._devices.values():
-            devices_data.append({
-                "id": device.id,
-                "device_type": device.device_type.name,
-                "pos": {
-                    "x": round(device.pos.x, 2),
-                    "y": round(device.pos.y, 2),
-                    "z": round(device.pos.z, 2)
-                },
-                "status": device.device_status.name
-            })
+            if (device.device_status == DeviceStatus.ONLINE): 
+                online_devices.append(self.create_device_data(device))
+            else:
+                offline_devices.append(self.create_device_data(device))
+        devices_data = online_devices + offline_devices
 
         with open(filepath, 'w') as f:
             import json
@@ -57,7 +69,8 @@ class Map:
                     y=device_data["pos"]["y"],
                     z=device_data["pos"]["z"]
                 )
-                device_status = device_data["status"]
+                device_status = DeviceStatus(device_data["status"])
+
                 self.add_device(device_data["id"], device_type, pos, device_status)
             print(f"Loaded {len(devices_data)} devices from {filepath}")
         except FileNotFoundError:
@@ -70,7 +83,7 @@ class Map:
             device = self._devices[id]
             device.pos = pos
             # A position report is also proof the device is still alive.
-            device.last_heartbeat = time()
+            self.update_last_time(id, time())
             print(f"Set position for device: {device.id}")
         else: # if robot id does not exist, add it as a device
             self.add_device(id, device_type=device_type, pos=pos, device_status=DeviceStatus.ONLINE)
@@ -85,20 +98,24 @@ class Map:
         print(f"Device with id {id} does not exist")
         return Vector3(0, 0, 0)
 
-    def del_device(self, id: str) -> Device: # don't think needed anymore
-        return self._devices.pop(id)
-
+    # updates hearbeat and turns device status online
     def update_last_time(self, id: str, new_time: float):
         self._devices[id].last_heartbeat = new_time
+
+        # if device comes ONLINE, rewrite json so dashboard reflects
+        if (self._devices[id].device_status == DeviceStatus.OFFLINE):
+            self._devices[id].device_status = DeviceStatus.ONLINE
+            self.export_to_json("dashboard/updated_pos.json")
 
     def heartbeat_check(self, id: str, timeout: float) -> bool:
         """Turn device offline if not heard from within timeout seconds."""
         device = self._devices[id]
 
         if (time() - device.last_heartbeat) >= timeout:
-            print(f"Device {id} is inactive")
-            device.device_status = DeviceStatus.OFFLINE
-            return True
+            if (device.device_status == DeviceStatus.ONLINE): # only set inactive when device previously active
+                print(f"Device {id} is inactive")
+                device.device_status = DeviceStatus.OFFLINE
+                return True
 
         return False
 
