@@ -66,6 +66,7 @@ def handle_heartbeat(pkt: Packet) -> Packet:
             last_heartbeat=now,
             device_status=DeviceStatus.ONLINE
         )
+        map.export_to_json("dashboard/updated_pos.json")
 
     print(f"<<< heartbeat from {pkt.id} ({DeviceType.Name(pkt.devicetype)})")
 

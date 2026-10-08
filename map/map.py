@@ -83,7 +83,8 @@ class Map:
             device = self._devices[id]
             device.pos = pos
             # A position report is also proof the device is still alive.
-            self.update_last_time(id, time())
+            device.last_heartbeat = time()
+            device.device_status = DeviceStatus.ONLINE
             print(f"Set position for device: {device.id}")
         else: # if robot id does not exist, add it as a device
             self.add_device(id, device_type=device_type, pos=pos, device_status=DeviceStatus.ONLINE)

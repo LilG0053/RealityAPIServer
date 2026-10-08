@@ -185,9 +185,9 @@ function stringToColor(str) {
 function updateRobotMarker(device) {
   const key = `${device.id}-${device.device_type}`;
 
-  // handles color if 
+  // handles color changing if ONLINE/OFFLINE
   const isOnline = device.status === "online";
-  const markerColor = isOnline ? parseInt(stringToColor(device.id).replace("#", "0x")) : 0x7b8494;
+  const markerColor = isOnline ? parseInt(stringToColor(device.id).replace("#", "0x")) : 0x7b8494; // alternative grey color
 
   if (robotMarkers[key]) {
     // Update existing marker position
