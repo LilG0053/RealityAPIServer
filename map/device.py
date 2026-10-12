@@ -20,7 +20,7 @@ class Device:
     id : str
     device_type: DeviceType
     pos : Vector3
-    rot: Vector3
+    orientation: Vector3
     last_heartbeat: float
     device_status: DeviceStatus
 
@@ -28,7 +28,7 @@ class Device:
     def get_pose_packet(self) -> Packet:
         return Packet(
             position=self.pos,
-            rotation=self.rot,
+            orientation=self.orientation,
             devicetype=ProtoDeviceType.Value(self.device_type.name),
             id=self.id,
         )
@@ -43,11 +43,11 @@ class Device:
 
 
 class TurtleBot(Device):
-    def __init__(self, id: str, pos: Vector3, rot: Vector3, last_heartbeat: float):
-        super().__init__(id, DeviceType.TURTLE, pos, rot, last_heartbeat)
+    def __init__(self, id: str, pos: Vector3, orientation: Vector3, last_heartbeat: float):
+        super().__init__(id, DeviceType.TURTLE, pos, orientation, last_heartbeat)
     
     def update_position(self, pos: Vector3):
         self.pos = pos
 
-    def update_rotation(self, rot: Vector3):
-        self.rot = rot
+    def update_orientation(self, orientation: Vector3):
+        self.orientation = orientation

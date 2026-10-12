@@ -41,19 +41,19 @@ class CoordinateNode(Node):
         orientation = data.pose.pose.orientation
 
         new_pos = Vector3(x=position.x, y=position.z, z=position.y)
-        new_rot = self.quaternion_to_euler(orientation)
+        new_ori = self.quaternion_to_euler(orientation)
 
         # if the position & rotation is same, don't send packet
-        if (self.pose_unchanged(new_pos, new_rot, self.robot.pos, self.robot.rot)):
+        if (self.pose_unchanged(new_pos, new_ori, self.robot.pos, self.robot.orientation)):
             return
 
         self.robot.update_position(new_pos)
-        self.robot.update_rotation(new_rot)
+        self.robot.update_orientation(new_ori)
         self.robot.last_heartbeat = time()
         self.send_packet(self.robot.get_pose_packet())
 
     # helper method that converts ROS2 Quaternion to Vector3 rotation
-    def quaternion_to_euler(orientation):
+    def quaternion_to_euler(self, orientation):
         # Roll: rotation around the X axis.
         roll = atan2(
             2 * (orientation.w * orientation.x + orientation.y * orientation.z),
@@ -72,20 +72,20 @@ class CoordinateNode(Node):
 
         return Vector3(x=roll, y=pitch, z=yaw)
 
-    def pose_unchanged(new_pos, new_rot, prev_pos, prev_rot):
+    def pose_unchanged(self, new_pos, new_ori, prev_pos, prev_ori):
         position_unchanged = (
             isclose(new_pos.x, prev_pos.x, rel_tol=0.0, abs_tol=POSITION_TOLERANCE)
             and isclose(new_pos.y, prev_pos.y, rel_tol=0.0, abs_tol=POSITION_TOLERANCE)
             and isclose(new_pos.z, prev_pos.z, rel_tol=0.0, abs_tol=POSITION_TOLERANCE)
         )
 
-        rotation_unchanged = (
-            isclose(new_rot.x, prev_rot.x, rel_tol=0.0, abs_tol=ROTATION_TOLERANCE)
-            and isclose(new_rot.y, prev_rot.y, rel_tol=0.0, abs_tol=ROTATION_TOLERANCE)
-            and isclose(new_rot.z, prev_rot.z, rel_tol=0.0, abs_tol=ROTATION_TOLERANCE)
+        orientation_unchanged = (
+            isclose(new_ori.x, prev_ori.x, rel_tol=0.0, abs_tol=ROTATION_TOLERANCE)
+            and isclose(new_ori.y, prev_ori.y, rel_tol=0.0, abs_tol=ROTATION_TOLERANCE)
+            and isclose(new_ori.z, prev_ori.z, rel_tol=0.0, abs_tol=ROTATION_TOLERANCE)
         )
 
-        return position_unchanged and rotation_unchanged
+        return position_unchanged and orientation_unchanged
 
     def heartbeat_callback(self):
         self.robot.last_heartbeat = time()
@@ -98,14 +98,14 @@ class CoordinateNode(Node):
         self.get_logger().info(f'>>> {self.describe(pkt)}')
         self.get_logger().info(f'<<< {self.describe(reply)}')
 
-    # console logs position, rotation
+    # console logs position, orientation
     def describe(self, pkt: Packet) -> str:
         if pkt.HasField("heartbeat"):
             return f'heartbeat {pkt.heartbeat.current_time:.3f} id {pkt.id}'
         p = pkt.position
-        r = pkt.rotation
+        o = pkt.orientation
 
-        return f'Pos: ({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) Rot: ({r.z}) id {pkt.id}'
+        return f'Pos: ({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) Orientation: ({o.z}) id {pkt.id}'
 
     def destroy_node(self):
         self.ws.close()

@@ -96,7 +96,7 @@ async def handler(websocket):
         await websocket.send(handled_packet.SerializeToString())   # encode + send binary
 
 def update_map(pkt: Packet):
-    map.set_device_position(pkt.id, pkt.position, to_map_device_type(pkt.devicetype))
+    map.set_device_pose(pkt.id, pkt.position, pkt.orientation, to_map_device_type(pkt.devicetype))
     
 
 async def monitor(map: Map):

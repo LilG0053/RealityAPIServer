@@ -9,7 +9,7 @@ class Map:
     def __init__(self) -> None:
         self._devices: dict[str, Device] = {}
 
-    def add_device(self, id: str, device_type: DeviceType, pos: Vector3, device_status: DeviceStatus, last_heartbeat: float = None):
+    def add_device(self, id: str, device_type: DeviceType, pos: Vector3, ori: Vector3, device_status: DeviceStatus, last_heartbeat: float = None):
         if last_heartbeat is None:
             last_heartbeat = time()
 
@@ -17,6 +17,7 @@ class Map:
             id=id,
             device_type=device_type,
             pos=pos,
+            orientation=ori,
             device_status=device_status,
             last_heartbeat=last_heartbeat,
         )
@@ -34,6 +35,11 @@ class Map:
                 "x": round(device.pos.x, 2),
                 "y": round(device.pos.y, 2),
                 "z": round(device.pos.z, 2)
+            },
+            "orientation": {
+                "x": round(device.orientation.x, 2),
+                "y": round(device.orientation.y, 2),
+                "z": round(device.orientation.z, 2)
             },
             "status": device.device_status.value
         }
@@ -69,25 +75,31 @@ class Map:
                     y=device_data["pos"]["y"],
                     z=device_data["pos"]["z"]
                 )
+                orientation = Vector3(
+                    x=device_data["orientation"]["x"],
+                    y=device_data["orientation"]["y"],
+                    z=device_data["orientation"]["z"]
+                )
                 device_status = DeviceStatus(device_data["status"])
 
-                self.add_device(device_data["id"], device_type, pos, device_status)
+                self.add_device(device_data["id"], device_type, pos, orientation, device_status)
             print(f"Loaded {len(devices_data)} devices from {filepath}")
         except FileNotFoundError:
             print(f"No existing JSON file at {filepath}, starting with empty map")
         except Exception as e:
             print(f"Error loading from JSON: {e}")
 
-    def set_device_position(self, id: str, pos: Vector3, device_type: DeviceType):
+    def set_device_pose(self, id: str, pos: Vector3, ori: Vector3, device_type: DeviceType):
         if id in self._devices: # if id of robot exists, set new position
             device = self._devices[id]
             device.pos = pos
+            device.orientation = ori
             # A position report is also proof the device is still alive.
             device.last_heartbeat = time()
             device.device_status = DeviceStatus.ONLINE
             print(f"Set position for device: {device.id}")
         else: # if robot id does not exist, add it as a device
-            self.add_device(id, device_type=device_type, pos=pos, device_status=DeviceStatus.ONLINE)
+            self.add_device(id, device_type=device_type, pos=pos, ori=ori, device_status=DeviceStatus.ONLINE)
 
         # exports file to dashboard folder which updates the visual dashboard
         self.export_to_json("dashboard/updated_pos.json")

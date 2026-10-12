@@ -17,5 +17,7 @@ def create_turtlebot(custom_id: str = 'turtlebot1'):
     return TurtleBot(
         id=custom_id or socket.gethostname(),
         pos=Vector3(x=0.0, y=0.0, z=0.0),
+        orientation=Vector3(x=0.0, y=0.0, z=0.0),
         last_heartbeat=time(),
+        
     )
