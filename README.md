@@ -8,6 +8,6 @@ It is recommended to use a virtual environment for running the server/client. Us
 ## building protobuf
 
 ```
-pip install mypy-protobuf
-python -m grpc_tools.protoc -I. --python_out=. --mypy_out=. realityapi.proto
+pip install grpcio-tools
+python -m grpc_tools.protoc -I. --python_out=. --pyi_out=. realityapi.proto
 ```
