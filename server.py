@@ -3,7 +3,7 @@
 import asyncio
 
 from websockets.asyncio.server import serve
-from realityapi_pb2 import Packet, Vector3, DeviceType, Heartbeat
+from realityapi_pb2 import ServerBoundPacket, ClientBoundPacket, Vector3
 from enum import Enum
 from time import time
 from map.map import Map
@@ -95,7 +95,7 @@ async def handler(websocket):
 
 def update_map(pkt: Packet):
     map.set_device_position(pkt.id, pkt.position, to_map_device_type(pkt.devicetype))
-    
+
 
 async def monitor(map: Map):
     """Sweep the map so devices that stop sending heartbeats disappear."""
