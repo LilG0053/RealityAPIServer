@@ -3,7 +3,7 @@ from uuid import UUID
 from time import time
 from map.device import Device, DeviceType, TurtleBot, device_from_packet, device_from_dict
 from realityapi_pb2 import ServerBoundPacket, Vector3
-
+import json, os
 
 class Map:
     def __init__(self) -> None:
