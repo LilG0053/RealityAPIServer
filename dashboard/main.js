@@ -163,6 +163,7 @@ scene.add(roomOutline);
 
 // Store 3D markers by device ID
 const robotMarkers = {};
+const MARKER_SMOOTHING = 12;
 
 // Generate consistent color from string
 function stringToColor(str) {
@@ -180,8 +181,8 @@ function updateRobotMarker(device) {
   const color = stringToColor(device.id);
 
   if (robotMarkers[key]) {
-    // Update existing marker position
-    robotMarkers[key].position.set(device.pos.x, 0.3, device.pos.z);
+    // Set the new target; animate() lerps the marker toward it each frame
+    robotMarkers[key].userData.target.set(device.pos.x, 0.3, device.pos.z);
   } else {
     // Create new marker
     const marker = new THREE.Mesh(
@@ -189,14 +190,25 @@ function updateRobotMarker(device) {
       new THREE.MeshBasicMaterial({ color: parseInt(color.replace('#', '0x')) })
     );
     marker.position.set(device.pos.x, 0.3, device.pos.z);
+    marker.userData.target = marker.position.clone();
     scene.add(marker);
     robotMarkers[key] = marker;
   }
 }
 
+let lastFrameTime = performance.now();
+
 // Rendering and window behavior
 function animate() {
   requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt = (now - lastFrameTime) / 1000;
+  lastFrameTime = now;
+  // Frame-rate independent lerp toward each marker's latest target
+  const alpha = 1 - Math.exp(-MARKER_SMOOTHING * dt);
+  for (const marker of Object.values(robotMarkers)) {
+    marker.position.lerp(marker.userData.target, alpha);
+  }
   controls.update();
   renderer.render(scene, camera);
 }
