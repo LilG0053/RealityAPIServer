@@ -3,7 +3,8 @@ from uuid import UUID
 from time import time
 from map.device import Device, DeviceType
 from realityapi_pb2 import Vector3
-
+import json, os
+import json
 
 class Map:
     def __init__(self) -> None:
@@ -38,12 +39,14 @@ class Map:
                 }
             })
 
-        with open(filepath, 'w') as f:
-            import json
+        # Write to a temp file, then swap it in, so the dashboard never
+        # reads a half-written file.
+        tmp_path = filepath + ".tmp"
+        with open(tmp_path, 'w') as f:
             json.dump(devices_data, f, indent=2)
+        os.replace(tmp_path, filepath)
 
     def load_from_json(self, filepath: str):
-        import json
         try:
             with open(filepath, 'r') as f:
                 devices_data = json.load(f)
