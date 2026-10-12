@@ -5,11 +5,10 @@ import asyncio
 from websockets.asyncio.server import serve
 from realityapi_pb2 import Packet, Vector3, DeviceType, Heartbeat
 from enum import Enum
-from time import time, perf_counter
+from time import time
 from map.map import Map
 from map.device import DeviceType as MapDeviceType
 
-last_packet_time = {}
 # Offset added to every incoming position vector. Adjust to your task's spec.
 OFFSET = (0.1, 0.1, 2.0)
 
@@ -89,11 +88,6 @@ async def handler(websocket):
         if pkt.HasField("heartbeat"):
             handled_packet = handle_heartbeat(pkt)
         else:
-            now = perf_counter()
-            if pkt.id in last_packet_time:
-                gap_ms = (now - last_packet_time[pkt.id]) * 1000
-                print(f"gap for {pkt.id}: {gap_ms:.1f} ms")
-            last_packet_time[pkt.id] = now
             handled_packet = handle_packet(pkt)
             update_map(handled_packet)
 

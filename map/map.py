@@ -1,6 +1,6 @@
 from typing import Iterator
 from uuid import UUID
-from time import time, perf_counter
+from time import time
 from map.device import Device, DeviceType
 from realityapi_pb2 import Vector3
 
@@ -72,13 +72,8 @@ class Map:
         else: # if robot id does not exist, add it as a device
             self.add_device(id, device_type=device_type, pos=pos)
 
-        t0 = perf_counter
         # exports file to dashboard folder which updates the visual dashboard
         self.export_to_json("dashboard/updated_pos.json")
-
-        elapsed_ms = (perf_counter() - t0) * 1000
-        print(f"export_to_json took {elapsed_ms: .2f} ms ({len(self._devices)} devices)")
-
 
     def get_device_pos(self, id: str) -> Vector3:
         if id in self._devices:
