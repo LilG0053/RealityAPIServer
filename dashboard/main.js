@@ -214,7 +214,9 @@ let lastPositions = {};
 
 async function fetchPositions() {
   try {
-    const response = await fetch('updated_pos.json');
+    // no-store skips the browser cache; http.server's Last-Modified is only
+    // accurate to the second, so cached revalidation returns stale positions.
+    const response = await fetch('updated_pos.json', { cache: 'no-store' });
     const devices = await response.json();
 
     // Get current device keys from JSON
@@ -264,6 +266,6 @@ async function fetchPositions() {
   }
 }
 
-// Poll latest exported device snapshot from updated_pos.json every 0.5s
-setInterval(fetchPositions, 500);
+// Poll latest exported device snapshot from updated_pos.json every 50ms
+setInterval(fetchPositions, 50);
 animate();
