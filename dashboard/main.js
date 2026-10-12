@@ -265,5 +265,5 @@ async function fetchPositions() {
 }
 
 // Poll latest exported device snapshot from updated_pos.json every 0.5s
-setInterval(fetchPositions, 500);
+setInterval(fetchPositions, 50);
 animate();
