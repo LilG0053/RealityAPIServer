@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
 from time import sleep, time
+from turtle import Turtle
 
 from websockets.sync.client import connect
-from realityapi_pb2 import Packet, DeviceType, Heartbeat
+from realityapi_pb2 import RequestType, ServerBoundPacket, ClientBoundPacket, TurtleInfo, Vector3
 
-URI = "ws://10.89.53.91:65432"
+URI = "ws://localhost:65432"
 
 # Seconds between keepalives. Must be well under the server's TIMEOUT.
 HEARTBEAT_INTERVAL = 0.05
@@ -18,61 +19,50 @@ def ask_float(prompt: str) -> float:
         except ValueError:
             print("Please enter a number.")
 
-
-def describe(pkt: Packet) -> str:
-    if pkt.HasField("heartbeat"):
-        return f"heartbeat at {pkt.heartbeat.current_time:.3f}, id {pkt.id}"
-
-    p = pkt.position
-    return (f"position ({p.x}, {p.y}, {p.z}), "
-            f"devicetype {DeviceType.Name(pkt.devicetype)}, id {pkt.id}")
-
-
-def exchange(websocket, pkt: Packet) -> Packet:
+def exchange(websocket, pkt: ServerBoundPacket) -> ClientBoundPacket:
     websocket.send(pkt.SerializeToString())
-    reply = Packet()
+    reply = ClientBoundPacket()
     reply.ParseFromString(websocket.recv())
     return reply
 
 
-def build_packet() -> Packet:
+def build_turtle_info_packet() -> ServerBoundPacket:
+    print("Building turtlebot packet")
     device_id = input("What's your id? ")
-    device_type = input("What's your device? ")
     x = ask_float("X coordinate? ")
     y = ask_float("Y coordinate? ")
     z = ask_float("Z coordinate? ")
 
-    pkt = Packet()
-    pkt.id = device_id                 # use int(device_id) if id is an int field
-    pkt.devicetype = DeviceType.Value(device_type)
-    pkt.position.x = x                 # sets the 'position' branch of the oneof
-    pkt.position.y = y
-    pkt.position.z = z
-    return pkt
+    return ServerBoundPacket(
+        id=device_id,
+        timestamp=time(),
+        req_type=RequestType.TURTLE_INFO,
+        turtle=TurtleInfo(
+            position=Vector3(x=x, y=y, z=z),
+            rotation=Vector3(x=0, y=0, z=0)
+        )
+    )
 
-
-def send_heartbeats(websocket, pkt: Packet):
+def send_heartbeats(websocket, pkt: ServerBoundPacket):
     """Keep telling the server this device is alive until interrupted."""
     while True:
-        beat = Packet(
-            heartbeat=Heartbeat(current_time=time()),
-            devicetype=pkt.devicetype,
+        beat = ServerBoundPacket(
+            timestamp=time(),
             id=pkt.id,
         )
-        print(f">>> {describe(beat)}")
+        print(f">>> {beat}")
         reply = exchange(websocket, beat)
-        print(f"<<< {describe(reply)}")
+        print(f"<<< {reply}")
 
         sleep(HEARTBEAT_INTERVAL)
 
 
 def main():
-    pkt = build_packet()
+    pkt = build_turtle_info_packet()
     with connect(URI) as websocket:
-        print(f">>> {describe(pkt)}")
+        print(f">>> {pkt}")
         reply = exchange(websocket, pkt)
-        print(f"<<< {describe(reply)}")
-
+        print(f"<<< {reply}")
         send_heartbeats(websocket, pkt)
 
 

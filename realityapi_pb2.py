@@ -24,23 +24,27 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10realityapi.proto\x12\nrealityapi\"*\n\x07Vector3\x12\t\n\x01x\x18\x01 \x01(\x02\x12\t\n\x01y\x18\x02 \x01(\x02\x12\t\n\x01z\x18\x03 \x01(\x02\"\x15\n\x05Hello\x12\x0c\n\x04name\x18\x01 \x01(\t\"\x14\n\x04Text\x12\x0c\n\x04text\x18\x01 \x01(\t\"!\n\tHeartbeat\x12\x14\n\x0c\x63urrent_time\x18\x01 \x01(\x01\"\x91\x01\n\x06Packet\x12%\n\x08position\x18\x03 \x01(\x0b\x32\x13.realityapi.Vector3\x12*\n\ndevicetype\x18\x04 \x01(\x0e\x32\x16.realityapi.DeviceType\x12\n\n\x02id\x18\x05 \x01(\t\x12(\n\theartbeat\x18\x06 \x01(\x0b\x32\x15.realityapi.Heartbeat*:\n\nDeviceType\x12\x06\n\x02VR\x10\x00\x12\x06\n\x02\x41R\x10\x01\x12\x07\n\x03\x44OG\x10\x02\x12\x07\n\x03\x41RM\x10\x03\x12\n\n\x06TURTLE\x10\x04\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10realityapi.proto\x12\nrealityapi\"*\n\x07Vector3\x12\t\n\x01x\x18\x01 \x01(\x02\x12\t\n\x01y\x18\x02 \x01(\x02\x12\t\n\x01z\x18\x03 \x01(\x02\"Z\n\nTurtleInfo\x12%\n\x08position\x18\x01 \x01(\x0b\x32\x13.realityapi.Vector3\x12%\n\x08rotation\x18\x02 \x01(\x0b\x32\x13.realityapi.Vector3\"]\n\rTurtleCommand\x12%\n\x08position\x18\x01 \x01(\x0b\x32\x13.realityapi.Vector3\x12%\n\x08rotation\x18\x02 \x01(\x0b\x32\x13.realityapi.Vector3\"J\n\nDeviceInfo\x12\n\n\x02id\x18\x01 \x01(\t\x12(\n\x06turtle\x18\x02 \x01(\x0b\x32\x16.realityapi.TurtleInfoH\x00\x42\x06\n\x04\x64\x61ta\":\n\x0f\x41llDataResponse\x12\'\n\x07\x64\x65vices\x18\x01 \x03(\x0b\x32\x16.realityapi.DeviceInfo\"\x95\x01\n\x11ServerBoundPacket\x12\n\n\x02id\x18\x01 \x01(\t\x12\x11\n\ttimestamp\x18\x02 \x01(\x01\x12)\n\x08req_type\x18\x03 \x01(\x0e\x32\x17.realityapi.RequestType\x12+\n\x06turtle\x18\x04 \x01(\x0b\x32\x16.realityapi.TurtleInfoH\x00\x88\x01\x01\x42\t\n\x07_turtle\"\xce\x01\n\x11\x43lientBoundPacket\x12\n\n\x02id\x18\x01 \x01(\t\x12\x11\n\ttimestamp\x18\x02 \x01(\x01\x12\x0e\n\x06status\x18\x03 \x01(\x05\x12\x36\n\x0c\x61ll_data_res\x18\x04 \x01(\x0b\x32\x1b.realityapi.AllDataResponseH\x00\x88\x01\x01\x12\x32\n\nturtle_cmd\x18\x05 \x01(\x0b\x32\x19.realityapi.TurtleCommandH\x01\x88\x01\x01\x42\x0f\n\r_all_data_resB\r\n\x0b_turtle_cmd*C\n\x0bRequestType\x12\r\n\tHEARTBEAT\x10\x00\x12\x14\n\x10REQUEST_ALL_DATA\x10\x01\x12\x0f\n\x0bTURTLE_INFO\x10\x02\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'realityapi_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_DEVICETYPE']._serialized_start=304
-  _globals['_DEVICETYPE']._serialized_end=362
+  _globals['_REQUESTTYPE']._serialized_start=760
+  _globals['_REQUESTTYPE']._serialized_end=827
   _globals['_VECTOR3']._serialized_start=32
   _globals['_VECTOR3']._serialized_end=74
-  _globals['_HELLO']._serialized_start=76
-  _globals['_HELLO']._serialized_end=97
-  _globals['_TEXT']._serialized_start=99
-  _globals['_TEXT']._serialized_end=119
-  _globals['_HEARTBEAT']._serialized_start=121
-  _globals['_HEARTBEAT']._serialized_end=154
-  _globals['_PACKET']._serialized_start=157
-  _globals['_PACKET']._serialized_end=302
+  _globals['_TURTLEINFO']._serialized_start=76
+  _globals['_TURTLEINFO']._serialized_end=166
+  _globals['_TURTLECOMMAND']._serialized_start=168
+  _globals['_TURTLECOMMAND']._serialized_end=261
+  _globals['_DEVICEINFO']._serialized_start=263
+  _globals['_DEVICEINFO']._serialized_end=337
+  _globals['_ALLDATARESPONSE']._serialized_start=339
+  _globals['_ALLDATARESPONSE']._serialized_end=397
+  _globals['_SERVERBOUNDPACKET']._serialized_start=400
+  _globals['_SERVERBOUNDPACKET']._serialized_end=549
+  _globals['_CLIENTBOUNDPACKET']._serialized_start=552
+  _globals['_CLIENTBOUNDPACKET']._serialized_end=758
 # @@protoc_insertion_point(module_scope)
