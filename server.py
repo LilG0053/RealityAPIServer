@@ -39,7 +39,7 @@ def translate_turtlebot_packet(pkt: ServerBoundPacket) -> ServerBoundPacket:
     )
 
 def handle_packet(pkt: ServerBoundPacket) -> ClientBoundPacket:
-    if pkt.req_type is RequestType.TURTLE_INFO and pkt.turtle is not None:
+    if pkt.req_type == RequestType.TURTLE_INFO and pkt.HasField("turtle"):
         pkt = translate_turtlebot_packet(pkt)
 
     map.handle_info_packet(pkt)
@@ -66,7 +66,7 @@ async def handler(websocket):
                 ret = handle_packet(pkt)
 
         if ret is None:
-            return
+            continue
 
         await websocket.send(ret.SerializeToString())   # encode + send binary
 

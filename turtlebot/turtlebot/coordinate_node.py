@@ -8,7 +8,8 @@ from rclpy.qos import qos_profile_sensor_data
 from websockets.sync.client import connect
 
 from init_turtlebot import create_turtlebot
-from realityapi_pb2 import Packet, Vector3
+from realityapi_pb2 import (ClientBoundPacket, RequestType, ServerBoundPacket,
+                            TurtleInfo, Vector3)
 
 SERVER_URI = "ws://10.89.51.240:65432"
 
@@ -21,7 +22,7 @@ class CoordinateNode(Node):
         super().__init__('coordinate_node')
         self.robot = create_turtlebot()
         self.ws = connect(SERVER_URI)
-        self.send_packet(self.robot.get_position_packet())
+        self.send_packet(self.position_packet())
 
         self.odom_sub = self.create_subscription(
             Odometry,
@@ -34,31 +35,44 @@ class CoordinateNode(Node):
     def position_update_callback(self, data: Odometry):
         position = data.pose.pose.position
         new_pos = Vector3(x=position.x, y=position.z, z=position.y)
-        if (new_pos.x == self.robot.pos.x
-                and new_pos.y == self.robot.pos.y
-                and new_pos.z == self.robot.pos.z):
+        if (new_pos.x == self.robot.position.x
+                and new_pos.y == self.robot.position.y
+                and new_pos.z == self.robot.position.z):
             return
 
-        self.robot.update_position(new_pos)
-        self.robot.last_heartbeat = time()
-        self.send_packet(self.robot.get_position_packet())
+        self.robot.position = new_pos
+        self.robot.timestamp = time()
+        self.send_packet(self.position_packet())
 
     def heartbeat_callback(self):
-        self.robot.last_heartbeat = time()
-        self.send_packet(self.robot.get_heartbeat_packet())
+        self.robot.timestamp = time()
+        self.send_packet(ServerBoundPacket(
+            id=self.robot.id,
+            timestamp=self.robot.timestamp,
+            req_type=RequestType.HEARTBEAT,
+        ))
 
-    def send_packet(self, pkt: Packet):
+    def position_packet(self) -> ServerBoundPacket:
+        return ServerBoundPacket(
+            id=self.robot.id,
+            timestamp=time(),
+            req_type=RequestType.TURTLE_INFO,
+            turtle=TurtleInfo(position=self.robot.position,
+                              rotation=self.robot.rotation),
+        )
+
+    def send_packet(self, pkt: ServerBoundPacket):
         self.ws.send(pkt.SerializeToString())
-        reply = Packet()
+        reply = ClientBoundPacket()
         reply.ParseFromString(self.ws.recv())
         self.get_logger().info(f'>>> {self.describe(pkt)}')
         self.get_logger().info(f'<<< {self.describe(reply)}')
 
-    def describe(self, pkt: Packet) -> str:
-        if pkt.HasField("heartbeat"):
-            return f'heartbeat {pkt.heartbeat.current_time:.3f} id {pkt.id}'
-        p = pkt.position
-        return f'({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) id {pkt.id}'
+    def describe(self, pkt) -> str:
+        if isinstance(pkt, ServerBoundPacket) and pkt.HasField("turtle"):
+            p = pkt.turtle.position
+            return f'({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) id {pkt.id}'
+        return f'{type(pkt).__name__} {pkt.timestamp:.3f} id {pkt.id}'
 
     def destroy_node(self):
         self.ws.close()

@@ -1,4 +1,3 @@
-from ast import NodeTransformer
 from time import time
 from enum import Enum, auto
 from dataclasses import dataclass
@@ -51,8 +50,8 @@ class TurtleBot(Device):
         return cls(
             id=d["id"],
             timestamp=time(),
-            position=d["position"] if "position" in d else Vector3(x=0, y=0, z=0),
-            rotation=d["rotation"] if "rotation" in d else Vector3(x=0, y=0, z=0),
+            position=ParseDict(d.get("position", {}), Vector3()),
+            rotation=ParseDict(d.get("rotation", {}), Vector3()),
         )
 
     def handle_packet(self, packet: ServerBoundPacket):
@@ -64,8 +63,8 @@ class TurtleBot(Device):
 
     def to_dict(self) -> dict:
         ret = super().to_dict()
-        ret["position"] = MessageToDict(self.position)
-        ret["rotation"] = MessageToDict(self.rotation)
+        ret["position"] = MessageToDict(self.position, always_print_fields_with_no_presence=True)
+        ret["rotation"] = MessageToDict(self.rotation, always_print_fields_with_no_presence=True)
         return ret
 
     def device_type(self) -> DeviceType:

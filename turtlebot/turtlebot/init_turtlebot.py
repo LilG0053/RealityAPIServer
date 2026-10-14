@@ -16,6 +16,7 @@ def create_turtlebot(custom_id: str = 'turtlebot1'):
     """Return a TurtleBot for this robot. Call this from any node."""
     return TurtleBot(
         id=custom_id or socket.gethostname(),
-        pos=Vector3(x=0.0, y=0.0, z=0.0),
-        last_heartbeat=time(),
+        timestamp=time(),
+        position=Vector3(x=0.0, y=0.0, z=0.0),
+        rotation=Vector3(x=0.0, y=0.0, z=0.0),
     )

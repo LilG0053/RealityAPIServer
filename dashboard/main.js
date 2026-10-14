@@ -181,14 +181,14 @@ function updateRobotMarker(device) {
 
   if (robotMarkers[key]) {
     // Update existing marker position
-    robotMarkers[key].position.set(device.pos.x, 0.3, device.pos.z);
+    robotMarkers[key].position.set(device.position.x, 0.3, device.position.z);
   } else {
     // Create new marker
     const marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.2, 32, 32),
       new THREE.MeshBasicMaterial({ color: parseInt(color.replace('#', '0x')) })
     );
-    marker.position.set(device.pos.x, 0.3, device.pos.z);
+    marker.position.set(device.position.x, 0.3, device.position.z);
     scene.add(marker);
     robotMarkers[key] = marker;
   }
@@ -225,7 +225,7 @@ async function fetchPositions() {
       const key = `${device.id}-${device.device_type}`;
       currentKeys.add(key);
 
-      const newPos = { x: device.pos.x, z: device.pos.z };
+      const newPos = { x: device.position.x, z: device.position.z };
 
       // Update 3D marker
       updateRobotMarker(device);
@@ -242,7 +242,7 @@ async function fetchPositions() {
         logEntry.innerHTML = `
           <span class="name" style="color: ${color}">${device.id}</span>
           <span class="status" style="color: ${color}">${status}</span>
-          <div class="coordinates">X: ${device.pos.x.toFixed(2)} m · Z: ${device.pos.z.toFixed(2)} m</div>
+          <div class="coordinates">X: ${device.position.x.toFixed(2)} m · Z: ${device.position.z.toFixed(2)} m</div>
         `;
         logContainer.appendChild(logEntry);
         // Auto-scroll to bottom (scroll the dashboard parent)
