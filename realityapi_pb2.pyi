@@ -76,6 +76,22 @@ class DogCommand(_message.Message):
     rotation: Vector3
     def __init__(self, position: _Optional[_Union[Vector3, _Mapping]] = ..., rotation: _Optional[_Union[Vector3, _Mapping]] = ...) -> None: ...
 
+class DogInfo(_message.Message):
+    __slots__ = ("position", "rotation")
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    ROTATION_FIELD_NUMBER: _ClassVar[int]
+    position: Vector3
+    rotation: Vector3
+    def __init__(self, position: _Optional[_Union[Vector3, _Mapping]] = ..., rotation: _Optional[_Union[Vector3, _Mapping]] = ...) -> None: ...
+
+class DogCommand(_message.Message):
+    __slots__ = ("position", "rotation")
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    ROTATION_FIELD_NUMBER: _ClassVar[int]
+    position: Vector3
+    rotation: Vector3
+    def __init__(self, position: _Optional[_Union[Vector3, _Mapping]] = ..., rotation: _Optional[_Union[Vector3, _Mapping]] = ...) -> None: ...
+
 class DeviceInfo(_message.Message):
     __slots__ = ("id", "turtle", "dog")
     ID_FIELD_NUMBER: _ClassVar[int]
