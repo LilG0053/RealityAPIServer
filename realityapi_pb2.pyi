@@ -10,18 +10,14 @@ DESCRIPTOR: _descriptor.FileDescriptor
 
 class DeviceType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
-    NONE: _ClassVar[DeviceType]
-    VR: _ClassVar[DeviceType]
-    AR: _ClassVar[DeviceType]
-    DOG: _ClassVar[DeviceType]
-    ARM: _ClassVar[DeviceType]
-    TURTLE: _ClassVar[DeviceType]
-NONE: DeviceType
-VR: DeviceType
-AR: DeviceType
-DOG: DeviceType
-ARM: DeviceType
-TURTLE: DeviceType
+    HEARTBEAT: _ClassVar[RequestType]
+    REQUEST_ALL_DATA: _ClassVar[RequestType]
+    TURTLE_INFO: _ClassVar[RequestType]
+    DOG_INFO: _ClassVar[RequestType]
+HEARTBEAT: RequestType
+REQUEST_ALL_DATA: RequestType
+TURTLE_INFO: RequestType
+DOG_INFO: RequestType
 
 class Vector3(_message.Message):
     __slots__ = ("x", "y", "z")
@@ -47,19 +43,31 @@ class Lidar(_message.Message):
     points: _containers.RepeatedCompositeFieldContainer[Vector3]
     def __init__(self, points: _Optional[_Iterable[_Union[Vector3, _Mapping]]] = ...) -> None: ...
 
+class DogInfo(_message.Message):
+    __slots__ = ("position", "rotation")
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    ROTATION_FIELD_NUMBER: _ClassVar[int]
+    position: Vector3
+    rotation: Vector3
+    def __init__(self, position: _Optional[_Union[Vector3, _Mapping]] = ..., rotation: _Optional[_Union[Vector3, _Mapping]] = ...) -> None: ...
+
+class DogCommand(_message.Message):
+    __slots__ = ("position", "rotation")
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    ROTATION_FIELD_NUMBER: _ClassVar[int]
+    position: Vector3
+    rotation: Vector3
+    def __init__(self, position: _Optional[_Union[Vector3, _Mapping]] = ..., rotation: _Optional[_Union[Vector3, _Mapping]] = ...) -> None: ...
+
 class DeviceInfo(_message.Message):
-    __slots__ = ("id", "device_type", "timestamp", "transform", "lidar")
+    __slots__ = ("id", "turtle", "dog")
     ID_FIELD_NUMBER: _ClassVar[int]
-    DEVICE_TYPE_FIELD_NUMBER: _ClassVar[int]
-    TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
-    TRANSFORM_FIELD_NUMBER: _ClassVar[int]
-    LIDAR_FIELD_NUMBER: _ClassVar[int]
+    TURTLE_FIELD_NUMBER: _ClassVar[int]
+    DOG_FIELD_NUMBER: _ClassVar[int]
     id: str
-    device_type: DeviceType
-    timestamp: float
-    transform: Transform
-    lidar: Lidar
-    def __init__(self, id: _Optional[str] = ..., device_type: _Optional[_Union[DeviceType, str]] = ..., timestamp: _Optional[float] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ..., lidar: _Optional[_Union[Lidar, _Mapping]] = ...) -> None: ...
+    turtle: TurtleInfo
+    dog: DogInfo
+    def __init__(self, id: _Optional[str] = ..., turtle: _Optional[_Union[TurtleInfo, _Mapping]] = ..., dog: _Optional[_Union[DogInfo, _Mapping]] = ...) -> None: ...
 
 class AllDeviceInfo(_message.Message):
     __slots__ = ("devices",)
@@ -67,56 +75,32 @@ class AllDeviceInfo(_message.Message):
     devices: _containers.RepeatedCompositeFieldContainer[DeviceInfo]
     def __init__(self, devices: _Optional[_Iterable[_Union[DeviceInfo, _Mapping]]] = ...) -> None: ...
 
-class Response(_message.Message):
-    __slots__ = ("req_uuid", "ok", "err_id_not_found", "err_not_supported", "err_cannot_execute", "err_failed_execute", "all_device_info", "device_info")
-    REQ_UUID_FIELD_NUMBER: _ClassVar[int]
-    OK_FIELD_NUMBER: _ClassVar[int]
-    ERR_ID_NOT_FOUND_FIELD_NUMBER: _ClassVar[int]
-    ERR_NOT_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
-    ERR_CANNOT_EXECUTE_FIELD_NUMBER: _ClassVar[int]
-    ERR_FAILED_EXECUTE_FIELD_NUMBER: _ClassVar[int]
-    ALL_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
-    DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
-    req_uuid: str
-    ok: _empty_pb2.Empty
-    err_id_not_found: _empty_pb2.Empty
-    err_not_supported: _empty_pb2.Empty
-    err_cannot_execute: _empty_pb2.Empty
-    err_failed_execute: _empty_pb2.Empty
-    all_device_info: AllDeviceInfo
-    device_info: DeviceInfo
-    def __init__(self, req_uuid: _Optional[str] = ..., ok: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_id_not_found: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_not_supported: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_cannot_execute: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_failed_execute: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., all_device_info: _Optional[_Union[AllDeviceInfo, _Mapping]] = ..., device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ...) -> None: ...
+class ServerBoundPacket(_message.Message):
+    __slots__ = ("id", "timestamp", "req_type", "turtle", "dog")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
+    REQ_TYPE_FIELD_NUMBER: _ClassVar[int]
+    TURTLE_FIELD_NUMBER: _ClassVar[int]
+    DOG_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    timestamp: float
+    req_type: RequestType
+    turtle: TurtleInfo
+    dog: DogInfo
+    def __init__(self, id: _Optional[str] = ..., timestamp: _Optional[float] = ..., req_type: _Optional[_Union[RequestType, str]] = ..., turtle: _Optional[_Union[TurtleInfo, _Mapping]] = ..., dog: _Optional[_Union[DogInfo, _Mapping]] = ...) -> None: ...
 
-class Command(_message.Message):
-    __slots__ = ("target_id", "transform")
-    TARGET_ID_FIELD_NUMBER: _ClassVar[int]
-    TRANSFORM_FIELD_NUMBER: _ClassVar[int]
-    target_id: str
-    transform: Transform
-    def __init__(self, target_id: _Optional[str] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ...) -> None: ...
-
-class ServerRequest(_message.Message):
-    __slots__ = ("req_uuid", "post_device_info", "post_heartbeat", "fetch_all_device_info", "fetch_single_device_info", "send_command")
-    REQ_UUID_FIELD_NUMBER: _ClassVar[int]
-    POST_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
-    POST_HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
-    FETCH_ALL_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
-    FETCH_SINGLE_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
-    SEND_COMMAND_FIELD_NUMBER: _ClassVar[int]
-    req_uuid: str
-    post_device_info: DeviceInfo
-    post_heartbeat: str
-    fetch_all_device_info: _empty_pb2.Empty
-    fetch_single_device_info: str
-    send_command: Command
-    def __init__(self, req_uuid: _Optional[str] = ..., post_device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., post_heartbeat: _Optional[str] = ..., fetch_all_device_info: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., fetch_single_device_info: _Optional[str] = ..., send_command: _Optional[_Union[Command, _Mapping]] = ...) -> None: ...
-
-class ClientRequest(_message.Message):
-    __slots__ = ("req_uuid", "fetch_device_info", "post_command")
-    REQ_UUID_FIELD_NUMBER: _ClassVar[int]
-    FETCH_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
-    POST_COMMAND_FIELD_NUMBER: _ClassVar[int]
-    req_uuid: str
-    fetch_device_info: _empty_pb2.Empty
-    post_command: Command
-    def __init__(self, req_uuid: _Optional[str] = ..., fetch_device_info: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., post_command: _Optional[_Union[Command, _Mapping]] = ...) -> None: ...
+class ClientBoundPacket(_message.Message):
+    __slots__ = ("id", "timestamp", "status", "all_data_res", "turtle_cmd", "dog_cmd")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    ALL_DATA_RES_FIELD_NUMBER: _ClassVar[int]
+    TURTLE_CMD_FIELD_NUMBER: _ClassVar[int]
+    DOG_CMD_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    timestamp: float
+    status: int
+    all_data_res: AllDataResponse
+    turtle_cmd: TurtleCommand
+    dog_cmd: DogCommand
+    def __init__(self, id: _Optional[str] = ..., timestamp: _Optional[float] = ..., status: _Optional[int] = ..., all_data_res: _Optional[_Union[AllDataResponse, _Mapping]] = ..., turtle_cmd: _Optional[_Union[TurtleCommand, _Mapping]] = ..., dog_cmd: _Optional[_Union[DogCommand, _Mapping]] = ...) -> None: ...

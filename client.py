@@ -1,71 +1,215 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 from time import sleep, time
 from uuid import uuid4
 
 from websockets.sync.client import connect
 from realityapi_pb2 import DeviceInfo, DeviceType, Response, ServerRequest, Transform, Vector3
+import asyncio
+import json
+import logging
+import math
+from typing import Any
 
-URI = "ws://localhost:65432"
+from google.protobuf.message import DecodeError
+from websockets.asyncio.client import connect
+from websockets.exceptions import WebSocketException
 
-# Seconds between keepalives. Must be well under the server's TIMEOUT.
-HEARTBEAT_INTERVAL = 0.05
-
-
-def ask_float(prompt: str) -> float:
-    while True:
-        try:
-            return float(input(prompt))
-        except ValueError:
-            print("Please enter a number.")
-
-def exchange(websocket, req: ServerRequest) -> Response:
-    """Send one request and return the server's matching response."""
-    req.req_uuid = str(uuid4())
-    websocket.send(req.SerializeToString())
-
-    reply = Response()
-    reply.ParseFromString(websocket.recv())
-    if reply.req_uuid != req.req_uuid:
-        print(f"[!] response {reply.req_uuid} does not match request {req.req_uuid}")
-    return reply
+from realityapi_pb2 import (
+    ClientBoundPacket,
+    DogInfo,
+    RequestType,
+    ServerBoundPacket,
+    Vector3,
+)
 
 
-def build_device_info() -> DeviceInfo:
-    print("Building turtlebot device info")
-    device_id = input("What's your id? ")
-    x = ask_float("X coordinate? ")
-    y = ask_float("Y coordinate? ")
-    z = ask_float("Z coordinate? ")
+ROS_URI = "ws://127.0.0.1:9090"
+SERVER_URI = "ws://127.0.0.1:65432"
+ROS_TOPIC = "/utlidar/robot_pose"
+DEVICE_ID = "robot"
 
-    return DeviceInfo(
-        id=device_id,
-        device_type=DeviceType.TURTLE,
+# The server removes devices after two seconds without a packet.
+HEARTBEAT_INTERVAL = 1.0
+ROS_SILENCE_WARNING = 5.0
+RECONNECT_DELAY = 1.5
+LOG_EVERY = 10
+
+log = logging.getLogger("realityapi-client")
+
+
+def build_subscription() -> dict[str, Any]:
+    """Build the rosbridge subscription for the robot pose topic."""
+    return {
+        "op": "subscribe",
+        "id": "realityapi-position",
+        "topic": ROS_TOPIC,
+        "queue_length": 1,
+        "throttle_rate": 0,
+    }
+
+
+def coordinate(position: dict[str, Any], name: str) -> float:
+    value = position.get(name)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+    ):
+        raise ValueError(f"invalid {name} coordinate: {value!r}")
+    return float(value)
+
+
+def find_position(payload: Any) -> dict[str, Any] | None:
+    """Find position in Pose, PoseStamped, or Odometry-shaped ROS payloads."""
+    current = payload
+    while isinstance(current, dict) and "position" not in current:
+        current = current.get("pose")
+    return current.get("position") if isinstance(current, dict) else None
+
+
+def position_packet(message: dict[str, Any]) -> ServerBoundPacket:
+    payload = message.get("msg")
+    if not isinstance(payload, dict):
+        raise ValueError("payload is not an object")
+
+    position = find_position(payload)
+    if not isinstance(position, dict):
+        raise ValueError("no position object in message")
+
+    return ServerBoundPacket(
+        id=DEVICE_ID,
         timestamp=time(),
-        transform=Transform(
-            position=Vector3(x=x, y=y, z=z),
-            rotation=Vector3(x=0, y=0, z=0)
-        )
+        req_type=RequestType.DOG_INFO,
+        dog=DogInfo(
+            position=Vector3(
+                x=coordinate(position, "x"),
+                y=coordinate(position, "z"),
+                z=coordinate(position, "y"),
+            ),
+            rotation=Vector3(),
+        ),
     )
 
-def send_heartbeats(websocket, device_id: str):
-    """Keep telling the server this device is alive until interrupted."""
+
+def heartbeat_packet() -> ServerBoundPacket:
+    return ServerBoundPacket(
+        id=DEVICE_ID,
+        timestamp=time(),
+        req_type=RequestType.HEARTBEAT,
+    )
+
+
+async def send_heartbeats(websocket: Any) -> None:
     while True:
-        beat = ServerRequest(post_heartbeat=device_id)
-        print(f">>> heartbeat {device_id}")
-        reply = exchange(websocket, beat)
-        print(f"<<< {reply.WhichOneof('data')}")
-
-        sleep(HEARTBEAT_INTERVAL)
+        await websocket.send(heartbeat_packet().SerializeToString())
+        await asyncio.sleep(HEARTBEAT_INTERVAL)
 
 
-def main():
-    info = build_device_info()
-    with connect(URI) as websocket:
-        print(f">>> {info}")
-        reply = exchange(websocket, ServerRequest(post_device_info=info))
-        print(f"<<< {reply.WhichOneof('data')}")
-        send_heartbeats(websocket, info.id)
+async def receive_replies(websocket: Any) -> None:
+    async for raw in websocket:
+        if isinstance(raw, str):
+            log.warning("Ignoring text frame from server")
+            continue
+
+        reply = ClientBoundPacket()
+        try:
+            reply.ParseFromString(raw)
+        except DecodeError:
+            log.warning("Ignoring invalid protobuf from server")
+            continue
+
+        log.debug("Server reply: id=%s status=%s", reply.id, reply.status)
+
+
+async def bridge_once() -> None:
+    async with connect(ROS_URI) as ros:
+        log.info("Connected to rosbridge at %s", ROS_URI)
+        async with connect(SERVER_URI) as server:
+            log.info("Connected to Reality API server at %s", SERVER_URI)
+            await ros.send(json.dumps(build_subscription()))
+            log.info("Subscribed to %s", ROS_TOPIC)
+
+            tasks = [
+                asyncio.create_task(send_heartbeats(server)),
+                asyncio.create_task(receive_replies(server)),
+            ]
+            sent_positions = 0
+            try:
+                while True:
+                    for task in tasks:
+                        if task.done():
+                            task.result()
+                            raise ConnectionError("server connection task ended")
+
+                    try:
+                        raw = await asyncio.wait_for(
+                            ros.recv(), ROS_SILENCE_WARNING
+                        )
+                    except asyncio.TimeoutError:
+                        log.warning(
+                            "No data from rosbridge for %.0fs on %s",
+                            ROS_SILENCE_WARNING,
+                            ROS_TOPIC,
+                        )
+                        continue
+
+                    if isinstance(raw, bytes):
+                        log.warning("Ignoring binary frame from rosbridge")
+                        continue
+
+                    try:
+                        message = json.loads(raw)
+                    except json.JSONDecodeError:
+                        log.warning("Invalid JSON from rosbridge: %.200s", raw)
+                        continue
+
+                    if not isinstance(message, dict):
+                        continue
+                    if message.get("op") != "publish":
+                        log.warning("rosbridge message: %.300s", raw)
+                        continue
+
+                    try:
+                        packet = position_packet(message)
+                    except ValueError as error:
+                        log.warning("Invalid ROS position: %s", error)
+                        continue
+
+                    await server.send(packet.SerializeToString())
+                    sent_positions += 1
+                    if sent_positions == 1 or sent_positions % LOG_EVERY == 0:
+                        position = packet.dog.position
+                        log.info(
+                            "Sent dog position #%d for %s: x=%.3f y=%.3f z=%.3f",
+                            sent_positions,
+                            DEVICE_ID,
+                            position.x,
+                            position.y,
+                            position.z,
+                        )
+            finally:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def run_forever() -> None:
+    while True:
+        try:
+            await bridge_once()
+        except (ConnectionError, WebSocketException, OSError) as error:
+            log.warning("Connection lost: %s; retrying", error)
+        await asyncio.sleep(RECONNECT_DELAY)
+
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    log.info("Starting ROS bridge for %s as %s", ROS_TOPIC, DEVICE_ID)
+    asyncio.run(run_forever())
 
 
 if __name__ == "__main__":
