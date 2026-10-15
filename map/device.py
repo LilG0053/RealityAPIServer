@@ -70,9 +70,49 @@ class TurtleBot(Device):
     def device_type(self) -> DeviceType:
         return DeviceType.TURTLE
 
+@dataclass
+class Dog(Device):
+    position: Vector3
+    rotation: Vector3
+
+    @classmethod
+    def from_packet(cls, packet: ServerBoundPacket):
+        return cls(
+            id=packet.id,
+            timestamp=packet.timestamp,
+            position=packet.dog.position,
+            rotation=packet.dog.rotation,
+        )
+
+    @classmethod
+    def from_dict(cls, d: dict):
+        return cls(
+            id=d["id"],
+            timestamp=time(),
+            position=ParseDict(d.get("position", {}), Vector3()),
+            rotation=ParseDict(d.get("rotation", {}), Vector3()),
+        )
+
+    def handle_packet(self, packet: ServerBoundPacket):
+        super().handle_packet(packet)
+        if packet.HasField("dog"):
+            self.position = packet.dog.position
+            self.rotation = packet.dog.rotation
+
+    def to_dict(self) -> dict:
+        ret = super().to_dict()
+        ret["position"] = MessageToDict(self.position, always_print_fields_with_no_presence=True)
+        ret["rotation"] = MessageToDict(self.rotation, always_print_fields_with_no_presence=True)
+        return ret
+
+    def device_type(self) -> DeviceType:
+        return DeviceType.DOG
+
 def device_from_packet(packet: ServerBoundPacket) -> Device | None:
     if packet.HasField("turtle"):
         return TurtleBot.from_packet(packet)
+    if packet.HasField("dog"):
+        return Dog.from_packet(packet)
     return None
 
 def device_from_dict(d: dict) -> Device | None:
@@ -81,5 +121,7 @@ def device_from_dict(d: dict) -> Device | None:
     match d["device_type"]:
         case DeviceType.TURTLE.name:
             return TurtleBot.from_dict(d)
+        case DeviceType.DOG.name:
+            return Dog.from_dict(d)
         case _:
             return None

@@ -18,10 +18,22 @@ message TurtleCommand {
     Vector3 rotation = 2;
 }
 
+message DogInfo {
+    Vector3 position = 1;
+    Vector3 rotation = 2;
+}
+
+message DogCommand {
+    Vector3 position = 1;
+    Vector3 rotation = 2;
+}
+
+
 message DeviceInfo {
     string id = 1;
     oneof data {
         TurtleInfo turtle = 2;
+        DogInfo dog = 3;
     }
 }
 
@@ -33,6 +45,7 @@ enum RequestType {
     HEARTBEAT = 0;
     REQUEST_ALL_DATA = 1;
     TURTLE_INFO = 2;
+    DOG_INFO = 3;
 }
 
 // reqs are used to request data from the server immutably
@@ -41,6 +54,7 @@ message ServerBoundPacket {
     double timestamp = 2;
     RequestType req_type = 3;
     optional TurtleInfo turtle = 4;
+    optional DogInfo dog = 5;
 }
 
 // responses appended with _res mean they are an info only response
@@ -51,4 +65,5 @@ message ClientBoundPacket {
     int32 status = 3;
     optional AllDataResponse all_data_res = 4;
     optional TurtleCommand turtle_cmd = 5;
+    optional DogCommand dog_cmd = 6;
 }
