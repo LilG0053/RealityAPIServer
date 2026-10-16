@@ -7,6 +7,17 @@ from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
 from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3, RawLidarScan
 from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
+from google.protobuf.message import DecodeError
+
+from realityapi_pb2 import (
+    ClientBoundPacket,
+    DogInfo,
+    RequestType,
+    ServerBoundPacket,
+    TurtleInfo,
+    Vector3,
+)
+from time import time
 from map.map import Map
 from map.lidar import scan_to_world_points
 
@@ -56,6 +67,17 @@ def translate_lidar(lidar: Lidar, offset=OFFSET) -> Lidar:
 def post_device_info(info: DeviceInfo) -> Response:
     if info.HasField("transform"):
         info.transform.CopyFrom(translate_transform(info.transform))
+def translate_dog_packet(pkt: ServerBoundPacket) -> ServerBoundPacket:
+    return ServerBoundPacket(
+        id=pkt.id,
+        timestamp=pkt.timestamp,
+        req_type=pkt.req_type,
+        dog=DogInfo(
+            position=translate_vec3(pkt.dog.position),
+            rotation=pkt.dog.rotation,
+        ),
+    )
+
 def translate_dog_packet(pkt: ServerBoundPacket) -> ServerBoundPacket:
     return ServerBoundPacket(
         id=pkt.id,
