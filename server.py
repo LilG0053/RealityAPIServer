@@ -56,6 +56,25 @@ def translate_lidar(lidar: Lidar, offset=OFFSET) -> Lidar:
 def post_device_info(info: DeviceInfo) -> Response:
     if info.HasField("transform"):
         info.transform.CopyFrom(translate_transform(info.transform))
+def translate_dog_packet(pkt: ServerBoundPacket) -> ServerBoundPacket:
+    return ServerBoundPacket(
+        id=pkt.id,
+        timestamp=pkt.timestamp,
+        req_type=pkt.req_type,
+        dog=DogInfo(
+            position=translate_vec3(pkt.dog.position),
+            rotation=pkt.dog.rotation,
+        ),
+    )
+
+def handle_packet(pkt: ServerBoundPacket) -> ClientBoundPacket:
+    if pkt.req_type == RequestType.TURTLE_INFO and pkt.HasField("turtle"):
+        pkt = translate_turtlebot_packet(pkt)
+    elif pkt.req_type == RequestType.DOG_INFO and pkt.HasField("dog"):
+        pkt = translate_dog_packet(pkt)
+
+    map.handle_info_packet(pkt)
+    print(f"<<< packet from {pkt.id} ({map.get_device_type(pkt.id)})")
 
     if info.HasField("lidar"):
         info.lidar.CopyFrom(translate_lidar(info.lidar))
