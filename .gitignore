@@ -221,3 +221,7 @@ __marimo__/
 
 # Temp file from Map.export_to_json atomic write
 dashboard/updated_pos.json.tmp
+dashboard/updated_pos.json
+
+# Dashboard tooling
+dashboard/node_modules/

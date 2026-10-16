@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "google/protobuf/empty.proto";
+
 package realityapi;
 
 message Vector3 {
@@ -8,47 +10,83 @@ message Vector3 {
   float z = 3;
 }
 
-message TurtleInfo {
+message Transform {
     Vector3 position = 1;
     Vector3 rotation = 2;
 }
 
-message TurtleCommand {
-    Vector3 position = 1;
-    Vector3 rotation = 2;
+message Lidar {
+    repeated Vector3 points = 1;
+}
+
+enum DeviceType {
+    NONE = 0;
+    VR = 1;
+    AR = 2;
+    DOG = 3;
+    ARM = 4;
+    TURTLE = 5;
 }
 
 message DeviceInfo {
     string id = 1;
-    oneof data {
-        TurtleInfo turtle = 2;
-    }
+    DeviceType device_type = 2;
+    float timestamp = 3;
+
+    optional Transform transform = 4;
+    optional Lidar lidar = 5;
 }
 
-message AllDataResponse {
+message AllDeviceInfo {
     repeated DeviceInfo devices = 1;
 }
 
-enum RequestType {
-    HEARTBEAT = 0;
-    REQUEST_ALL_DATA = 1;
-    TURTLE_INFO = 2;
+message Response {
+    string request_id = 1;
+
+    oneof data {
+        // basic responses used to denote simple ok/error
+        google.protobuf.Empty ok = 2;
+        // device with id=id not found
+        google.protobuf.Empty err_id_not_found = 3;
+        // device does not support operation
+        google.protobuf.Empty err_not_supported = 4;
+
+        /* Space for more error types in future...? */
+
+        // actual responses
+        AllDeviceInfo all_device_info = 10;
+        DeviceInfo device_info = 11;
+    }
 }
 
-// reqs are used to request data from the server immutably
-message ServerBoundPacket {
+message Command {
     string id = 1;
-    double timestamp = 2;
-    RequestType req_type = 3;
-    optional TurtleInfo turtle = 4;
+
+    oneof command {
+        Transform transform = 2;
+    }
 }
 
-// responses appended with _res mean they are an info only response
-// responses appended with _cmd mean they are commands that should be executed on device
-message ClientBoundPacket {
-    string id = 1;
-    double timestamp = 2;
-    int32 status = 3;
-    optional AllDataResponse all_data_res = 4;
-    optional TurtleCommand turtle_cmd = 5;
+// Websocket envelope for the Server service: each binary frame from a client
+// is one ServerRequest, answered with one Response. Field names mirror the rpcs.
+message ServerRequest {
+    string req_uuid = 1;
+
+    oneof data {
+        DeviceInfo post_device_info = 4;
+        string post_heartbeat = 5;
+        google.protobuf.Empty fetch_all_device_info = 6;
+        string fetch_single_device_info = 7;
+        Command send_command = 8;
+    }
+}
+
+message ClientRequest {
+    string req_uuid = 1;
+
+    oneof data {
+        google.protobuf.Empty fetch_device_info = 4;
+        Command post_command = 5;
+    }
 }

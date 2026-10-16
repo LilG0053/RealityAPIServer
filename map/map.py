@@ -1,8 +1,7 @@
-from typing import Iterator
 from uuid import UUID
 from time import time
-from map.device import Device, DeviceType, TurtleBot, device_from_packet, device_from_dict
-from realityapi_pb2 import ServerBoundPacket, Vector3
+from map.device import Device, device_from_info, device_from_dict
+from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Response
 import json, os
 
 class Map:
@@ -50,38 +49,45 @@ class Map:
         except Exception as e:
             print(f"Error loading from JSON: {e}")
 
-    def handle_info_packet(self, packet: ServerBoundPacket):
-        if packet.id in self._devices: # if id of robot exists, set new position
-            device = self._devices[packet.id]
-            device.handle_packet(packet)
-            # A position report is also proof the device is still alive.
-            device.timestamp = time()
+    def handle_device_info(self, device_info: DeviceInfo) -> Response:
+        if device_info.id in self._devices: # if id of robot exists, set new position
+            device = self._devices[device_info.id]
+            device.handle_device_info(device_info)
             print(f"Set position for device: {device.id}")
         else: # if robot id does not exist, add it as a device
-            device = device_from_packet(packet)
+            device = device_from_info(device_info)
             if device is None:
-                return
+                return Response(err_not_supported={})
             self.add_device(device)
+
+        # A position report is also proof the device is still alive. Use the
+        # server clock: the float32 wire timestamp is only accurate to ~128s.
+        device.timestamp = time()
 
         # exports file to dashboard folder which updates the visual dashboard
         self.export_to_json("dashboard/updated_pos.json")
 
-    def get_device_type(self, id: str) -> DeviceType | None:
-        if not id in self._devices:
-            return None
-        return self._devices[id].device_type()
+        return Response(ok={})
 
-    def get_turtlebot_pos(self, id: str) -> Vector3 | None:
+    def handle_heartbeat(self, device_id: str) -> Response:
+        if not device_id in self._devices:
+            return Response(err_id_not_found={})
+
+        self._devices[device_id].heartbeat()
+
+        return Response(ok={})
+
+    def get_device_info(self, id: str) -> Response:
         if not id in self._devices:
             print(f"Device with id {id} does not exist")
-            return None
+            return Response(err_id_not_found={})
 
         dev = self._devices[id]
-        if type(dev) is not TurtleBot:
-            print(f"Device with id {id} is not a turtlebot")
-            return None
+        return Response(device_info=dev.get_device_info())
 
-        return dev.position
+    def get_all_device_info(self) -> Response:
+        devices = [dev.get_device_info() for dev in self._devices.values()]
+        return Response(all_device_info=AllDeviceInfo(devices=devices))
 
     def del_device(self, id: str) -> Device:
         return self._devices.pop(id)

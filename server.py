@@ -2,8 +2,9 @@
 
 import asyncio
 from websockets.asyncio.server import serve
-from realityapi_pb2 import RequestType, ServerBoundPacket, ClientBoundPacket, TurtleInfo, Vector3
-from time import time
+from google.protobuf.empty_pb2 import Empty
+from google.protobuf.message import DecodeError
+from realityapi_pb2 import Command, DeviceInfo, Response, ServerRequest, Transform, Vector3
 from map.map import Map
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
@@ -26,30 +27,58 @@ def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
         z=vec.z + offset[2],
     )
 
-# need better way to do this maybe
-def translate_turtlebot_packet(pkt: ServerBoundPacket) -> ServerBoundPacket:
-    return ServerBoundPacket(
-        id=pkt.id,
-        timestamp=pkt.timestamp,
-        req_type=pkt.req_type,
-        turtle=TurtleInfo(
-            position=translate_vec3(pkt.turtle.position),
-            rotation=pkt.turtle.rotation
-        )
+def translate_transform(transform: Transform, offset=OFFSET) -> Transform:
+    """Return a new Transform with its position shifted by the offset."""
+    return Transform(
+        position=translate_vec3(transform.position, offset),
+        rotation=transform.rotation,
     )
 
-def handle_packet(pkt: ServerBoundPacket) -> ClientBoundPacket:
-    if pkt.req_type is RequestType.TURTLE_INFO and pkt.turtle is not None:
-        pkt = translate_turtlebot_packet(pkt)
+# Handlers for each ServerRequest.data case.
 
-    map.handle_info_packet(pkt)
-    print(f"<<< heartbeat from {pkt.id} ({map.get_device_type(pkt.id)})")
+def post_device_info(info: DeviceInfo) -> Response:
+    if info.HasField("transform"):
+        info.transform.CopyFrom(translate_transform(info.transform))
 
-    return ClientBoundPacket(
-        id=pkt.id,
-        timestamp=time(),
-        status = 200,
-    )
+    print(f"<<< device info from {info.id}")
+    return map.handle_device_info(info)
+
+def post_heartbeat(device_id: str) -> Response:
+    print(f"<<< heartbeat from {device_id}")
+    return map.handle_heartbeat(device_id)
+
+def fetch_all_device_info(_: Empty) -> Response:
+    return map.get_all_device_info()
+
+def fetch_single_device_info(device_id: str) -> Response:
+    return map.get_device_info(device_id)
+
+def send_command(command: Command) -> Response:
+    if not map.exists(command.id):
+        return Response(err_id_not_found={})
+
+    # TODO: forward to the target device as a ClientRequest once the server
+    # tracks each device's connection.
+    return Response(err_not_supported={})
+
+# Keyed by the ServerRequest.data oneof field names.
+HANDLERS = {
+    "post_device_info": post_device_info,
+    "post_heartbeat": post_heartbeat,
+    "fetch_all_device_info": fetch_all_device_info,
+    "fetch_single_device_info": fetch_single_device_info,
+    "send_command": send_command,
+}
+
+def handle_request(req: ServerRequest) -> Response:
+    kind = req.WhichOneof("data")
+    if kind is None:
+        ret = Response(err_not_supported={})
+    else:
+        ret = HANDLERS[kind](getattr(req, kind))
+
+    ret.request_id = req.req_uuid
+    return ret
 
 async def handler(websocket):
     async for message in websocket:
@@ -57,17 +86,14 @@ async def handler(websocket):
             print("[!] ignoring text frame (expected binary protobuf)")
             continue
 
-        pkt = ServerBoundPacket()
-        pkt.ParseFromString(message)                      # decode
+        req = ServerRequest()
+        try:
+            req.ParseFromString(message)                  # decode
+        except DecodeError:
+            print("[!] ignoring frame that is not a ServerRequest")
+            continue
 
-        ret: ClientBoundPacket | None = None
-        match pkt.req_type:
-            case RequestType.HEARTBEAT | RequestType.TURTLE_INFO:
-                ret = handle_packet(pkt)
-
-        if ret is None:
-            return
-
+        ret = handle_request(req)
         await websocket.send(ret.SerializeToString())   # encode + send binary
 
 async def monitor(map: Map):
