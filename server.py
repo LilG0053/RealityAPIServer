@@ -2,7 +2,15 @@
 
 import asyncio
 from websockets.asyncio.server import serve
-from realityapi_pb2 import RequestType, ServerBoundPacket, ClientBoundPacket, TurtleInfo, Vector3
+from google.protobuf.message import DecodeError
+from realityapi_pb2 import (
+    ClientBoundPacket,
+    DogInfo,
+    RequestType,
+    ServerBoundPacket,
+    TurtleInfo,
+    Vector3,
+)
 from time import time
 from map.map import Map
 
@@ -38,12 +46,25 @@ def translate_turtlebot_packet(pkt: ServerBoundPacket) -> ServerBoundPacket:
         )
     )
 
+def translate_dog_packet(pkt: ServerBoundPacket) -> ServerBoundPacket:
+    return ServerBoundPacket(
+        id=pkt.id,
+        timestamp=pkt.timestamp,
+        req_type=pkt.req_type,
+        dog=DogInfo(
+            position=translate_vec3(pkt.dog.position),
+            rotation=pkt.dog.rotation,
+        ),
+    )
+
 def handle_packet(pkt: ServerBoundPacket) -> ClientBoundPacket:
     if pkt.req_type == RequestType.TURTLE_INFO and pkt.HasField("turtle"):
         pkt = translate_turtlebot_packet(pkt)
+    elif pkt.req_type == RequestType.DOG_INFO and pkt.HasField("dog"):
+        pkt = translate_dog_packet(pkt)
 
     map.handle_info_packet(pkt)
-    print(f"<<< heartbeat from {pkt.id} ({map.get_device_type(pkt.id)})")
+    print(f"<<< packet from {pkt.id} ({map.get_device_type(pkt.id)})")
 
     return ClientBoundPacket(
         id=pkt.id,
@@ -58,12 +79,22 @@ async def handler(websocket):
             continue
 
         pkt = ServerBoundPacket()
-        pkt.ParseFromString(message)                      # decode
+        try:
+            pkt.ParseFromString(message)
+        except DecodeError:
+            print("[!] ignoring invalid protobuf frame")
+            continue
 
         ret: ClientBoundPacket | None = None
         match pkt.req_type:
-            case RequestType.HEARTBEAT | RequestType.TURTLE_INFO:
+            case RequestType.HEARTBEAT:
                 ret = handle_packet(pkt)
+            case RequestType.TURTLE_INFO if pkt.HasField("turtle"):
+                ret = handle_packet(pkt)
+            case RequestType.DOG_INFO if pkt.HasField("dog"):
+                ret = handle_packet(pkt)
+            case RequestType.TURTLE_INFO | RequestType.DOG_INFO:
+                print(f"[!] ignoring {RequestType.Name(pkt.req_type)} without matching data")
 
         if ret is None:
             continue
