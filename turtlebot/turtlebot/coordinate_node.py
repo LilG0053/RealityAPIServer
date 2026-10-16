@@ -55,9 +55,9 @@ class CoordinateNode(Node):
         reply.ParseFromString(self.ws.recv())
         self.get_logger().info(f'>>> {self.describe(req)}')
         self.get_logger().info(f'<<< {reply.WhichOneof("data")}')
-        if reply.request_id != req.req_uuid:
+        if reply.req_uuid != req.req_uuid:
             self.get_logger().warning(
-                f'response {reply.request_id} does not match request {req.req_uuid}')
+                f'response {reply.req_uuid} does not match request {req.req_uuid}')
         return reply
 
     def describe(self, req: ServerRequest) -> str:

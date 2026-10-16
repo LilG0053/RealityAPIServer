@@ -26,8 +26,8 @@ def exchange(websocket, req: ServerRequest) -> Response:
 
     reply = Response()
     reply.ParseFromString(websocket.recv())
-    if reply.request_id != req.req_uuid:
-        print(f"[!] response {reply.request_id} does not match request {req.req_uuid}")
+    if reply.req_uuid != req.req_uuid:
+        print(f"[!] response {reply.req_uuid} does not match request {req.req_uuid}")
     return reply
 
 

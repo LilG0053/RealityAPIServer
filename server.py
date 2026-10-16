@@ -54,7 +54,7 @@ def fetch_single_device_info(device_id: str) -> Response:
     return map.get_device_info(device_id)
 
 def send_command(command: Command) -> Response:
-    if not map.exists(command.id):
+    if not map.exists(command.target_id):
         return Response(err_id_not_found={})
 
     # TODO: forward to the target device as a ClientRequest once the server
@@ -77,7 +77,7 @@ def handle_request(req: ServerRequest) -> Response:
     else:
         ret = HANDLERS[kind](getattr(req, kind))
 
-    ret.request_id = req.req_uuid
+    ret.req_uuid = req.req_uuid
     return ret
 
 async def handler(websocket):

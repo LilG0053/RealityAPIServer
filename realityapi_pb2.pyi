@@ -68,28 +68,32 @@ class AllDeviceInfo(_message.Message):
     def __init__(self, devices: _Optional[_Iterable[_Union[DeviceInfo, _Mapping]]] = ...) -> None: ...
 
 class Response(_message.Message):
-    __slots__ = ("request_id", "ok", "err_id_not_found", "err_not_supported", "all_device_info", "device_info")
-    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("req_uuid", "ok", "err_id_not_found", "err_not_supported", "err_cannot_execute", "err_failed_execute", "all_device_info", "device_info")
+    REQ_UUID_FIELD_NUMBER: _ClassVar[int]
     OK_FIELD_NUMBER: _ClassVar[int]
     ERR_ID_NOT_FOUND_FIELD_NUMBER: _ClassVar[int]
     ERR_NOT_SUPPORTED_FIELD_NUMBER: _ClassVar[int]
+    ERR_CANNOT_EXECUTE_FIELD_NUMBER: _ClassVar[int]
+    ERR_FAILED_EXECUTE_FIELD_NUMBER: _ClassVar[int]
     ALL_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
     DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
-    request_id: str
+    req_uuid: str
     ok: _empty_pb2.Empty
     err_id_not_found: _empty_pb2.Empty
     err_not_supported: _empty_pb2.Empty
+    err_cannot_execute: _empty_pb2.Empty
+    err_failed_execute: _empty_pb2.Empty
     all_device_info: AllDeviceInfo
     device_info: DeviceInfo
-    def __init__(self, request_id: _Optional[str] = ..., ok: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_id_not_found: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_not_supported: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., all_device_info: _Optional[_Union[AllDeviceInfo, _Mapping]] = ..., device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ...) -> None: ...
+    def __init__(self, req_uuid: _Optional[str] = ..., ok: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_id_not_found: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_not_supported: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_cannot_execute: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_failed_execute: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., all_device_info: _Optional[_Union[AllDeviceInfo, _Mapping]] = ..., device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ...) -> None: ...
 
 class Command(_message.Message):
-    __slots__ = ("id", "transform")
-    ID_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("target_id", "transform")
+    TARGET_ID_FIELD_NUMBER: _ClassVar[int]
     TRANSFORM_FIELD_NUMBER: _ClassVar[int]
-    id: str
+    target_id: str
     transform: Transform
-    def __init__(self, id: _Optional[str] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ...) -> None: ...
+    def __init__(self, target_id: _Optional[str] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ...) -> None: ...
 
 class ServerRequest(_message.Message):
     __slots__ = ("req_uuid", "post_device_info", "post_heartbeat", "fetch_all_device_info", "fetch_single_device_info", "send_command")

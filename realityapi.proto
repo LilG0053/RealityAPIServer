@@ -42,35 +42,39 @@ message AllDeviceInfo {
 }
 
 message Response {
-    string request_id = 1;
+    // corresponds to the request that this is a response to
+    string req_uuid = 1;
 
     oneof data {
-        // basic responses used to denote simple ok/error
-        google.protobuf.Empty ok = 2;
-        // device with id=id not found
-        google.protobuf.Empty err_id_not_found = 3;
-        // device does not support operation
-        google.protobuf.Empty err_not_supported = 4;
+        // basic response used to denote simple ok
+        google.protobuf.Empty ok = 4;
+        // device with id not found
+        google.protobuf.Empty err_id_not_found = 5;
+        // device/server does not support operation
+        google.protobuf.Empty err_not_supported = 6;
+        // device/server cannot execute operation at this time
+        google.protobuf.Empty err_cannot_execute = 7;
+        // device/server failed while executing operation
+        google.protobuf.Empty err_failed_execute = 8;
 
-        /* Space for more error types in future...? */
+        /* Ample space for more success/error types in future...? */
 
         // actual responses
-        AllDeviceInfo all_device_info = 10;
-        DeviceInfo device_info = 11;
+        AllDeviceInfo all_device_info = 20;
+        DeviceInfo device_info = 21;
     }
 }
 
 message Command {
-    string id = 1;
+    // this is the target of the command
+    string target_id = 1;
 
-    oneof command {
-        Transform transform = 2;
-    }
+    // multiple demands can be packaged into one command
+    optional Transform transform = 2;
 }
 
-// Websocket envelope for the Server service: each binary frame from a client
-// is one ServerRequest, answered with one Response. Field names mirror the rpcs.
 message ServerRequest {
+    // set this and remember it!
     string req_uuid = 1;
 
     oneof data {
@@ -83,6 +87,7 @@ message ServerRequest {
 }
 
 message ClientRequest {
+    // set this and remember it!
     string req_uuid = 1;
 
     oneof data {
