@@ -39,7 +39,7 @@ class Map:
             for device_data in devices_data:
                 device = device_from_dict(device_data)
                 if device is None:
-                    print(f"Failed to load device {device_data["id"]} (may be in wrong format)")
+                    print(f"Failed to load device {device_data.get('id')} (may be in wrong format)")
                     continue
                 self.add_device(device)
                 devices_loaded += 1
