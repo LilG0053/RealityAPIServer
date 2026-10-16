@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { DeviceType, ResponseSchema, ServerRequestSchema } from "./gen/realityapi_pb.js";
 
 const sceneContainer = document.getElementById("scene-container");
 
@@ -175,20 +177,20 @@ function stringToColor(str) {
 }
 
 // Helper function to create or update robot marker
-function updateRobotMarker(device) {
-  const key = `${device.id}-${device.device_type}`;
+function updateRobotMarker(key, device) {
+  const position = device.transform.position;
   const color = stringToColor(device.id);
 
   if (robotMarkers[key]) {
     // Update existing marker position
-    robotMarkers[key].position.set(device.position.x, 0.3, device.position.z);
+    robotMarkers[key].position.set(position.x, 0.3, position.z);
   } else {
     // Create new marker
     const marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.2, 32, 32),
       new THREE.MeshBasicMaterial({ color: parseInt(color.replace('#', '0x')) })
     );
-    marker.position.set(device.position.x, 0.3, device.position.z);
+    marker.position.set(position.x, 0.3, position.z);
     scene.add(marker);
     robotMarkers[key] = marker;
   }
@@ -209,63 +211,124 @@ function resizeRenderer() {
 
 window.addEventListener("resize", resizeRenderer);
 
-// Poll positions from JSON file
+// Server connection
+// The dashboard is served from the same machine as the realityapi server.
+const SERVER_URL = `ws://${location.hostname || "localhost"}:65432`;
+
+// How long to wait between FetchAllDeviceInfo polls (ms).
+const POLL_INTERVAL = 50;
+
+// How long to wait before reconnecting after the socket closes (ms).
+const RECONNECT_DELAY = 1000;
+
+let socket = null;
+let nextRequestId = 0;
+// Callbacks for requests still waiting on a Response, keyed by request id.
+const pendingRequests = new Map();
+
+function connect() {
+  socket = new WebSocket(SERVER_URL);
+  socket.binaryType = "arraybuffer";
+
+  socket.addEventListener("message", (event) => {
+    const response = fromBinary(ResponseSchema, new Uint8Array(event.data));
+    const pending = pendingRequests.get(response.requestId);
+    if (pending) {
+      pendingRequests.delete(response.requestId);
+      pending.resolve(response);
+    }
+  });
+
+  socket.addEventListener("close", () => {
+    for (const pending of pendingRequests.values()) {
+      pending.reject(new Error("connection closed"));
+    }
+    pendingRequests.clear();
+    setTimeout(connect, RECONNECT_DELAY);
+  });
+}
+
+// Send one ServerRequest and resolve with the matching Response.
+function request(data) {
+  const reqUuid = String(nextRequestId++);
+  const message = create(ServerRequestSchema, { reqUuid, data });
+
+  return new Promise((resolve, reject) => {
+    pendingRequests.set(reqUuid, { resolve, reject });
+    socket.send(toBinary(ServerRequestSchema, message));
+  });
+}
+
+// Track device positions
 let lastPositions = {};
 
-async function fetchPositions() {
-  try {
-    // no-store skips the browser cache; http.server's Last-Modified is only
-    // accurate to the second, so cached revalidation returns stale positions.
-    const response = await fetch('updated_pos.json', { cache: 'no-store' });
-    const devices = await response.json();
+function updateDevices(devices) {
+  const currentKeys = new Set();
+  devices.forEach(device => {
+    // Only devices that report a transform have a place on the map.
+    if (!device.transform?.position) return;
 
-    // Get current device keys from JSON
-    const currentKeys = new Set();
-    devices.forEach(device => {
-      const key = `${device.id}-${device.device_type}`;
-      currentKeys.add(key);
+    const key = `${device.id}-${device.deviceType}`;
+    currentKeys.add(key);
 
-      const newPos = { x: device.position.x, z: device.position.z };
+    const position = device.transform.position;
+    const newPos = { x: position.x, z: position.z };
 
-      // Update 3D marker
-      updateRobotMarker(device);
+    // Update 3D marker
+    updateRobotMarker(key, device);
 
-      // Check if position changed or device is new
-      if (!lastPositions[key] ||
-        (Math.abs(lastPositions[key].x - newPos.x) > 0.01 || Math.abs(lastPositions[key].z - newPos.z) > 0.01)) {
-        // Update log
-        const logContainer = document.getElementById("log-container");
-        const logEntry = document.createElement("div");
-        logEntry.className = "log-entry";
-        const status = lastPositions[key] ? "moved" : "connected";
-        const color = stringToColor(device.id);
-        logEntry.innerHTML = `
-          <span class="name" style="color: ${color}">${device.id}</span>
-          <span class="status" style="color: ${color}">${status}</span>
-          <div class="coordinates">X: ${device.position.x.toFixed(2)} m · Z: ${device.position.z.toFixed(2)} m</div>
-        `;
-        logContainer.appendChild(logEntry);
-        // Auto-scroll to bottom (scroll the dashboard parent)
-        const dashboard = document.querySelector('.dashboard');
-        dashboard.scrollTop = dashboard.scrollHeight;
+    // Check if position changed or device is new
+    if (!lastPositions[key] ||
+      (Math.abs(lastPositions[key].x - newPos.x) > 0.01 || Math.abs(lastPositions[key].z - newPos.z) > 0.01)) {
+      // Update log
+      const logContainer = document.getElementById("log-container");
+      const logEntry = document.createElement("div");
+      logEntry.className = "log-entry";
+      const status = lastPositions[key] ? "moved" : "connected";
+      const color = stringToColor(device.id);
+      logEntry.innerHTML = `
+        <span class="name" style="color: ${color}">${device.id}</span>
+        <span class="status" style="color: ${color}">${DeviceType[device.deviceType]} ${status}</span>
+        <div class="coordinates">X: ${position.x.toFixed(2)} m · Z: ${position.z.toFixed(2)} m</div>
+      `;
+      logContainer.appendChild(logEntry);
+      // Auto-scroll to bottom (scroll the dashboard parent)
+      const dashboard = document.querySelector('.dashboard');
+      dashboard.scrollTop = dashboard.scrollHeight;
+    }
+
+    lastPositions[key] = newPos;
+  });
+
+  // Remove devices the server no longer reports
+  Object.keys(robotMarkers).forEach(key => {
+    if (!currentKeys.has(key)) {
+      scene.remove(robotMarkers[key]);
+      delete robotMarkers[key];
+      delete lastPositions[key];
+    }
+  });
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Ask the server for every device's state, one request at a time.
+async function pollDevices() {
+  while (true) {
+    if (socket.readyState === WebSocket.OPEN) {
+      try {
+        const response = await request({ case: "fetchAllDeviceInfo", value: {} });
+        if (response.data.case === "allDeviceInfo") {
+          updateDevices(response.data.value.devices);
+        }
+      } catch (error) {
+        console.error("Error fetching devices:", error);
       }
-
-      lastPositions[key] = newPos;
-    });
-
-    // Remove devices that are no longer in JSON
-    Object.keys(robotMarkers).forEach(key => {
-      if (!currentKeys.has(key)) {
-        scene.remove(robotMarkers[key]);
-        delete robotMarkers[key];
-        delete lastPositions[key];
-      }
-    });
-  } catch (error) {
-    console.error("Error fetching positions:", error);
+    }
+    await sleep(POLL_INTERVAL);
   }
 }
 
-// Poll latest exported device snapshot from updated_pos.json every 50ms
-setInterval(fetchPositions, 50);
+connect();
+pollDevices();
 animate();

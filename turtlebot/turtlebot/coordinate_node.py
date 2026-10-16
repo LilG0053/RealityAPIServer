@@ -1,5 +1,6 @@
 # FOR TESTING W/ KEYBOARD: ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true
 from time import time
+from uuid import uuid4
 
 import rclpy
 from nav_msgs.msg import Odometry
@@ -8,8 +9,7 @@ from rclpy.qos import qos_profile_sensor_data
 from websockets.sync.client import connect
 
 from init_turtlebot import create_turtlebot
-from realityapi_pb2 import (ClientBoundPacket, RequestType, ServerBoundPacket,
-                            TurtleInfo, Vector3)
+from realityapi_pb2 import Response, ServerRequest, Vector3
 
 SERVER_URI = "ws://10.89.51.240:65432"
 
@@ -22,7 +22,7 @@ class CoordinateNode(Node):
         super().__init__('coordinate_node')
         self.robot = create_turtlebot()
         self.ws = connect(SERVER_URI)
-        self.send_packet(self.position_packet())
+        self.post_device_info()
 
         self.odom_sub = self.create_subscription(
             Odometry,
@@ -35,44 +35,36 @@ class CoordinateNode(Node):
     def position_update_callback(self, data: Odometry):
         position = data.pose.pose.position
         new_pos = Vector3(x=position.x, y=position.z, z=position.y)
-        if (new_pos.x == self.robot.position.x
-                and new_pos.y == self.robot.position.y
-                and new_pos.z == self.robot.position.z):
+        if new_pos == self.robot.transform.position:
             return
 
-        self.robot.position = new_pos
-        self.robot.timestamp = time()
-        self.send_packet(self.position_packet())
+        self.robot.transform.position.CopyFrom(new_pos)
+        self.post_device_info()
 
     def heartbeat_callback(self):
+        self.send_request(ServerRequest(post_heartbeat=self.robot.id))
+
+    def post_device_info(self):
         self.robot.timestamp = time()
-        self.send_packet(ServerBoundPacket(
-            id=self.robot.id,
-            timestamp=self.robot.timestamp,
-            req_type=RequestType.HEARTBEAT,
-        ))
+        self.send_request(ServerRequest(post_device_info=self.robot.get_device_info()))
 
-    def position_packet(self) -> ServerBoundPacket:
-        return ServerBoundPacket(
-            id=self.robot.id,
-            timestamp=time(),
-            req_type=RequestType.TURTLE_INFO,
-            turtle=TurtleInfo(position=self.robot.position,
-                              rotation=self.robot.rotation),
-        )
-
-    def send_packet(self, pkt: ServerBoundPacket):
-        self.ws.send(pkt.SerializeToString())
-        reply = ClientBoundPacket()
+    def send_request(self, req: ServerRequest) -> Response:
+        req.req_uuid = str(uuid4())
+        self.ws.send(req.SerializeToString())
+        reply = Response()
         reply.ParseFromString(self.ws.recv())
-        self.get_logger().info(f'>>> {self.describe(pkt)}')
-        self.get_logger().info(f'<<< {self.describe(reply)}')
+        self.get_logger().info(f'>>> {self.describe(req)}')
+        self.get_logger().info(f'<<< {reply.WhichOneof("data")}')
+        if reply.req_uuid != req.req_uuid:
+            self.get_logger().warning(
+                f'response {reply.req_uuid} does not match request {req.req_uuid}')
+        return reply
 
-    def describe(self, pkt) -> str:
-        if isinstance(pkt, ServerBoundPacket) and pkt.HasField("turtle"):
-            p = pkt.turtle.position
-            return f'({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) id {pkt.id}'
-        return f'{type(pkt).__name__} {pkt.timestamp:.3f} id {pkt.id}'
+    def describe(self, req: ServerRequest) -> str:
+        if req.HasField("post_heartbeat"):
+            return f'heartbeat id {req.post_heartbeat}'
+        p = req.post_device_info.transform.position
+        return f'({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) id {req.post_device_info.id}'
 
     def destroy_node(self):
         self.ws.close()
