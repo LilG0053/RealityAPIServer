@@ -4,32 +4,38 @@ from realityapi_pb2 import DeviceType, Transform, Vector3, DeviceInfo, Lidar
 from google.protobuf.json_format import MessageToDict, ParseDict
 from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
 
+
+def zero_transform() -> Transform:
+    return Transform(position=Vector3(), rotation=Vector3())
+
+
 @dataclass
 class Device:
     id: str
-    device_type: DeviceType
+    device_type: int
     timestamp: float
     coordinate_system: CoordinateSystem | None = field(default=None, kw_only=True)
 
-    def handle_device_info(self, device_info: DeviceInfo):
+    def handle_device_info(self, device_info: DeviceInfo) -> None:
         self.id = device_info.id
+        self.device_type = device_info.device_type
         self.timestamp = device_info.timestamp
 
     def get_device_info(self, target_coords: CoordinateSystem | None = None) -> DeviceInfo:
         return DeviceInfo(id=self.id, device_type=self.device_type, timestamp=self.timestamp)
 
-    def heartbeat(self):
+    def heartbeat(self) -> None:
         self.timestamp = time()
 
-    def to_dict(self) -> dict:
-        ret = {
+    def to_dict(self) -> dict[str, Any]:
+        return {
             "id": self.id,
-            "device_type": self.device_type
+            "device_type": DeviceType.Name(self.device_type),
         }
-        return ret
+
 
 @dataclass
-class TurtleBot(Device):
+class TransformDevice(Device):
     transform: Transform
     lidar: Lidar
     initial_heading: InitVar[Direction] = Direction.NORTH
@@ -119,84 +125,93 @@ class Dog(Device):
             timestamp=packet.timestamp,
             position=packet.dog.position,
             rotation=packet.dog.rotation,
+    def handle_device_info(self, device_info: DeviceInfo) -> None:
+        super().handle_device_info(device_info)
+        if device_info.HasField("transform"):
+            self.transform.CopyFrom(device_info.transform)
+
+    def get_device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            id=self.id,
+            device_type=self.device_type,
+            timestamp=self.timestamp,
+            transform=self.transform,
         )
 
-    @classmethod
-    def from_dict(cls, d: dict):
-        return cls(
-            id=d["id"],
-            timestamp=time(),
-            position=ParseDict(d.get("position", {}), Vector3()),
-            rotation=ParseDict(d.get("rotation", {}), Vector3()),
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        result["transform"] = MessageToDict(
+            self.transform,
+            always_print_fields_with_no_presence=True,
         )
+        return result
 
-    def handle_packet(self, packet: ServerBoundPacket):
-        super().handle_packet(packet)
-        if packet.HasField("dog"):
-            self.position = packet.dog.position
-            self.rotation = packet.dog.rotation
-
-    def to_dict(self) -> dict:
-        ret = super().to_dict()
-        ret["position"] = MessageToDict(self.position, always_print_fields_with_no_presence=True)
-        ret["rotation"] = MessageToDict(self.rotation, always_print_fields_with_no_presence=True)
-        return ret
-
-    def device_type(self) -> DeviceType:
-        return DeviceType.DOG
 
 @dataclass
-class Dog(Device):
-    position: Vector3
-    rotation: Vector3
+class TurtleBot(TransformDevice):
+    @classmethod
+    def from_packet(cls, device_info: DeviceInfo) -> "TurtleBot":
+        return cls(
+            id=device_info.id,
+            device_type=device_info.device_type,
+            timestamp=device_info.timestamp,
+            transform=Transform(),
+        )._copy_transform(device_info)
 
     @classmethod
-    def from_packet(cls, packet: ServerBoundPacket):
+    def from_dict(cls, data: dict[str, Any]) -> "TurtleBot":
         return cls(
-            id=packet.id,
-            timestamp=packet.timestamp,
-            position=packet.dog.position,
-            rotation=packet.dog.rotation,
-        )
-
-    @classmethod
-    def from_dict(cls, d: dict):
-        return cls(
-            id=d["id"],
+            id=data["id"],
+            device_type=DeviceType.TURTLE,
             timestamp=time(),
-            position=ParseDict(d.get("position", {}), Vector3()),
-            rotation=ParseDict(d.get("rotation", {}), Vector3()),
+            transform=ParseDict(data.get("transform", {}), zero_transform()),
         )
 
-    def handle_packet(self, packet: ServerBoundPacket):
-        super().handle_packet(packet)
-        if packet.HasField("dog"):
-            self.position = packet.dog.position
-            self.rotation = packet.dog.rotation
+    def _copy_transform(self, device_info: DeviceInfo) -> "TurtleBot":
+        if device_info.HasField("transform"):
+            self.transform.CopyFrom(device_info.transform)
+        return self
 
-    def to_dict(self) -> dict:
-        ret = super().to_dict()
-        ret["position"] = MessageToDict(self.position, always_print_fields_with_no_presence=True)
-        ret["rotation"] = MessageToDict(self.rotation, always_print_fields_with_no_presence=True)
-        return ret
 
-    def device_type(self) -> DeviceType:
-        return DeviceType.DOG
+@dataclass
+class Dog(TransformDevice):
+    @classmethod
+    def from_packet(cls, device_info: DeviceInfo) -> "Dog":
+        dog = cls(
+            id=device_info.id,
+            device_type=device_info.device_type,
+            timestamp=device_info.timestamp,
+            transform=Transform(),
+        )
+        return dog._copy_transform(device_info)
 
-def device_from_packet(packet: ServerBoundPacket) -> Device | None:
-    if packet.HasField("turtle"):
-        return TurtleBot.from_packet(packet)
-    if packet.HasField("dog"):
-        return Dog.from_packet(packet)
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Dog":
+        return cls(
+            id=data["id"],
+            device_type=DeviceType.DOG,
+            timestamp=time(),
+            transform=ParseDict(data.get("transform", {}), zero_transform()),
+        )
+
+    def _copy_transform(self, device_info: DeviceInfo) -> "Dog":
+        if device_info.HasField("transform"):
+            self.transform.CopyFrom(device_info.transform)
+        return self
+
+
+def device_from_info(device_info: DeviceInfo) -> Device | None:
+    if device_info.device_type == DeviceType.TURTLE:
+        return TurtleBot.from_packet(device_info)
+    if device_info.device_type == DeviceType.DOG:
+        return Dog.from_packet(device_info)
     return None
 
-def device_from_dict(d: dict) -> Device | None:
-    if not "device_type" in d:
-        return None
-    match d["device_type"]:
-        case DeviceType.TURTLE:
-            return TurtleBot.from_dict(d)
-        case DeviceType.DOG.name:
-            return Dog.from_dict(d)
-        case _:
-            return None
+
+def device_from_dict(data: dict[str, Any]) -> Device | None:
+    device_type = data.get("device_type")
+    if device_type in (DeviceType.TURTLE, "TURTLE"):
+        return TurtleBot.from_dict(data)
+    if device_type in (DeviceType.DOG, "DOG"):
+        return Dog.from_dict(data)
+    return None

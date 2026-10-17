@@ -1,27 +1,17 @@
 #!/usr/bin/env python3
 
-from time import sleep, time
-from uuid import uuid4
-
-from websockets.sync.client import connect
-from realityapi_pb2 import DeviceInfo, DeviceType, Response, ServerRequest, Transform, Vector3
 import asyncio
 import json
 import logging
 import math
+from time import time
 from typing import Any
+from uuid import uuid4
 
 from google.protobuf.message import DecodeError
+from realityapi_pb2 import DeviceInfo, DeviceType, Response, ServerRequest, Transform, Vector3
 from websockets.asyncio.client import connect
 from websockets.exceptions import WebSocketException
-
-from realityapi_pb2 import (
-    ClientBoundPacket,
-    DogInfo,
-    RequestType,
-    ServerBoundPacket,
-    Vector3,
-)
 
 
 ROS_URI = "ws://127.0.0.1:9090"
@@ -51,11 +41,7 @@ def build_subscription() -> dict[str, Any]:
 
 def coordinate(position: dict[str, Any], name: str) -> float:
     value = position.get(name)
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-    ):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise ValueError(f"invalid {name} coordinate: {value!r}")
     return float(value)
 
@@ -68,7 +54,7 @@ def find_position(payload: Any) -> dict[str, Any] | None:
     return current.get("position") if isinstance(current, dict) else None
 
 
-def position_packet(message: dict[str, Any]) -> ServerBoundPacket:
+def position_request(message: dict[str, Any]) -> ServerRequest:
     payload = message.get("msg")
     if not isinstance(payload, dict):
         raise ValueError("payload is not an object")
@@ -77,32 +63,32 @@ def position_packet(message: dict[str, Any]) -> ServerBoundPacket:
     if not isinstance(position, dict):
         raise ValueError("no position object in message")
 
-    return ServerBoundPacket(
-        id=DEVICE_ID,
-        timestamp=time(),
-        req_type=RequestType.DOG_INFO,
-        dog=DogInfo(
-            position=Vector3(
-                x=coordinate(position, "x"),
-                y=coordinate(position, "z"),
-                z=coordinate(position, "y"),
-            ),
-            rotation=Vector3(),
+    transform = Transform(
+        position=Vector3(
+            x=coordinate(position, "x"),
+            y=coordinate(position, "z"),
+            z=coordinate(position, "y"),
+        ),
+        rotation=Vector3(),
+    )
+    return ServerRequest(
+        req_uuid=str(uuid4()),
+        post_device_info=DeviceInfo(
+            id=DEVICE_ID,
+            device_type=DeviceType.DOG,
+            timestamp=time(),
+            transform=transform,
         ),
     )
 
 
-def heartbeat_packet() -> ServerBoundPacket:
-    return ServerBoundPacket(
-        id=DEVICE_ID,
-        timestamp=time(),
-        req_type=RequestType.HEARTBEAT,
-    )
+def heartbeat_request() -> ServerRequest:
+    return ServerRequest(req_uuid=str(uuid4()), post_heartbeat=DEVICE_ID)
 
 
 async def send_heartbeats(websocket: Any) -> None:
     while True:
-        await websocket.send(heartbeat_packet().SerializeToString())
+        await websocket.send(heartbeat_request().SerializeToString())
         await asyncio.sleep(HEARTBEAT_INTERVAL)
 
 
@@ -112,14 +98,18 @@ async def receive_replies(websocket: Any) -> None:
             log.warning("Ignoring text frame from server")
             continue
 
-        reply = ClientBoundPacket()
+        reply = Response()
         try:
             reply.ParseFromString(raw)
         except DecodeError:
             log.warning("Ignoring invalid protobuf from server")
             continue
 
-        log.debug("Server reply: id=%s status=%s", reply.id, reply.status)
+        log.debug(
+            "Server reply: req_uuid=%s data=%s",
+            reply.req_uuid,
+            reply.WhichOneof("data"),
+        )
 
 
 async def bridge_once() -> None:
@@ -143,9 +133,7 @@ async def bridge_once() -> None:
                             raise ConnectionError("server connection task ended")
 
                     try:
-                        raw = await asyncio.wait_for(
-                            ros.recv(), ROS_SILENCE_WARNING
-                        )
+                        raw = await asyncio.wait_for(ros.recv(), ROS_SILENCE_WARNING)
                     except asyncio.TimeoutError:
                         log.warning(
                             "No data from rosbridge for %.0fs on %s",
@@ -171,15 +159,15 @@ async def bridge_once() -> None:
                         continue
 
                     try:
-                        packet = position_packet(message)
+                        request = position_request(message)
                     except ValueError as error:
                         log.warning("Invalid ROS position: %s", error)
                         continue
 
-                    await server.send(packet.SerializeToString())
+                    await server.send(request.SerializeToString())
                     sent_positions += 1
                     if sent_positions == 1 or sent_positions % LOG_EVERY == 0:
-                        position = packet.dog.position
+                        position = request.post_device_info.transform.position
                         log.info(
                             "Sent dog position #%d for %s: x=%.3f y=%.3f z=%.3f",
                             sent_positions,
@@ -204,10 +192,7 @@ async def run_forever() -> None:
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     log.info("Starting ROS bridge for %s as %s", ROS_TOPIC, DEVICE_ID)
     asyncio.run(run_forever())
 
