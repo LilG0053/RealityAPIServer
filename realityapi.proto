@@ -28,17 +28,6 @@ enum DeviceType {
     TURTLE = 5;
 }
 
-message DogInfo {
-    Vector3 position = 1;
-    Vector3 rotation = 2;
-}
-
-message DogCommand {
-    Vector3 position = 1;
-    Vector3 rotation = 2;
-}
-
-
 message DeviceInfo {
     string id = 1;
     DeviceType device_type = 2;
@@ -46,10 +35,6 @@ message DeviceInfo {
 
     optional Transform transform = 4;
     optional Lidar lidar = 5;
-    oneof data {
-        TurtleInfo turtle = 2;
-        DogInfo dog = 3;
-    }
 }
 
 message AllDeviceInfo {
@@ -109,11 +94,4 @@ message ClientRequest {
         google.protobuf.Empty fetch_device_info = 4;
         Command post_command = 5;
     }
-}
-
-enum RequestType {
-    HEARTBEAT = 0;
-    REQUEST_ALL_DATA = 1;
-    TURTLE_INFO = 2;
-    DOG_INFO = 3;
 }

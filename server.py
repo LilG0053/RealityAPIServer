@@ -50,6 +50,17 @@ def translate_dog_packet(pkt: ServerBoundPacket) -> ServerBoundPacket:
         ),
     )
 
+def translate_dog_packet(pkt: ServerBoundPacket) -> ServerBoundPacket:
+    return ServerBoundPacket(
+        id=pkt.id,
+        timestamp=pkt.timestamp,
+        req_type=pkt.req_type,
+        dog=DogInfo(
+            position=translate_vec3(pkt.dog.position),
+            rotation=pkt.dog.rotation,
+        ),
+    )
+
 def handle_packet(pkt: ServerBoundPacket) -> ClientBoundPacket:
     if pkt.req_type == RequestType.TURTLE_INFO and pkt.HasField("turtle"):
         pkt = translate_turtlebot_packet(pkt)
