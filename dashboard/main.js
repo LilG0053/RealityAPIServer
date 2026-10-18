@@ -176,21 +176,43 @@ function stringToColor(str) {
   return "#" + "00000".substring(0, 6 - c.length) + c;
 }
 
+// Flat chevron lying in the marker's XZ plane, pointing along local +X
+function createChevron(material) {
+  const shape = new THREE.Shape();
+  shape.moveTo(0.18, 0);      // tip
+  shape.lineTo(0, 0.14);
+  shape.lineTo(0.05, 0);      // inner notch
+  shape.lineTo(0, -0.14);
+  shape.closePath();
+
+  const chevron = new THREE.Mesh(new THREE.ShapeGeometry(shape), material);
+  // ShapeGeometry is drawn in XY; lay it flat so it reads from above.
+  chevron.rotation.x = -Math.PI / 2;
+  chevron.position.set(0.25, 0, 0);
+  return chevron;
+}
+
 // Helper function to create or update robot marker
 function updateRobotMarker(key, device) {
   const position = device.transform.position;
+  const rotation = device.transform.rotation
   const color = stringToColor(device.id);
 
   if (robotMarkers[key]) {
     // Update existing marker position
     robotMarkers[key].position.set(position.x, 0.3, position.z);
+    // Three.js +Y rotation turns +X toward -Z; device headings turn +X toward +Z.
+    robotMarkers[key].rotation.set(rotation.x, -rotation.y, rotation.z);
   } else {
     // Create new marker
-    const marker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.2, 32, 32),
-      new THREE.MeshBasicMaterial({ color: parseInt(color.replace('#', '0x')) })
-    );
+    const material = new THREE.MeshBasicMaterial({
+      color: parseInt(color.replace('#', '0x')),
+      side: THREE.DoubleSide
+    });
+    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.2, 32, 32), material);
+    marker.add(createChevron(material));
     marker.position.set(position.x, 0.3, position.z);
+    marker.rotation.set(rotation.x, -rotation.y, rotation.z);
     scene.add(marker);
     robotMarkers[key] = marker;
   }
@@ -232,9 +254,9 @@ function connect() {
 
   socket.addEventListener("message", (event) => {
     const response = fromBinary(ResponseSchema, new Uint8Array(event.data));
-    const pending = pendingRequests.get(response.requestId);
+    const pending = pendingRequests.get(response.reqUuid);
     if (pending) {
-      pendingRequests.delete(response.requestId);
+      pendingRequests.delete(response.reqUuid);
       pending.resolve(response);
     }
   });
@@ -273,6 +295,9 @@ function updateDevices(devices) {
 
     const position = device.transform.position;
     const newPos = { x: position.x, z: position.z };
+
+    const rotation = device.transform.rotation;
+    const newrot = { x: rotation.x, y: rotation.y, z: rotation.z };
 
     // Update 3D marker
     updateRobotMarker(key, device);
