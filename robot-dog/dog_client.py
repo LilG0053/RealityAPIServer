@@ -3,14 +3,20 @@
 import asyncio
 import json
 import logging
+import sys
+from pathlib import Path
 from typing import Any, Callable
+
+CLIENT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(CLIENT_DIR))
+sys.path.insert(0, str(CLIENT_DIR.parent))
 
 from google.protobuf.message import DecodeError
 from realityapi_pb2 import Response
 from websockets.asyncio.client import connect
 from websockets.exceptions import WebSocketException
 
-from dog_client import DEVICE_ID, ROS_TOPIC, heartbeat_request, position_request
+from dog_protocol import DEVICE_ID, ROS_TOPIC, heartbeat_request, position_request
 from ros_bridge import build_subscription, decode_publish_message
 
 
