@@ -1,15 +1,17 @@
 # FOR TESTING W/ KEYBOARD: ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true
 from time import time
 from uuid import uuid4
+import math
 
 import rclpy
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import LaserScan
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from websockets.sync.client import connect
 
 from init_turtlebot import create_turtlebot
-from realityapi_pb2 import Response, ServerRequest, Vector3
+from realityapi_pb2 import Response, ServerRequest, Vector3, Lidar
 
 SERVER_URI = "ws://10.89.51.240:65432"
 
@@ -30,16 +32,50 @@ class CoordinateNode(Node):
             self.position_update_callback,
             qos_profile_sensor_data
         )
+
+        self.scan_sub = self.create_subscription(
+            LaserScan,
+            '/scan',
+            self.lidar_update_callback,
+            qos_profile_sensor_data
+        )
+
         self.create_timer(HEARTBEAT_INTERVAL, self.heartbeat_callback)
 
     def position_update_callback(self, data: Odometry):
         position = data.pose.pose.position
         new_pos = Vector3(x=position.x, y=position.z, z=position.y)
-        if new_pos == self.robot.transform.position:
+
+        # Yaw about ROS +z from the orientation quaternion. ROS y maps to server z,
+        # so yaw turns +X toward +Z, matching the dashboard's heading in rotation.y.
+        q = data.pose.pose.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        new_rot = Vector3(x=0.0, y=yaw, z=0.0)
+
+        if new_pos == self.robot.transform.position and new_rot == self.robot.transform.rotation:
             return
 
         self.robot.transform.position.CopyFrom(new_pos)
+        self.robot.transform.rotation.CopyFrom(new_rot)
         self.post_device_info()
+
+    def lidar_update_callback(self, data: LaserScan):
+        range_min = data.range_min
+        range_max = data.range_max
+        angle_min = data.angle_min
+        delta = data.angle_increment
+        transform = self.robot.get_device_info().transform
+        # Convert the distances to Vector3 using angle math. The data comes in as polar coordinates.
+        # Assuming X axis alignment is 0 angle
+        points = []
+        for i, r in enumerate(data.ranges):
+            if r > range_min and r < range_max:
+                # Add yaw
+                theta = (i * delta) + angle_min + transform.rotation.y
+                points.append(Vector3(x=transform.position.x + (r * math.cos(theta)), y=0, z=transform.position.z + (r * math.sin(theta))))
+        self.robot.lidar = Lidar(points=points)
+        self.post_device_info()
+        
 
     def heartbeat_callback(self):
         self.send_request(ServerRequest(post_heartbeat=self.robot.id))

@@ -1,6 +1,6 @@
 from time import time
 from dataclasses import dataclass
-from realityapi_pb2 import DeviceType, Lidar, Transform, Vector3, DeviceInfo
+from realityapi_pb2 import DeviceType, Transform, Vector3, DeviceInfo, Lidar
 from google.protobuf.json_format import MessageToDict, ParseDict
 
 @dataclass
