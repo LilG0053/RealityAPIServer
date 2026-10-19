@@ -44,10 +44,9 @@ class CoordinateNode(Node):
 
     def position_update_callback(self, data: Odometry):
         position = data.pose.pose.position
-        new_pos = Vector3(x=-position.x, y=position.z, z=position.y)
+        new_pos = Vector3(x=position.x, y=position.z, z=position.y)
 
-        # Yaw about ROS +z from the orientation quaternion. ROS y maps to server z,
-        # so yaw turns +X toward +Z, matching the dashboard's heading in rotation.y.
+        # Yaw about ROS +z from the orientation quaternion.
         q = data.pose.pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         new_rot = Vector3(x=0.0, y=yaw, z=0.0)
@@ -70,8 +69,8 @@ class CoordinateNode(Node):
         points = []
         for i, r in enumerate(data.ranges):
             if r > range_min and r < range_max:
-                # Add yaw
-                theta = (i * delta) + angle_min + transform.rotation.y
+                # Add yaw, then a clockwise quarter turn so the scan faces the top wall.
+                theta = (i * delta) + angle_min + transform.rotation.y - math.pi / 2
                 points.append(Vector3(x=transform.position.x + (r * math.cos(theta)), y=0, z=transform.position.z + (r * math.sin(theta))))
         self.robot.lidar = Lidar(points=points)
         self.post_device_info(log=True, lidar=True)

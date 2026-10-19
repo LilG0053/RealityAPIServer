@@ -201,7 +201,7 @@ function updateRobotMarker(key, device) {
   if (robotMarkers[key]) {
     // Update existing marker position
     robotMarkers[key].position.set(position.x, 0.3, position.z);
-    // Three.js +Y rotation turns +X toward -Z; device headings turn +X toward +Z.
+    // Clockwise quarter turn from the aligned heading, so the chevron faces the top wall.
     robotMarkers[key].rotation.set(rotation.x, -rotation.y, rotation.z);
   } else {
     // Create new marker
