@@ -62,6 +62,7 @@ message Response {
         // actual responses
         AllDeviceInfo all_device_info = 20;
         DeviceInfo device_info = 21;
+        Lidar lidar_data = 22;
     }
 }
 
@@ -83,6 +84,7 @@ message ServerRequest {
         google.protobuf.Empty fetch_all_device_info = 6;
         string fetch_single_device_info = 7;
         Command send_command = 8;
+        google.protobuf.Empty fetch_lidar_data = 9;
     }
 }
 

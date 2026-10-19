@@ -30,14 +30,16 @@ class Device:
 class TurtleBot(Device):
     transform: Transform
     lidar: Lidar
+
     @classmethod
     def from_packet(cls, device_info: DeviceInfo):
         return cls(
             id=device_info.id,
             device_type=DeviceType.TURTLE,
             timestamp=device_info.timestamp,
+            # should have transform
             transform=device_info.transform,
-            lidar = device_info.lidar
+            lidar=device_info.lidar if device_info.HasField("lidar") else Lidar(points=[])
         )
 
     @classmethod
@@ -50,7 +52,7 @@ class TurtleBot(Device):
                 position=Vector3(x=0,y=0,z=0),
                 rotation=Vector3(x=0,y=0,z=0)
             ),
-            lidar=ParseDict(d["lidar"], Lidar()) if "lidar" in d else Lidar()
+            lidar=ParseDict(d["lidar"], Lidar()) if "lidar" in d else Lidar(points=[])
         )
 
     def handle_device_info(self, device_info: DeviceInfo):
@@ -62,7 +64,7 @@ class TurtleBot(Device):
 
     def get_device_info(self) -> DeviceInfo:
         di = super().get_device_info()
-        return DeviceInfo(id=di.id,device_type=di.device_type,timestamp=di.timestamp,transform=self.transform, lidar=self.lidar)
+        return DeviceInfo(id=di.id,device_type=di.device_type,timestamp=di.timestamp,transform=self.transform,lidar=self.lidar)
 
     def to_dict(self) -> dict:
         ret = super().to_dict()
