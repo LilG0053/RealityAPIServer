@@ -218,6 +218,44 @@ function updateRobotMarker(key, device) {
   }
 }
 
+// LiDAR scan markers
+// One instanced mesh draws all the dots without creating a separate mesh per point.
+const lidarGeometry = new THREE.SphereGeometry(0.04, 8, 6);
+const lidarMaterial = new THREE.MeshBasicMaterial({ color: 0xff7043 });
+const lidarDot = new THREE.Object3D();
+let lidarMarkers = null;
+let lidarCapacity = 0;
+
+function updateLidarMarkers(devices) {
+  const points = devices.flatMap(device => device.lidar?.points ?? []);
+
+  console.log("LiDAR point count:", points.length, "First point:", points[0]);
+
+  if (points.length > lidarCapacity) {
+    if (lidarMarkers) {
+      scene.remove(lidarMarkers);
+      lidarMarkers.dispose();
+    }
+    lidarCapacity = points.length;
+    lidarMarkers = new THREE.InstancedMesh(lidarGeometry, lidarMaterial, lidarCapacity);
+    scene.add(lidarMarkers);
+  }
+
+  if (!lidarMarkers) return;
+
+  points.forEach((point, index) => {
+    // Lift floor-level readings slightly so they remain visible above the floor.
+    lidarDot.position.set(point.x, point.y, point.z);
+    lidarDot.updateMatrix();
+    lidarMarkers.setMatrixAt(index, lidarDot.matrix);
+  });
+
+  // Limit the visible instances to this scan, including zero after a timeout.
+  lidarMarkers.count = points.length;
+  lidarMarkers.instanceMatrix.needsUpdate = true;
+  lidarMarkers.computeBoundingSphere();
+}
+
 // Rendering and window behavior
 function animate() {
   requestAnimationFrame(animate);
@@ -345,6 +383,7 @@ async function pollDevices() {
         const response = await request({ case: "fetchAllDeviceInfo", value: {} });
         if (response.data.case === "allDeviceInfo") {
           updateDevices(response.data.value.devices);
+          updateLidarMarkers(response.data.value.devices);
         }
       } catch (error) {
         console.error("Error fetching devices:", error);
