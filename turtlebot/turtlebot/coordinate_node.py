@@ -13,7 +13,7 @@ from websockets.sync.client import connect
 from init_turtlebot import create_turtlebot
 from realityapi_pb2 import Response, ServerRequest, Vector3, Lidar
 
-SERVER_URI = "ws://10.89.51.240:65432"
+SERVER_URI = "ws://0.0.0.0:65432"
 
 # The server drops a device after 2 seconds of silence.
 HEARTBEAT_INTERVAL = 1.0
@@ -44,7 +44,7 @@ class CoordinateNode(Node):
 
     def position_update_callback(self, data: Odometry):
         position = data.pose.pose.position
-        new_pos = Vector3(x=position.x, y=position.z, z=position.y)
+        new_pos = Vector3(x=-position.x, y=position.z, z=position.y)
 
         # Yaw about ROS +z from the orientation quaternion. ROS y maps to server z,
         # so yaw turns +X toward +Z, matching the dashboard's heading in rotation.y.
@@ -57,7 +57,7 @@ class CoordinateNode(Node):
 
         self.robot.transform.position.CopyFrom(new_pos)
         self.robot.transform.rotation.CopyFrom(new_rot)
-        self.post_device_info()
+        self.post_device_info(log=True)
 
     def lidar_update_callback(self, data: LaserScan):
         range_min = data.range_min
@@ -74,33 +74,44 @@ class CoordinateNode(Node):
                 theta = (i * delta) + angle_min + transform.rotation.y
                 points.append(Vector3(x=transform.position.x + (r * math.cos(theta)), y=0, z=transform.position.z + (r * math.sin(theta))))
         self.robot.lidar = Lidar(points=points)
-        self.post_device_info()
-        
+        self.post_device_info(log=True, lidar=True)
 
     def heartbeat_callback(self):
         self.send_request(ServerRequest(post_heartbeat=self.robot.id))
 
-    def post_device_info(self):
+    def post_device_info(self, log=False, lidar=False):
         self.robot.timestamp = time()
-        self.send_request(ServerRequest(post_device_info=self.robot.get_device_info()))
+        self.send_request(
+            ServerRequest(post_device_info=self.robot.get_device_info()),
+            log=log,
+            lidar=lidar,
+        )
 
-    def send_request(self, req: ServerRequest) -> Response:
+    def send_request(self, req: ServerRequest, log=False, lidar=False) -> Response:
         req.req_uuid = str(uuid4())
         self.ws.send(req.SerializeToString())
         reply = Response()
         reply.ParseFromString(self.ws.recv())
-        self.get_logger().info(f'>>> {self.describe(req)}')
-        self.get_logger().info(f'<<< {reply.WhichOneof("data")}')
+        if log:
+            self.get_logger().info(f'>>> {self.describe(req, lidar=lidar)}')
+            self.get_logger().info(f'<<< {reply.WhichOneof("data")}')
         if reply.req_uuid != req.req_uuid:
             self.get_logger().warning(
                 f'response {reply.req_uuid} does not match request {req.req_uuid}')
         return reply
 
-    def describe(self, req: ServerRequest) -> str:
+    def describe(self, req: ServerRequest, lidar=False) -> str:
         if req.HasField("post_heartbeat"):
             return f'heartbeat id {req.post_heartbeat}'
-        p = req.post_device_info.transform.position
-        return f'({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) id {req.post_device_info.id}'
+        info = req.post_device_info
+        if lidar:
+            p = info.transform.position
+            return (
+                f'lidar {len(info.lidar.points)} points '
+                f'at ({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) id {info.id}'
+            )
+        p = info.transform.position
+        return f'({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) id {info.id}'
 
     def destroy_node(self):
         self.ws.close()
