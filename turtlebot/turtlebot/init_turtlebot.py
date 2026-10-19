@@ -9,7 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from map.device import TurtleBot
-from realityapi_pb2 import DeviceType, Transform, Vector3
+from realityapi_pb2 import DeviceType, Transform, Vector3, Lidar
 
 
 def create_turtlebot(custom_id: str = 'turtlebot1'):
@@ -22,4 +22,5 @@ def create_turtlebot(custom_id: str = 'turtlebot1'):
             position=Vector3(x=0.0, y=0.0, z=0.0),
             rotation=Vector3(x=0.0, y=0.0, z=0.0),
         ),
+        lidar = Lidar()
     )

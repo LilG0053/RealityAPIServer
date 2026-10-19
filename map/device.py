@@ -1,6 +1,6 @@
 from time import time
 from dataclasses import dataclass
-from realityapi_pb2 import DeviceType, Transform, Vector3, DeviceInfo
+from realityapi_pb2 import DeviceType, Transform, Vector3, DeviceInfo, Lidar
 from google.protobuf.json_format import MessageToDict, ParseDict
 
 @dataclass
@@ -29,14 +29,15 @@ class Device:
 @dataclass
 class TurtleBot(Device):
     transform: Transform
-
+    lidar: Lidar
     @classmethod
     def from_packet(cls, device_info: DeviceInfo):
         return cls(
             id=device_info.id,
             device_type=DeviceType.TURTLE,
             timestamp=device_info.timestamp,
-            transform=device_info.transform
+            transform=device_info.transform,
+            lidar = device_info.lidar
         )
 
     @classmethod
@@ -48,21 +49,25 @@ class TurtleBot(Device):
             transform=ParseDict(d["transform"], Transform()) if "transform" in d else Transform(
                 position=Vector3(x=0,y=0,z=0),
                 rotation=Vector3(x=0,y=0,z=0)
-            )
+            ),
+            lidar=ParseDict(d["lidar"], Lidar()) if "lidar" in d else Lidar()
         )
 
     def handle_device_info(self, device_info: DeviceInfo):
         super().handle_device_info(device_info)
         if device_info.HasField("transform"):
             self.transform = device_info.transform
+        if device_info.HasField("lidar"):
+            self.lidar = device_info.lidar
 
     def get_device_info(self) -> DeviceInfo:
         di = super().get_device_info()
-        return DeviceInfo(id=di.id,device_type=di.device_type,timestamp=di.timestamp,transform=self.transform)
+        return DeviceInfo(id=di.id,device_type=di.device_type,timestamp=di.timestamp,transform=self.transform, lidar=self.lidar)
 
     def to_dict(self) -> dict:
         ret = super().to_dict()
         ret["transform"] = MessageToDict(self.transform)
+        ret["lidar"] = MessageToDict(self.lidar)
         return ret
 
 def device_from_info(packet: DeviceInfo) -> Device | None:
