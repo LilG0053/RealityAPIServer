@@ -5,7 +5,14 @@ from websockets.asyncio.server import serve
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
 from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3
+from map.coordinate import CoordinateSystem, Direction
 from map.map import Map
+
+SERVER_COORDS = CoordinateSystem(
+    x=Direction.SOUTH,
+    y=Direction.UP,
+    z=Direction.EAST,
+)
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
 OFFSET = (0.1, 0.1, 2.0)
@@ -17,7 +24,6 @@ TIMEOUT = 2.0
 MONITOR_INTERVAL = 0.04
 
 server_map = Map()
-server_map.load_from_json("dashboard/updated_pos.json")
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
     """Return a new Vector3 shifted by the offset."""
@@ -114,6 +120,7 @@ async def monitor(map: Map):
 
 
 async def main():
+    server_map.load_from_json("dashboard/updated_pos.json")
     server = await serve(handler, "0.0.0.0", 65432)
     asyncio.create_task(monitor(server_map))
     print("realityapi server on ws://0.0.0.0:65432")

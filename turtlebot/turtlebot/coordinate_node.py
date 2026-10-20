@@ -12,6 +12,7 @@ from websockets.sync.client import connect
 
 from init_turtlebot import create_turtlebot
 from realityapi_pb2 import Response, ServerRequest, Vector3, Lidar
+from server import SERVER_COORDS
 
 SERVER_URI = "ws://0.0.0.0:65432"
 
@@ -44,18 +45,18 @@ class CoordinateNode(Node):
 
     def position_update_callback(self, data: Odometry):
         position = data.pose.pose.position
-        new_pos = Vector3(x=position.x, y=position.z, z=position.y)
+        pos_vec = Vector3(x=position.x, y=position.y, z=position.z)
 
         # Yaw about ROS +z from the orientation quaternion.
         q = data.pose.pose.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-        new_rot = Vector3(x=0.0, y=yaw, z=0.0)
+        rot_vec = Vector3(x=0.0, y=0.0, z=yaw)
 
-        if new_pos == self.robot.transform.position and new_rot == self.robot.transform.rotation:
+        if pos_vec == self.robot.transform.position and rot_vec == self.robot.transform.rotation:
             return
 
-        self.robot.transform.position.CopyFrom(new_pos)
-        self.robot.transform.rotation.CopyFrom(new_rot)
+        self.robot.transform.position.CopyFrom(pos_vec)
+        self.robot.transform.rotation.CopyFrom(rot_vec)
         self.post_device_info(log=True)
 
     def lidar_update_callback(self, data: LaserScan):
@@ -63,15 +64,33 @@ class CoordinateNode(Node):
         range_max = data.range_max
         angle_min = data.angle_min
         delta = data.angle_increment
-        transform = self.robot.get_device_info().transform
-        # Convert the distances to Vector3 using angle math. The data comes in as polar coordinates.
-        # Assuming X axis alignment is 0 angle
+        transform = self.robot.transform
+        # Convert each LiDAR range reading into a point in the robot's world-fixed odom frame.
+        #
+        # Computing the ray angle `theta` in the odom XY plane requires chaining three angles:
+        #   1. `(i * delta) + angle_min`:
+        #      The angle of beam `i` in the LiDAR sensor's own frame (`rplidar_link`),
+        #      measured counterclockwise from the sensor's 0-radian axis.
+        #   2. `+ (math.pi / 2)`:
+        #       transforms from `rplidar_link` into the robot body frame (`base_link`).
+        #      On the TurtleBot 4, the RPLIDAR is physically mounted rotated +90 degrees
+        #      counterclockwise (rpy="0 0 pi/2" in turtlebot4.urdf.xacro), so the sensor's
+        #      0-radian axis points out the left side (+y) of `base_link` rather than the
+        #      front (+x). Adding pi/2 aligns 0 radians with the robot's forward +x axis.
+        #   3. `+ transform.rotation.z`:
+        #      Transforms from the rotating `base_link` frame into the world-fixed `odom`
+        #      frame by adding the robot's current yaw relative to its starting orientation.
         points = []
         for i, r in enumerate(data.ranges):
-            if r > range_min and r < range_max:
-                # Add yaw, then a clockwise quarter turn so the scan faces the top wall.
-                theta = (i * delta) + angle_min + transform.rotation.y - math.pi / 2
-                points.append(Vector3(x=transform.position.x + (r * math.cos(theta)), y=0, z=transform.position.z + (r * math.sin(theta))))
+            if range_min < r < range_max:
+                theta = (i * delta) + angle_min + (math.pi / 2) + transform.rotation.z
+                points.append(
+                    Vector3(
+                        x=transform.position.x + (r * math.cos(theta)),
+                        y=transform.position.y + (r * math.sin(theta)),
+                        z=0.0,
+                    )
+                )
         self.robot.lidar = Lidar(points=points)
         self.post_device_info(log=True, lidar=True)
 
@@ -80,8 +99,9 @@ class CoordinateNode(Node):
 
     def post_device_info(self, log=False, lidar=False):
         self.robot.timestamp = time()
+        device_info = self.robot.get_device_info(target_coords=SERVER_COORDS)
         self.send_request(
-            ServerRequest(post_device_info=self.robot.get_device_info()),
+            ServerRequest(post_device_info=device_info),
             log=log,
             lidar=lidar,
         )
