@@ -241,9 +241,7 @@ function updateLidarMarkers(devices) {
     scene.add(lidarMarkers);
   }
 
-  if (!lidarMarkers) return;
-
-  points.forEach((point, index) => {
+  if (lidarMarkers) points.forEach((point, index) => {
     // Lift floor-level readings slightly so they remain visible above the floor.
     lidarDot.position.set(point.x, point.y, point.z);
     lidarDot.updateMatrix();
@@ -251,9 +249,32 @@ function updateLidarMarkers(devices) {
   });
 
   // Limit the visible instances to this scan, including zero after a timeout.
-  lidarMarkers.count = points.length;
-  lidarMarkers.instanceMatrix.needsUpdate = true;
-  lidarMarkers.computeBoundingSphere();
+  if (lidarMarkers) {
+    lidarMarkers.count = points.length;
+    lidarMarkers.instanceMatrix.needsUpdate = true;
+    lidarMarkers.computeBoundingSphere();
+  }
+  updateLidarLine(points);
+}
+
+// One polyline through the scan, in the order the points were sent.
+const lidarLine = new THREE.Line(
+  new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3)),
+  new THREE.LineBasicMaterial({ color: 0xff7043 })
+);
+lidarLine.visible = false;
+scene.add(lidarLine);
+
+function updateLidarLine(points) {
+  const positions = new Float32Array(points.length * 3);
+  points.forEach((point, index) => {
+    positions[index * 3] = point.x;
+    positions[index * 3 + 1] = point.y;
+    positions[index * 3 + 2] = point.z;
+  });
+  lidarLine.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  lidarLine.geometry.computeBoundingSphere();
+  lidarLine.visible = points.length > 1;
 }
 
 // Rendering and window behavior

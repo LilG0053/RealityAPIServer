@@ -1,5 +1,5 @@
 # FOR TESTING W/ KEYBOARD: ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true
-from time import time
+import time
 from uuid import uuid4
 import math
 
@@ -11,10 +11,14 @@ from rclpy.qos import qos_profile_sensor_data
 from websockets.sync.client import connect
 
 from init_turtlebot import create_turtlebot
+from map.lidar import simplify_lidar_2d
 from realityapi_pb2 import Response, ServerRequest, Vector3, Lidar
 from server import SERVER_COORDS
 
 SERVER_URI = "ws://0.0.0.0:65432"
+
+# Contour tolerance, in meters, applied to each scan before it is posted.
+LIDAR_EPSILON = 0.05
 
 # The server drops a device after 2 seconds of silence.
 HEARTBEAT_INTERVAL = 1.0
@@ -88,17 +92,17 @@ class CoordinateNode(Node):
                     Vector3(
                         x=transform.position.x + (r * math.cos(theta)),
                         y=transform.position.y + (r * math.sin(theta)),
-                        z=0.0,
+                        z=transform.position.z,
                     )
                 )
-        self.robot.lidar = Lidar(points=points)
+        self.robot.lidar = simplify_lidar_2d(Lidar(points=points), epsilon=LIDAR_EPSILON)
         self.post_device_info(log=True, include_lidar=True)
 
     def heartbeat_callback(self):
         self.send_request(ServerRequest(post_heartbeat=self.robot.id))
 
     def post_device_info(self, log=False, include_lidar=False):
-        self.robot.timestamp = time()
+        self.robot.timestamp = time.time()
         # Odometry updates reuse the last scan already stored on the server.
         device_info = self.robot.get_device_info(
             target_coords=SERVER_COORDS,
@@ -112,12 +116,14 @@ class CoordinateNode(Node):
 
     def send_request(self, req: ServerRequest, log=False, include_lidar=False) -> Response:
         req.req_uuid = str(uuid4())
+        started = time.perf_counter()
         self.ws.send(req.SerializeToString())
         reply = Response()
         reply.ParseFromString(self.ws.recv())
+        latency_ms = (time.perf_counter() - started) * 1000
         if log:
             self.get_logger().info(f'>>> {self.describe(req, include_lidar=include_lidar)}')
-            self.get_logger().info(f'<<< {reply.WhichOneof("data")}')
+            self.get_logger().info(f'<<< {reply.WhichOneof("data")} | {latency_ms:.1f} ms')
         if reply.req_uuid != req.req_uuid:
             self.get_logger().warning(
                 f'response {reply.req_uuid} does not match request {req.req_uuid}')
