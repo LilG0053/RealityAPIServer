@@ -72,20 +72,28 @@ class TurtleBot(Device):
         if device_info.HasField("lidar"):
             self.lidar = device_info.lidar
 
-    def get_device_info(self, target_coords: CoordinateSystem | None = None) -> DeviceInfo:
+    def get_device_info(
+        self,
+        target_coords: CoordinateSystem | None = None,
+        include_lidar: bool = True,
+    ) -> DeviceInfo:
         di = super().get_device_info(target_coords)
         transform = self.transform
-        lidar = self.lidar
         if target_coords is not None and self.coordinate_system is not None:
             transform = convert_transform(transform, self.coordinate_system, target_coords)
-            lidar = convert_lidar(lidar, self.coordinate_system, target_coords)
-        return DeviceInfo(
+        info = DeviceInfo(
             id=di.id,
             device_type=di.device_type,
             timestamp=di.timestamp,
             transform=transform,
-            lidar=lidar,
         )
+        # Leave lidar unset so a pose-only post does not replace the stored scan.
+        if include_lidar:
+            lidar = self.lidar
+            if target_coords is not None and self.coordinate_system is not None:
+                lidar = convert_lidar(lidar, self.coordinate_system, target_coords)
+            info.lidar.CopyFrom(lidar)
+        return info
 
     def to_dict(self) -> dict:
         ret = super().to_dict()

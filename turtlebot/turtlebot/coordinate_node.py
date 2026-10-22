@@ -92,38 +92,42 @@ class CoordinateNode(Node):
                     )
                 )
         self.robot.lidar = Lidar(points=points)
-        self.post_device_info(log=True, lidar=True)
+        self.post_device_info(log=True, include_lidar=True)
 
     def heartbeat_callback(self):
         self.send_request(ServerRequest(post_heartbeat=self.robot.id))
 
-    def post_device_info(self, log=False, lidar=False):
+    def post_device_info(self, log=False, include_lidar=False):
         self.robot.timestamp = time()
-        device_info = self.robot.get_device_info(target_coords=SERVER_COORDS)
+        # Odometry updates reuse the last scan already stored on the server.
+        device_info = self.robot.get_device_info(
+            target_coords=SERVER_COORDS,
+            include_lidar=include_lidar,
+        )
         self.send_request(
             ServerRequest(post_device_info=device_info),
             log=log,
-            lidar=lidar,
+            include_lidar=include_lidar,
         )
 
-    def send_request(self, req: ServerRequest, log=False, lidar=False) -> Response:
+    def send_request(self, req: ServerRequest, log=False, include_lidar=False) -> Response:
         req.req_uuid = str(uuid4())
         self.ws.send(req.SerializeToString())
         reply = Response()
         reply.ParseFromString(self.ws.recv())
         if log:
-            self.get_logger().info(f'>>> {self.describe(req, lidar=lidar)}')
+            self.get_logger().info(f'>>> {self.describe(req, include_lidar=include_lidar)}')
             self.get_logger().info(f'<<< {reply.WhichOneof("data")}')
         if reply.req_uuid != req.req_uuid:
             self.get_logger().warning(
                 f'response {reply.req_uuid} does not match request {req.req_uuid}')
         return reply
 
-    def describe(self, req: ServerRequest, lidar=False) -> str:
+    def describe(self, req: ServerRequest, include_lidar=False) -> str:
         if req.HasField("post_heartbeat"):
             return f'heartbeat id {req.post_heartbeat}'
         info = req.post_device_info
-        if lidar:
+        if include_lidar:
             p = info.transform.position
             return (
                 f'lidar {len(info.lidar.points)} points '
