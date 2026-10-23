@@ -3,6 +3,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { DeviceType, ResponseSchema, ServerRequestSchema } from "./gen/realityapi_pb.js";
 
+console.log("Reality dashboard main.js loaded");
+
 const sceneContainer = document.getElementById("scene-container");
 
 // Room measurements
@@ -227,19 +229,44 @@ let nextRequestId = 0;
 const pendingRequests = new Map();
 
 function connect() {
+  console.log("Opening dashboard WebSocket:", SERVER_URL);
   socket = new WebSocket(SERVER_URL);
   socket.binaryType = "arraybuffer";
 
+  socket.addEventListener("open", () => {
+    console.log("Dashboard WebSocket opened:", SERVER_URL);
+  });
+
   socket.addEventListener("message", (event) => {
-    const response = fromBinary(ResponseSchema, new Uint8Array(event.data));
-    const pending = pendingRequests.get(response.requestId);
+    console.log("Dashboard WebSocket message received:", {
+      dataType: typeof event.data,
+      byteLength: event.data?.byteLength
+    });
+
+    let response;
+    try {
+      response = fromBinary(ResponseSchema, new Uint8Array(event.data));
+    } catch (error) {
+      console.error("Failed to decode dashboard response:", error);
+      return;
+    }
+
+    console.log("Dashboard response decoded:", response);
+    const pending = pendingRequests.get(response.reqUuid);
     if (pending) {
-      pendingRequests.delete(response.requestId);
+      pendingRequests.delete(response.reqUuid);
       pending.resolve(response);
+    } else {
+      console.warn("Received response with no pending request:", response.reqUuid);
     }
   });
 
+  socket.addEventListener("error", (event) => {
+    console.error("Dashboard WebSocket error:", event);
+  });
+
   socket.addEventListener("close", () => {
+    console.warn("Dashboard WebSocket closed; reconnecting:", SERVER_URL);
     for (const pending of pendingRequests.values()) {
       pending.reject(new Error("connection closed"));
     }
@@ -317,9 +344,14 @@ async function pollDevices() {
   while (true) {
     if (socket.readyState === WebSocket.OPEN) {
       try {
+        console.log("Requesting dashboard device list");
         const response = await request({ case: "fetchAllDeviceInfo", value: {} });
+        console.log("Dashboard device-list response:", response);
         if (response.data.case === "allDeviceInfo") {
+          console.log("Dashboard devices received:", response.data.value.devices);
           updateDevices(response.data.value.devices);
+        } else {
+          console.warn("Unexpected dashboard response case:", response.data.case);
         }
       } catch (error) {
         console.error("Error fetching devices:", error);
@@ -328,7 +360,6 @@ async function pollDevices() {
     await sleep(POLL_INTERVAL);
   }
 }
-
 connect();
 pollDevices();
 animate();

@@ -131,48 +131,66 @@ export declare const AllDeviceInfoSchema: GenMessage<AllDeviceInfo>;
  */
 export declare type Response = Message<"realityapi.Response"> & {
   /**
-   * @generated from field: string request_id = 1;
+   * corresponds to the request that this is a response to
+   *
+   * @generated from field: string req_uuid = 1;
    */
-  requestId: string;
+  reqUuid: string;
 
   /**
    * @generated from oneof realityapi.Response.data
    */
   data: {
     /**
-     * basic responses used to denote simple ok/error
+     * basic response used to denote simple ok
      *
-     * @generated from field: google.protobuf.Empty ok = 2;
+     * @generated from field: google.protobuf.Empty ok = 4;
      */
     value: Empty;
     case: "ok";
   } | {
     /**
-     * device with id=id not found
+     * device with id not found
      *
-     * @generated from field: google.protobuf.Empty err_id_not_found = 3;
+     * @generated from field: google.protobuf.Empty err_id_not_found = 5;
      */
     value: Empty;
     case: "errIdNotFound";
   } | {
     /**
-     * device does not support operation
+     * device/server does not support operation
      *
-     * @generated from field: google.protobuf.Empty err_not_supported = 4;
+     * @generated from field: google.protobuf.Empty err_not_supported = 6;
      */
     value: Empty;
     case: "errNotSupported";
   } | {
     /**
+     * device/server cannot execute operation at this time
+     *
+     * @generated from field: google.protobuf.Empty err_cannot_execute = 7;
+     */
+    value: Empty;
+    case: "errCannotExecute";
+  } | {
+    /**
+     * device/server failed while executing operation
+     *
+     * @generated from field: google.protobuf.Empty err_failed_execute = 8;
+     */
+    value: Empty;
+    case: "errFailedExecute";
+  } | {
+    /**
      * actual responses
      *
-     * @generated from field: realityapi.AllDeviceInfo all_device_info = 10;
+     * @generated from field: realityapi.AllDeviceInfo all_device_info = 20;
      */
     value: AllDeviceInfo;
     case: "allDeviceInfo";
   } | {
     /**
-     * @generated from field: realityapi.DeviceInfo device_info = 11;
+     * @generated from field: realityapi.DeviceInfo device_info = 21;
      */
     value: DeviceInfo;
     case: "deviceInfo";
@@ -190,20 +208,18 @@ export declare const ResponseSchema: GenMessage<Response>;
  */
 export declare type Command = Message<"realityapi.Command"> & {
   /**
-   * @generated from field: string id = 1;
+   * this is the target of the command
+   *
+   * @generated from field: string target_id = 1;
    */
-  id: string;
+  targetId: string;
 
   /**
-   * @generated from oneof realityapi.Command.command
+   * multiple demands can be packaged into one command
+   *
+   * @generated from field: optional realityapi.Transform transform = 2;
    */
-  command: {
-    /**
-     * @generated from field: realityapi.Transform transform = 2;
-     */
-    value: Transform;
-    case: "transform";
-  } | { case: undefined; value?: undefined };
+  transform?: Transform | undefined;
 };
 
 /**
@@ -213,13 +229,12 @@ export declare type Command = Message<"realityapi.Command"> & {
 export declare const CommandSchema: GenMessage<Command>;
 
 /**
- * Websocket envelope for the Server service: each binary frame from a client
- * is one ServerRequest, answered with one Response. Field names mirror the rpcs.
- *
  * @generated from message realityapi.ServerRequest
  */
 export declare type ServerRequest = Message<"realityapi.ServerRequest"> & {
   /**
+   * set this and remember it!
+   *
    * @generated from field: string req_uuid = 1;
    */
   reqUuid: string;
@@ -271,6 +286,8 @@ export declare const ServerRequestSchema: GenMessage<ServerRequest>;
  */
 export declare type ClientRequest = Message<"realityapi.ClientRequest"> & {
   /**
+   * set this and remember it!
+   *
    * @generated from field: string req_uuid = 1;
    */
   reqUuid: string;

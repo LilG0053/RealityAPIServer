@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import math
 from time import time
 from typing import Any
 from uuid import uuid4
 
-from realityapi_pb2 import DeviceInfo, DeviceType, ServerRequest, Transform, Vector3
+from realityapi_pb2 import DeviceInfo, ServerRequest, Transform, Vector3
 
 
-DEVICE_ID = "robot"
+DEVICE_ID = "robot-dog"
 ROS_TOPIC = "/utlidar/robot_pose"
+# Keep the wire value compatible with older generated protobuf modules.
+DOG_DEVICE_TYPE = 3
 
 
 def _coordinate(position: dict[str, Any], name: str) -> float:
@@ -47,7 +51,29 @@ def position_request(message: dict[str, Any]) -> ServerRequest:
         req_uuid=str(uuid4()),
         post_device_info=DeviceInfo(
             id=DEVICE_ID,
-            device_type=DeviceType.DOG,
+            device_type=DOG_DEVICE_TYPE,
+            timestamp=time(),
+            transform=transform,
+        ),
+    )
+
+
+def pose_request(message: Any) -> ServerRequest:
+    """Build a request from a native geometry_msgs/msg/PoseStamped message."""
+    position = message.pose.position
+    transform = Transform(
+        position=Vector3(
+            x=_coordinate({"x": position.x}, "x"),
+            y=_coordinate({"z": position.z}, "z"),
+            z=_coordinate({"y": position.y}, "y"),
+        ),
+        rotation=Vector3(),
+    )
+    return ServerRequest(
+        req_uuid=str(uuid4()),
+        post_device_info=DeviceInfo(
+            id=DEVICE_ID,
+            device_type=DOG_DEVICE_TYPE,
             timestamp=time(),
             transform=transform,
         ),

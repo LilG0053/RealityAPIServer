@@ -47,6 +47,7 @@ def post_heartbeat(device_id: str) -> Response:
     return map.handle_heartbeat(device_id)
 
 def fetch_all_device_info(_: Empty) -> Response:
+    print(">>> dashboard requested devices:", list(map._devices))
     return map.get_all_device_info()
 
 def fetch_single_device_info(device_id: str) -> Response:
