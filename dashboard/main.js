@@ -167,6 +167,9 @@ scene.add(roomOutline);
 
 // Store 3D markers by device ID
 const robotMarkers = {};
+const lidarPointClouds = {};
+// Upper bound on points drawn per device; keep >= REALITYAPI_LIDAR_MAX_POINTS on the client.
+const MAX_LIDAR_POINTS = 40000;
 
 // Generate consistent color from string
 function stringToColor(str) {
@@ -198,6 +201,59 @@ function updateRobotMarker(key, device) {
   }
 }
 
+function updateLidarPointCloud(key, device) {
+  const points = device.lidar?.points;
+  const position = device.transform?.position;
+  if (!points?.length || !position) {
+    const previous = lidarPointClouds[key];
+    if (previous) {
+      scene.remove(previous);
+      previous.geometry.dispose();
+      previous.material.dispose();
+      delete lidarPointClouds[key];
+    }
+    return;
+  }
+
+  const count = Math.min(points.length, MAX_LIDAR_POINTS);
+
+  let pointCloud = lidarPointClouds[key];
+  if (!pointCloud) {
+    // Allocate the GPU buffer once at full size and reuse it for every update.
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array(MAX_LIDAR_POINTS * 3), 3)
+    );
+    pointCloud = new THREE.Points(
+      geometry,
+      new THREE.PointsMaterial({
+        color: stringToColor(device.id),
+        size: 0.04,
+        sizeAttenuation: true
+      })
+    );
+    // The preallocated buffer's bounding sphere would be wrong, so skip culling.
+    pointCloud.frustumCulled = false;
+    scene.add(pointCloud);
+    lidarPointClouds[key] = pointCloud;
+  }
+
+  const attribute = pointCloud.geometry.getAttribute("position");
+  const coordinates = attribute.array;
+  const px = position.x;
+  const py = position.y;
+  const pz = position.z;
+  for (let index = 0, offset = 0; index < count; index += 1, offset += 3) {
+    const point = points[index];
+    coordinates[offset] = px + point.x;
+    coordinates[offset + 1] = py + point.y;
+    coordinates[offset + 2] = pz + point.z;
+  }
+  attribute.needsUpdate = true;
+  pointCloud.geometry.setDrawRange(0, count);
+}
+
 // Rendering and window behavior
 function animate() {
   requestAnimationFrame(animate);
@@ -218,7 +274,7 @@ window.addEventListener("resize", resizeRenderer);
 const SERVER_URL = `ws://${location.hostname || "localhost"}:65432`;
 
 // How long to wait between FetchAllDeviceInfo polls (ms).
-const POLL_INTERVAL = 50;
+const POLL_INTERVAL = 10;
 
 // How long to wait before reconnecting after the socket closes (ms).
 const RECONNECT_DELAY = 1000;
@@ -238,11 +294,9 @@ function connect() {
   });
 
   socket.addEventListener("message", (event) => {
-    console.log("Dashboard WebSocket message received:", {
-      dataType: typeof event.data,
-      byteLength: event.data?.byteLength
-    });
-
+    // No per-message console logging here: responses carry thousands of lidar
+    // points and logging them (devtools keeps and serializes the objects) is
+    // very slow.
     let response;
     try {
       response = fromBinary(ResponseSchema, new Uint8Array(event.data));
@@ -251,7 +305,6 @@ function connect() {
       return;
     }
 
-    console.log("Dashboard response decoded:", response);
     const pending = pendingRequests.get(response.reqUuid);
     if (pending) {
       pendingRequests.delete(response.reqUuid);
@@ -303,6 +356,7 @@ function updateDevices(devices) {
 
     // Update 3D marker
     updateRobotMarker(key, device);
+    updateLidarPointCloud(key, device);
 
     // Check if position changed or device is new
     if (!lastPositions[key] ||
@@ -332,6 +386,12 @@ function updateDevices(devices) {
     if (!currentKeys.has(key)) {
       scene.remove(robotMarkers[key]);
       delete robotMarkers[key];
+      if (lidarPointClouds[key]) {
+        scene.remove(lidarPointClouds[key]);
+        lidarPointClouds[key].geometry.dispose();
+        lidarPointClouds[key].material.dispose();
+        delete lidarPointClouds[key];
+      }
       delete lastPositions[key];
     }
   });
@@ -344,11 +404,8 @@ async function pollDevices() {
   while (true) {
     if (socket.readyState === WebSocket.OPEN) {
       try {
-        console.log("Requesting dashboard device list");
         const response = await request({ case: "fetchAllDeviceInfo", value: {} });
-        console.log("Dashboard device-list response:", response);
         if (response.data.case === "allDeviceInfo") {
-          console.log("Dashboard devices received:", response.data.value.devices);
           updateDevices(response.data.value.devices);
         } else {
           console.warn("Unexpected dashboard response case:", response.data.case);
