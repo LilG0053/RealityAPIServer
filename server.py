@@ -4,8 +4,15 @@ import asyncio
 from websockets.asyncio.server import serve
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
-from realityapi_pb2 import Command, DeviceInfo, Response, ServerRequest, Transform, Vector3
+from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3
+from map.coordinate import CoordinateSystem, Direction
 from map.map import Map
+
+SERVER_COORDS = CoordinateSystem(
+    x=Direction.SOUTH,
+    y=Direction.UP,
+    z=Direction.EAST,
+)
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
 OFFSET = (0.1, 0.1, 2.0)
@@ -16,8 +23,7 @@ TIMEOUT = 2.0
 # How often the monitor task sweeps the map for timed-out devices (seconds).
 MONITOR_INTERVAL = 0.04
 
-map = Map()
-map.load_from_json("dashboard/updated_pos.json")
+server_map = Map()
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
     """Return a new Vector3 shifted by the offset."""
@@ -34,27 +40,36 @@ def translate_transform(transform: Transform, offset=OFFSET) -> Transform:
         rotation=transform.rotation,
     )
 
+def translate_lidar(lidar: Lidar, offset=OFFSET) -> Lidar:
+    return Lidar(points=(translate_vec3(point, offset) for point in lidar.points))
+
 # Handlers for each ServerRequest.data case.
 
 def post_device_info(info: DeviceInfo) -> Response:
     if info.HasField("transform"):
         info.transform.CopyFrom(translate_transform(info.transform))
 
+    if info.HasField("lidar"):
+        info.lidar.CopyFrom(translate_lidar(info.lidar))
+
     print(f"<<< device info from {info.id}")
-    return map.handle_device_info(info)
+    return server_map.handle_device_info(info)
 
 def post_heartbeat(device_id: str) -> Response:
     print(f"<<< heartbeat from {device_id}")
-    return map.handle_heartbeat(device_id)
+    return server_map.handle_heartbeat(device_id)
 
 def fetch_all_device_info(_: Empty) -> Response:
-    return map.get_all_device_info()
+    return server_map.get_all_device_info()
 
 def fetch_single_device_info(device_id: str) -> Response:
-    return map.get_device_info(device_id)
+    return server_map.get_device_info(device_id)
+
+def fetch_lidar_data(_: Empty) -> Response:
+    return server_map.get_lidar_data()
 
 def send_command(command: Command) -> Response:
-    if not map.exists(command.target_id):
+    if not server_map.exists(command.target_id):
         return Response(err_id_not_found={})
 
     # TODO: forward to the target device as a ClientRequest once the server
@@ -68,6 +83,7 @@ HANDLERS = {
     "fetch_all_device_info": fetch_all_device_info,
     "fetch_single_device_info": fetch_single_device_info,
     "send_command": send_command,
+    "fetch_lidar_data": fetch_lidar_data
 }
 
 def handle_request(req: ServerRequest) -> Response:
@@ -104,8 +120,9 @@ async def monitor(map: Map):
 
 
 async def main():
+    server_map.load_from_json("dashboard/updated_pos.json")
     server = await serve(handler, "0.0.0.0", 65432)
-    asyncio.create_task(monitor(map))
+    asyncio.create_task(monitor(server_map))
     print("realityapi server on ws://0.0.0.0:65432")
     await server.serve_forever()
 

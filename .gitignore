@@ -225,3 +225,6 @@ dashboard/updated_pos.json
 
 # Dashboard tooling
 dashboard/node_modules/
+
+# Vim swap file
+turtlebot/turtlebot/.coordinate_node.py.swp

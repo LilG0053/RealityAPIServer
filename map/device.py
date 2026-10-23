@@ -1,19 +1,21 @@
 from time import time
-from dataclasses import dataclass
-from realityapi_pb2 import DeviceType, Transform, Vector3, DeviceInfo
+from dataclasses import InitVar, dataclass, field
+from realityapi_pb2 import DeviceType, Transform, Vector3, DeviceInfo, Lidar
 from google.protobuf.json_format import MessageToDict, ParseDict
+from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
 
 @dataclass
 class Device:
     id: str
     device_type: DeviceType
     timestamp: float
+    coordinate_system: CoordinateSystem | None = field(default=None, kw_only=True)
 
     def handle_device_info(self, device_info: DeviceInfo):
         self.id = device_info.id
         self.timestamp = device_info.timestamp
 
-    def get_device_info(self) -> DeviceInfo:
+    def get_device_info(self, target_coords: CoordinateSystem | None = None) -> DeviceInfo:
         return DeviceInfo(id=self.id, device_type=self.device_type, timestamp=self.timestamp)
 
     def heartbeat(self):
@@ -29,6 +31,15 @@ class Device:
 @dataclass
 class TurtleBot(Device):
     transform: Transform
+    lidar: Lidar
+    initial_heading: InitVar[Direction] = Direction.NORTH
+
+    def __post_init__(self, initial_heading: Direction):
+        self.coordinate_system = CoordinateSystem(
+            x=initial_heading,
+            y=initial_heading.counterclockwise90(),
+            z=Direction.UP,
+        )
 
     @classmethod
     def from_packet(cls, device_info: DeviceInfo):
@@ -36,7 +47,9 @@ class TurtleBot(Device):
             id=device_info.id,
             device_type=DeviceType.TURTLE,
             timestamp=device_info.timestamp,
-            transform=device_info.transform
+            # should have transform
+            transform=device_info.transform,
+            lidar=device_info.lidar if device_info.HasField("lidar") else Lidar(points=[])
         )
 
     @classmethod
@@ -48,21 +61,44 @@ class TurtleBot(Device):
             transform=ParseDict(d["transform"], Transform()) if "transform" in d else Transform(
                 position=Vector3(x=0,y=0,z=0),
                 rotation=Vector3(x=0,y=0,z=0)
-            )
+            ),
+            lidar=ParseDict(d["lidar"], Lidar()) if "lidar" in d else Lidar(points=[])
         )
 
     def handle_device_info(self, device_info: DeviceInfo):
         super().handle_device_info(device_info)
         if device_info.HasField("transform"):
             self.transform = device_info.transform
+        if device_info.HasField("lidar"):
+            self.lidar = device_info.lidar
 
-    def get_device_info(self) -> DeviceInfo:
-        di = super().get_device_info()
-        return DeviceInfo(id=di.id,device_type=di.device_type,timestamp=di.timestamp,transform=self.transform)
+    def get_device_info(
+        self,
+        target_coords: CoordinateSystem | None = None,
+        include_lidar: bool = True,
+    ) -> DeviceInfo:
+        di = super().get_device_info(target_coords)
+        transform = self.transform
+        if target_coords is not None and self.coordinate_system is not None:
+            transform = convert_transform(transform, self.coordinate_system, target_coords)
+        info = DeviceInfo(
+            id=di.id,
+            device_type=di.device_type,
+            timestamp=di.timestamp,
+            transform=transform,
+        )
+        # Leave lidar unset so a pose-only post does not replace the stored scan.
+        if include_lidar:
+            lidar = self.lidar
+            if target_coords is not None and self.coordinate_system is not None:
+                lidar = convert_lidar(lidar, self.coordinate_system, target_coords)
+            info.lidar.CopyFrom(lidar)
+        return info
 
     def to_dict(self) -> dict:
         ret = super().to_dict()
         ret["transform"] = MessageToDict(self.transform)
+        ret["lidar"] = MessageToDict(self.lidar)
         return ret
 
 def device_from_info(packet: DeviceInfo) -> Device | None:

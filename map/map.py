@@ -1,7 +1,7 @@
 from uuid import UUID
 from time import time
 from map.device import Device, device_from_info, device_from_dict
-from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Response
+from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response
 import json, os
 
 class Map:
@@ -114,3 +114,10 @@ class Map:
         # Re-export so the dashboard stops drawing a device that timed out.
         if dropped:
             self.export_to_json("dashboard/updated_pos.json")
+
+    def get_lidar_data(self) -> Response:
+        points = []
+        for device in self._devices.values():
+            if hasattr(device, "lidar"):
+                points.extend(device.lidar.points)
+        return Response(lidar_data=Lidar(points=points))

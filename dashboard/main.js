@@ -201,7 +201,7 @@ function updateRobotMarker(key, device) {
   if (robotMarkers[key]) {
     // Update existing marker position
     robotMarkers[key].position.set(position.x, 0.3, position.z);
-    // Three.js +Y rotation turns +X toward -Z; device headings turn +X toward +Z.
+    // Clockwise quarter turn from the aligned heading, so the chevron faces the top wall.
     robotMarkers[key].rotation.set(rotation.x, -rotation.y, rotation.z);
   } else {
     // Create new marker
@@ -216,6 +216,65 @@ function updateRobotMarker(key, device) {
     scene.add(marker);
     robotMarkers[key] = marker;
   }
+}
+
+// LiDAR scan markers
+// One instanced mesh draws all the dots without creating a separate mesh per point.
+const lidarGeometry = new THREE.SphereGeometry(0.04, 8, 6);
+const lidarMaterial = new THREE.MeshBasicMaterial({ color: 0xff7043 });
+const lidarDot = new THREE.Object3D();
+let lidarMarkers = null;
+let lidarCapacity = 0;
+
+function updateLidarMarkers(devices) {
+  const points = devices.flatMap(device => device.lidar?.points ?? []);
+
+  console.log("LiDAR point count:", points.length, "First point:", points[0]);
+
+  if (points.length > lidarCapacity) {
+    if (lidarMarkers) {
+      scene.remove(lidarMarkers);
+      lidarMarkers.dispose();
+    }
+    lidarCapacity = points.length;
+    lidarMarkers = new THREE.InstancedMesh(lidarGeometry, lidarMaterial, lidarCapacity);
+    scene.add(lidarMarkers);
+  }
+
+  if (lidarMarkers) points.forEach((point, index) => {
+    // Lift floor-level readings slightly so they remain visible above the floor.
+    lidarDot.position.set(point.x, point.y, point.z);
+    lidarDot.updateMatrix();
+    lidarMarkers.setMatrixAt(index, lidarDot.matrix);
+  });
+
+  // Limit the visible instances to this scan, including zero after a timeout.
+  if (lidarMarkers) {
+    lidarMarkers.count = points.length;
+    lidarMarkers.instanceMatrix.needsUpdate = true;
+    lidarMarkers.computeBoundingSphere();
+  }
+  updateLidarLine(points);
+}
+
+// One polyline through the scan, in the order the points were sent.
+const lidarLine = new THREE.Line(
+  new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3)),
+  new THREE.LineBasicMaterial({ color: 0xff7043 })
+);
+lidarLine.visible = false;
+scene.add(lidarLine);
+
+function updateLidarLine(points) {
+  const positions = new Float32Array(points.length * 3);
+  points.forEach((point, index) => {
+    positions[index * 3] = point.x;
+    positions[index * 3 + 1] = point.y;
+    positions[index * 3 + 2] = point.z;
+  });
+  lidarLine.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  lidarLine.geometry.computeBoundingSphere();
+  lidarLine.visible = points.length > 1;
 }
 
 // Rendering and window behavior
@@ -345,6 +404,7 @@ async function pollDevices() {
         const response = await request({ case: "fetchAllDeviceInfo", value: {} });
         if (response.data.case === "allDeviceInfo") {
           updateDevices(response.data.value.devices);
+          updateLidarMarkers(response.data.value.devices);
         }
       } catch (error) {
         console.error("Error fetching devices:", error);
