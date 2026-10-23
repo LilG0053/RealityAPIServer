@@ -22,11 +22,11 @@ POINT_FIELD_FLOAT64 = 8
 _NUMPY_CODES = {POINT_FIELD_FLOAT32: "f4", POINT_FIELD_FLOAT64: "f8"}
 
 # RDP tolerance (m) for organized clouds, applied per scan row.
-LIDAR_EPSILON = float(os.getenv("REALITYAPI_LIDAR_EPSILON", "0.05"))
+LIDAR_EPSILON = 0.06
 # Voxel size (m) applied to every cloud; 0 disables.
-LIDAR_VOXEL_SIZE = float(os.getenv("REALITYAPI_LIDAR_VOXEL", "0.05"))
+LIDAR_VOXEL_SIZE = 0.06
 # Hard cap on points per dashboard update.
-LIDAR_MAX_POINTS = int(os.getenv("REALITYAPI_LIDAR_MAX_POINTS", "20000"))
+LIDAR_MAX_POINTS = 20000
 
 
 def _coordinate(position: dict[str, Any], name: str) -> float:
@@ -37,7 +37,6 @@ def _coordinate(position: dict[str, Any], name: str) -> float:
 
 
 def _find_position(payload: Any) -> dict[str, Any] | None:
-    """Find position in Pose, PoseStamped, or Odometry-shaped ROS payloads."""
     current = payload
     while isinstance(current, dict) and "position" not in current:
         current = current.get("pose")
@@ -74,7 +73,6 @@ def position_request(message: dict[str, Any]) -> ServerRequest:
 
 
 def pose_request(message: Any) -> ServerRequest:
-    """Build a request from a native geometry_msgs/msg/PoseStamped message."""
     position = message.pose.position
     transform = Transform(
         position=Vector3(
@@ -103,7 +101,6 @@ def _point_field(message: Any, name: str) -> Any:
 
 
 def _cloud_xyz(message: Any) -> np.ndarray:
-    """Decode a PointCloud2 into a (height, width, 3) float64 array (ROS axes)."""
     fields = [_point_field(message, name) for name in "xyz"]
     for field in fields:
         if field.datatype not in _NUMPY_CODES:
