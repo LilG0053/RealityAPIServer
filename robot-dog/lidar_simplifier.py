@@ -1,3 +1,16 @@
+"""Point-cloud simplification helpers.
+
+The simplifier is deliberately independent of ROS and protobuf so it can be
+tested and reused without importing the robot client.
+
+Two tools are provided:
+
+* ``simplify_points``: Ramer-Douglas-Peucker for *ordered* sequences (e.g. one
+  scan ring of an organized cloud). Only meaningful when neighbouring points in
+  the list are neighbours in space.
+* ``voxel_downsample``: vectorised grid downsampling that works on unordered
+  clouds and bounds the point count cheaply.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from time import time
 from dataclasses import InitVar, dataclass, field
 from realityapi_pb2 import DeviceType, Transform, Vector3, DeviceInfo, Lidar
@@ -113,6 +114,11 @@ class TransformDevice(Device):
 
 def device_from_info(packet: DeviceInfo) -> Device | None:
     if packet.device_type == DeviceType.TURTLE:
+        return TurtleBot.from_info(packet)
+    if packet.device_type == DeviceType.DOG:
+        return Dog.from_info(packet)
+    return None
+
 @dataclass
 class Dog(Device):
     position: Vector3
@@ -125,18 +131,24 @@ class Dog(Device):
             timestamp=packet.timestamp,
             position=packet.dog.position,
             rotation=packet.dog.rotation,
+        )
     def handle_device_info(self, device_info: DeviceInfo) -> None:
         super().handle_device_info(device_info)
         if device_info.HasField("transform"):
             self.transform.CopyFrom(device_info.transform)
+        if device_info.HasField("lidar"):
+            self.lidar.CopyFrom(device_info.lidar)
 
     def get_device_info(self) -> DeviceInfo:
-        return DeviceInfo(
+        info = DeviceInfo(
             id=self.id,
             device_type=self.device_type,
             timestamp=self.timestamp,
             transform=self.transform,
         )
+        if self.lidar.points:
+            info.lidar.CopyFrom(self.lidar)
+        return info
 
     def to_dict(self) -> dict[str, Any]:
         result = super().to_dict()
@@ -144,8 +156,10 @@ class Dog(Device):
             self.transform,
             always_print_fields_with_no_presence=True,
         )
+        if self.lidar.points:
+            result["lidar"] = MessageToDict(self.lidar)
         return result
-
+        
 
 @dataclass
 class TurtleBot(TransformDevice):
@@ -156,6 +170,7 @@ class TurtleBot(TransformDevice):
             device_type=device_info.device_type,
             timestamp=device_info.timestamp,
             transform=Transform(),
+            lidar=Lidar(),
         )._copy_transform(device_info)
 
     @classmethod
@@ -165,11 +180,14 @@ class TurtleBot(TransformDevice):
             device_type=DeviceType.TURTLE,
             timestamp=time(),
             transform=ParseDict(data.get("transform", {}), zero_transform()),
+            lidar=ParseDict(data.get("lidar", {}), Lidar()),
         )
 
     def _copy_transform(self, device_info: DeviceInfo) -> "TurtleBot":
         if device_info.HasField("transform"):
             self.transform.CopyFrom(device_info.transform)
+        if device_info.HasField("lidar"):
+            self.lidar.CopyFrom(device_info.lidar)
         return self
 
 
@@ -182,6 +200,7 @@ class Dog(TransformDevice):
             device_type=device_info.device_type,
             timestamp=device_info.timestamp,
             transform=Transform(),
+            lidar=Lidar(),
         )
         return dog._copy_transform(device_info)
 
@@ -192,11 +211,14 @@ class Dog(TransformDevice):
             device_type=DeviceType.DOG,
             timestamp=time(),
             transform=ParseDict(data.get("transform", {}), zero_transform()),
+            lidar=ParseDict(data.get("lidar", {}), Lidar()),
         )
 
     def _copy_transform(self, device_info: DeviceInfo) -> "Dog":
         if device_info.HasField("transform"):
             self.transform.CopyFrom(device_info.transform)
+        if device_info.HasField("lidar"):
+            self.lidar.CopyFrom(device_info.lidar)
         return self
 
 
