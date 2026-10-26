@@ -71,5 +71,4 @@ def scan_to_world_points(raw_scan: RawLidarScan) -> Lidar:
                     z=raw_scan.transform.position.z,
                 )
             )
-    lidar = simplify_lidar_2d(Lidar(points=points), epsilon=LIDAR_EPSILON)
-    return lidar;
+    return simplify_lidar_2d(Lidar(points=points), epsilon=LIDAR_EPSILON)

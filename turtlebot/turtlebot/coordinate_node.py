@@ -11,7 +11,7 @@ from rclpy.qos import qos_profile_sensor_data
 from websockets.sync.client import connect
 
 from init_turtlebot import create_turtlebot
-from realityapi_pb2 import Response, ServerRequest, Vector3, Lidar, RawLidarScan
+from realityapi_pb2 import Response, ServerRequest, Vector3, RawLidarScan
 from server import SERVER_COORDS
 
 SERVER_URI = "ws://0.0.0.0:65432"
@@ -60,7 +60,7 @@ class CoordinateNode(Node):
         self.post_device_info(log=True)
 
     def lidar_update_callback(self, data: LaserScan):
-        self.send_scan(data);
+        self.send_scan(data)
 
     def send_scan(self, ros_data):
         raw_scan = RawLidarScan(
@@ -72,7 +72,7 @@ class CoordinateNode(Node):
             angle_min = ros_data.angle_min,
             angle_increment = ros_data.angle_increment
         )
-        self.send_request(ServerRequest(post_raw_lidar_scan=raw_scan));
+        self.send_request(ServerRequest(post_raw_lidar_scan=raw_scan))
 
     def heartbeat_callback(self):
         self.send_request(ServerRequest(post_heartbeat=self.robot.id))

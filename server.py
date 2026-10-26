@@ -77,8 +77,8 @@ def fetch_lidar_data(_: Empty) -> Response:
     return server_map.get_lidar_data()
 
 def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
-    # check to ensure the device_id we got lidar data from exists
-    if not server_map.exists(raw_scan.device_id):
+    # A scan can update an existing device but cannot create one by itself.
+    if not server_map.exists(raw_scan.id):
         return Response(err_id_not_found={})
     
     lidar = scan_to_world_points(raw_scan)
