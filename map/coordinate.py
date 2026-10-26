@@ -7,7 +7,6 @@ import numpy as np
 
 from realityapi_pb2 import Lidar, Transform, Vector3
 
-
 class Direction(Enum):
     """A signed axis. Opposites share an absolute value and cancel each other."""
     EAST = auto()

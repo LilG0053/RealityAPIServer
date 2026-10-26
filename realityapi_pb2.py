@@ -25,15 +25,15 @@ _sym_db = _symbol_database.Default()
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10realityapi.proto\x12\nrealityapi\x1a\x1bgoogle/protobuf/empty.proto\"*\n\x07Vector3\x12\t\n\x01x\x18\x01 \x01(\x02\x12\t\n\x01y\x18\x02 \x01(\x02\x12\t\n\x01z\x18\x03 \x01(\x02\"Y\n\tTransform\x12%\n\x08position\x18\x01 \x01(\x0b\x32\x13.realityapi.Vector3\x12%\n\x08rotation\x18\x02 \x01(\x0b\x32\x13.realityapi.Vector3\",\n\x05Lidar\x12#\n\x06points\x18\x01 \x03(\x0b\x32\x13.realityapi.Vector3\"\xad\x01\n\x0cRawLidarScan\x12\x11\n\tdevice_id\x18\x01 \x01(\t\x12(\n\ttransform\x18\x02 \x01(\x0b\x32\x15.realityapi.Transform\x12\x0e\n\x06ranges\x18\x03 \x03(\x02\x12\x11\n\trange_min\x18\x04 \x01(\x02\x12\x11\n\trange_max\x18\x05 \x01(\x02\x12\x11\n\tangle_min\x18\x06 \x01(\x02\x12\x17\n\x0f\x61ngle_increment\x18\x07 \x01(\x02\"\xc6\x01\n\nDeviceInfo\x12\n\n\x02id\x18\x01 \x01(\t\x12+\n\x0b\x64\x65vice_type\x18\x02 \x01(\x0e\x32\x16.realityapi.DeviceType\x12\x11\n\ttimestamp\x18\x03 \x01(\x02\x12-\n\ttransform\x18\x04 \x01(\x0b\x32\x15.realityapi.TransformH\x00\x88\x01\x01\x12%\n\x05lidar\x18\x05 \x01(\x0b\x32\x11.realityapi.LidarH\x01\x88\x01\x01\x42\x0c\n\n_transformB\x08\n\x06_lidar\"8\n\rAllDeviceInfo\x12\'\n\x07\x64\x65vices\x18\x01 \x03(\x0b\x32\x16.realityapi.DeviceInfo\"\xad\x03\n\x08Response\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12$\n\x02ok\x18\x04 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x32\n\x10\x65rr_id_not_found\x18\x05 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x33\n\x11\x65rr_not_supported\x18\x06 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x12\x65rr_cannot_execute\x18\x07 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x12\x65rr_failed_execute\x18\x08 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x0f\x61ll_device_info\x18\x14 \x01(\x0b\x32\x19.realityapi.AllDeviceInfoH\x00\x12-\n\x0b\x64\x65vice_info\x18\x15 \x01(\x0b\x32\x16.realityapi.DeviceInfoH\x00\x12\'\n\nlidar_data\x18\x16 \x01(\x0b\x32\x11.realityapi.LidarH\x00\x42\x06\n\x04\x64\x61ta\"Y\n\x07\x43ommand\x12\x11\n\ttarget_id\x18\x01 \x01(\t\x12-\n\ttransform\x18\x02 \x01(\x0b\x32\x15.realityapi.TransformH\x00\x88\x01\x01\x42\x0c\n\n_transform\"\xee\x02\n\rServerRequest\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12\x32\n\x10post_device_info\x18\x04 \x01(\x0b\x32\x16.realityapi.DeviceInfoH\x00\x12\x18\n\x0epost_heartbeat\x18\x05 \x01(\tH\x00\x12\x37\n\x15\x66\x65tch_all_device_info\x18\x06 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\"\n\x18\x66\x65tch_single_device_info\x18\x07 \x01(\tH\x00\x12+\n\x0csend_command\x18\x08 \x01(\x0b\x32\x13.realityapi.CommandH\x00\x12\x32\n\x10\x66\x65tch_lidar_data\x18\t \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x37\n\x13post_raw_lidar_scan\x18\n \x01(\x0b\x32\x18.realityapi.RawLidarScanH\x00\x42\x06\n\x04\x64\x61ta\"\x8b\x01\n\rClientRequest\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12\x33\n\x11\x66\x65tch_device_info\x18\x04 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12+\n\x0cpost_command\x18\x05 \x01(\x0b\x32\x13.realityapi.CommandH\x00\x42\x06\n\x04\x64\x61ta*D\n\nDeviceType\x12\x08\n\x04NONE\x10\x00\x12\x06\n\x02VR\x10\x01\x12\x06\n\x02\x41R\x10\x02\x12\x07\n\x03\x44OG\x10\x03\x12\x07\n\x03\x41RM\x10\x04\x12\n\n\x06TURTLE\x10\x05\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10realityapi.proto\x12\nrealityapi\x1a\x1bgoogle/protobuf/empty.proto\"*\n\x07Vector3\x12\t\n\x01x\x18\x01 \x01(\x02\x12\t\n\x01y\x18\x02 \x01(\x02\x12\t\n\x01z\x18\x03 \x01(\x02\"Y\n\tTransform\x12%\n\x08position\x18\x01 \x01(\x0b\x32\x13.realityapi.Vector3\x12%\n\x08rotation\x18\x02 \x01(\x0b\x32\x13.realityapi.Vector3\",\n\x05Lidar\x12#\n\x06points\x18\x01 \x03(\x0b\x32\x13.realityapi.Vector3\"\xa6\x01\n\x0cRawLidarScan\x12\n\n\x02id\x18\x01 \x01(\t\x12(\n\ttransform\x18\x02 \x01(\x0b\x32\x15.realityapi.Transform\x12\x0e\n\x06ranges\x18\x03 \x03(\x02\x12\x11\n\trange_min\x18\x04 \x01(\x02\x12\x11\n\trange_max\x18\x05 \x01(\x02\x12\x11\n\tangle_min\x18\x06 \x01(\x02\x12\x17\n\x0f\x61ngle_increment\x18\x07 \x01(\x02\"\xc6\x01\n\nDeviceInfo\x12\n\n\x02id\x18\x01 \x01(\t\x12+\n\x0b\x64\x65vice_type\x18\x02 \x01(\x0e\x32\x16.realityapi.DeviceType\x12\x11\n\ttimestamp\x18\x03 \x01(\x02\x12-\n\ttransform\x18\x04 \x01(\x0b\x32\x15.realityapi.TransformH\x00\x88\x01\x01\x12%\n\x05lidar\x18\x05 \x01(\x0b\x32\x11.realityapi.LidarH\x01\x88\x01\x01\x42\x0c\n\n_transformB\x08\n\x06_lidar\"8\n\rAllDeviceInfo\x12\'\n\x07\x64\x65vices\x18\x01 \x03(\x0b\x32\x16.realityapi.DeviceInfo\"\xad\x03\n\x08Response\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12$\n\x02ok\x18\x04 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x32\n\x10\x65rr_id_not_found\x18\x05 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x33\n\x11\x65rr_not_supported\x18\x06 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x12\x65rr_cannot_execute\x18\x07 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x12\x65rr_failed_execute\x18\x08 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x0f\x61ll_device_info\x18\x14 \x01(\x0b\x32\x19.realityapi.AllDeviceInfoH\x00\x12-\n\x0b\x64\x65vice_info\x18\x15 \x01(\x0b\x32\x16.realityapi.DeviceInfoH\x00\x12\'\n\nlidar_data\x18\x16 \x01(\x0b\x32\x11.realityapi.LidarH\x00\x42\x06\n\x04\x64\x61ta\"Y\n\x07\x43ommand\x12\x11\n\ttarget_id\x18\x01 \x01(\t\x12-\n\ttransform\x18\x02 \x01(\x0b\x32\x15.realityapi.TransformH\x00\x88\x01\x01\x42\x0c\n\n_transform\"\xee\x02\n\rServerRequest\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12\x32\n\x10post_device_info\x18\x04 \x01(\x0b\x32\x16.realityapi.DeviceInfoH\x00\x12\x18\n\x0epost_heartbeat\x18\x05 \x01(\tH\x00\x12\x37\n\x15\x66\x65tch_all_device_info\x18\x06 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\"\n\x18\x66\x65tch_single_device_info\x18\x07 \x01(\tH\x00\x12+\n\x0csend_command\x18\x08 \x01(\x0b\x32\x13.realityapi.CommandH\x00\x12\x32\n\x10\x66\x65tch_lidar_data\x18\t \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x37\n\x13post_raw_lidar_scan\x18\n \x01(\x0b\x32\x18.realityapi.RawLidarScanH\x00\x42\x06\n\x04\x64\x61ta\"\x8b\x01\n\rClientRequest\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12\x33\n\x11\x66\x65tch_device_info\x18\x04 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12+\n\x0cpost_command\x18\x05 \x01(\x0b\x32\x13.realityapi.CommandH\x00\x42\x06\n\x04\x64\x61ta*D\n\nDeviceType\x12\x08\n\x04NONE\x10\x00\x12\x06\n\x02VR\x10\x01\x12\x06\n\x02\x41R\x10\x02\x12\x07\n\x03\x44OG\x10\x03\x12\x07\n\x03\x41RM\x10\x04\x12\n\n\x06TURTLE\x10\x05\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'realityapi_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_DEVICETYPE']._serialized_start=1711
-  _globals['_DEVICETYPE']._serialized_end=1779
+  _globals['_DEVICETYPE']._serialized_start=1704
+  _globals['_DEVICETYPE']._serialized_end=1772
   _globals['_VECTOR3']._serialized_start=61
   _globals['_VECTOR3']._serialized_end=103
   _globals['_TRANSFORM']._serialized_start=105
@@ -41,17 +41,17 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_LIDAR']._serialized_start=196
   _globals['_LIDAR']._serialized_end=240
   _globals['_RAWLIDARSCAN']._serialized_start=243
-  _globals['_RAWLIDARSCAN']._serialized_end=416
-  _globals['_DEVICEINFO']._serialized_start=419
-  _globals['_DEVICEINFO']._serialized_end=617
-  _globals['_ALLDEVICEINFO']._serialized_start=619
-  _globals['_ALLDEVICEINFO']._serialized_end=675
-  _globals['_RESPONSE']._serialized_start=678
-  _globals['_RESPONSE']._serialized_end=1107
-  _globals['_COMMAND']._serialized_start=1109
-  _globals['_COMMAND']._serialized_end=1198
-  _globals['_SERVERREQUEST']._serialized_start=1201
-  _globals['_SERVERREQUEST']._serialized_end=1567
-  _globals['_CLIENTREQUEST']._serialized_start=1570
-  _globals['_CLIENTREQUEST']._serialized_end=1709
+  _globals['_RAWLIDARSCAN']._serialized_end=409
+  _globals['_DEVICEINFO']._serialized_start=412
+  _globals['_DEVICEINFO']._serialized_end=610
+  _globals['_ALLDEVICEINFO']._serialized_start=612
+  _globals['_ALLDEVICEINFO']._serialized_end=668
+  _globals['_RESPONSE']._serialized_start=671
+  _globals['_RESPONSE']._serialized_end=1100
+  _globals['_COMMAND']._serialized_start=1102
+  _globals['_COMMAND']._serialized_end=1191
+  _globals['_SERVERREQUEST']._serialized_start=1194
+  _globals['_SERVERREQUEST']._serialized_end=1560
+  _globals['_CLIENTREQUEST']._serialized_start=1563
+  _globals['_CLIENTREQUEST']._serialized_end=1702
 # @@protoc_insertion_point(module_scope)

@@ -20,7 +20,7 @@ message Lidar {
 }
 
 message RawLidarScan {
-    string device_id = 1;
+    string id = 1;
     Transform transform = 2; // post snapshot of robot when scan read
 
     repeated float ranges = 3; // raw LaserScan distances

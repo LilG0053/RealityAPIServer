@@ -48,22 +48,22 @@ class Lidar(_message.Message):
     def __init__(self, points: _Optional[_Iterable[_Union[Vector3, _Mapping]]] = ...) -> None: ...
 
 class RawLidarScan(_message.Message):
-    __slots__ = ("device_id", "transform", "ranges", "range_min", "range_max", "angle_min", "angle_increment")
-    DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("id", "transform", "ranges", "range_min", "range_max", "angle_min", "angle_increment")
+    ID_FIELD_NUMBER: _ClassVar[int]
     TRANSFORM_FIELD_NUMBER: _ClassVar[int]
     RANGES_FIELD_NUMBER: _ClassVar[int]
     RANGE_MIN_FIELD_NUMBER: _ClassVar[int]
     RANGE_MAX_FIELD_NUMBER: _ClassVar[int]
     ANGLE_MIN_FIELD_NUMBER: _ClassVar[int]
     ANGLE_INCREMENT_FIELD_NUMBER: _ClassVar[int]
-    device_id: str
+    id: str
     transform: Transform
     ranges: _containers.RepeatedScalarFieldContainer[float]
     range_min: float
     range_max: float
     angle_min: float
     angle_increment: float
-    def __init__(self, device_id: _Optional[str] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ..., ranges: _Optional[_Iterable[float]] = ..., range_min: _Optional[float] = ..., range_max: _Optional[float] = ..., angle_min: _Optional[float] = ..., angle_increment: _Optional[float] = ...) -> None: ...
+    def __init__(self, id: _Optional[str] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ..., ranges: _Optional[_Iterable[float]] = ..., range_min: _Optional[float] = ..., range_max: _Optional[float] = ..., angle_min: _Optional[float] = ..., angle_increment: _Optional[float] = ...) -> None: ...
 
 class DeviceInfo(_message.Message):
     __slots__ = ("id", "device_type", "timestamp", "transform", "lidar")

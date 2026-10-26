@@ -11,14 +11,10 @@ from rclpy.qos import qos_profile_sensor_data
 from websockets.sync.client import connect
 
 from init_turtlebot import create_turtlebot
-from map.lidar import simplify_lidar_2d
 from realityapi_pb2 import Response, ServerRequest, Vector3, Lidar, RawLidarScan
 from server import SERVER_COORDS
 
 SERVER_URI = "ws://0.0.0.0:65432"
-
-# Contour tolerance, in meters, applied to each scan before it is posted.
-LIDAR_EPSILON = 0.05
 
 # The server drops a device after 2 seconds of silence.
 HEARTBEAT_INTERVAL = 1.0
@@ -64,42 +60,7 @@ class CoordinateNode(Node):
         self.post_device_info(log=True)
 
     def lidar_update_callback(self, data: LaserScan):
-        range_min = data.range_min
-        range_max = data.range_max
-        angle_min = data.angle_min
-        delta = data.angle_increment
-        transform = self.robot.transform
-
         self.send_scan(data);
-
-        # Convert each LiDAR range reading into a point in the robot's world-fixed odom frame.
-        #
-        # Computing the ray angle `theta` in the odom XY plane requires chaining three angles:
-        #   1. `(i * delta) + angle_min`:
-        #      The angle of beam `i` in the LiDAR sensor's own frame (`rplidar_link`),
-        #      measured counterclockwise from the sensor's 0-radian axis.
-        #   2. `+ (math.pi / 2)`:
-        #       transforms from `rplidar_link` into the robot body frame (`base_link`).
-        #      On the TurtleBot 4, the RPLIDAR is physically mounted rotated +90 degrees
-        #      counterclockwise (rpy="0 0 pi/2" in turtlebot4.urdf.xacro), so the sensor's
-        #      0-radian axis points out the left side (+y) of `base_link` rather than the
-        #      front (+x). Adding pi/2 aligns 0 radians with the robot's forward +x axis.
-        #   3. `+ transform.rotation.z`:
-        #      Transforms from the rotating `base_link` frame into the world-fixed `odom`
-        #      frame by adding the robot's current yaw relative to its starting orientation.
-        points = []
-        for i, r in enumerate(data.ranges):
-            if range_min < r < range_max:
-                theta = (i * delta) + angle_min + (math.pi / 2) + transform.rotation.z
-                points.append(
-                    Vector3(
-                        x=transform.position.x + (r * math.cos(theta)),
-                        y=transform.position.y + (r * math.sin(theta)),
-                        z=transform.position.z,
-                    )
-                )
-        self.robot.lidar = simplify_lidar_2d(Lidar(points=points), epsilon=LIDAR_EPSILON)
-        self.post_device_info(log=True, include_lidar=True)
 
     def send_scan(self, ros_data):
         raw_scan = RawLidarScan(
@@ -109,24 +70,23 @@ class CoordinateNode(Node):
             range_min = ros_data.range_min,
             range_max = ros_data.range_max,
             angle_min = ros_data.angle_min,
-            delta = ros_data.angle_increment
+            angle_increment = ros_data.angle_increment
         )
         self.send_request(ServerRequest(post_raw_lidar_scan=raw_scan));
 
     def heartbeat_callback(self):
         self.send_request(ServerRequest(post_heartbeat=self.robot.id))
 
-    def post_device_info(self, log=False, include_lidar=False):
+    def post_device_info(self, log=False):
         self.robot.timestamp = time.time()
         # Odometry updates reuse the last scan already stored on the server.
         device_info = self.robot.get_device_info(
             target_coords=SERVER_COORDS,
-            include_lidar=include_lidar,
+            include_lidar=False,
         )
         self.send_request(
             ServerRequest(post_device_info=device_info),
             log=log,
-            include_lidar=include_lidar,
         )
 
     def send_request(self, req: ServerRequest, log=False, include_lidar=False) -> Response:
