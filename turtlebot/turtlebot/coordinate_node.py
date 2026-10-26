@@ -12,7 +12,7 @@ from websockets.sync.client import connect
 
 from init_turtlebot import create_turtlebot
 from map.lidar import simplify_lidar_2d
-from realityapi_pb2 import Response, ServerRequest, Vector3, Lidar
+from realityapi_pb2 import Response, ServerRequest, Vector3, Lidar, RawLidarScan
 from server import SERVER_COORDS
 
 SERVER_URI = "ws://0.0.0.0:65432"
@@ -69,6 +69,9 @@ class CoordinateNode(Node):
         angle_min = data.angle_min
         delta = data.angle_increment
         transform = self.robot.transform
+
+        self.send_scan(data);
+
         # Convert each LiDAR range reading into a point in the robot's world-fixed odom frame.
         #
         # Computing the ray angle `theta` in the odom XY plane requires chaining three angles:
@@ -97,6 +100,18 @@ class CoordinateNode(Node):
                 )
         self.robot.lidar = simplify_lidar_2d(Lidar(points=points), epsilon=LIDAR_EPSILON)
         self.post_device_info(log=True, include_lidar=True)
+
+    def send_scan(self, ros_data):
+        raw_scan = RawLidarScan(
+            id = self.robot.id,
+            transform = self.robot.transform,
+            ranges = ros_data.ranges,
+            range_min = ros_data.range_min,
+            range_max = ros_data.range_max,
+            angle_min = ros_data.angle_min,
+            delta = ros_data.angle_increment
+        )
+        self.send_request(ServerRequest(post_raw_lidar_scan=raw_scan));
 
     def heartbeat_callback(self):
         self.send_request(ServerRequest(post_heartbeat=self.robot.id))

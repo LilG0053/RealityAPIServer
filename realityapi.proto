@@ -19,6 +19,17 @@ message Lidar {
     repeated Vector3 points = 1;
 }
 
+message RawLidarScan {
+    string device_id = 1;
+    Transform transform = 2; // post snapshot of robot when scan read
+
+    repeated float ranges = 3; // raw LaserScan distances
+    float range_min = 4;
+    float range_max = 5;
+    float angle_min = 6;
+    float angle_increment = 7;
+}
+
 enum DeviceType {
     NONE = 0;
     VR = 1;
@@ -85,6 +96,7 @@ message ServerRequest {
         string fetch_single_device_info = 7;
         Command send_command = 8;
         google.protobuf.Empty fetch_lidar_data = 9;
+        RawLidarScan post_raw_lidar_scan = 10;
     }
 }
 

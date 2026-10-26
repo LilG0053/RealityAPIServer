@@ -41,3 +41,11 @@ def simplify_lidar_2d(
     return Lidar(
         points=[Vector3(x=float(point[0]), y=float(point[1]), z=float(point[2])) for point in simplified]
     )
+
+def scan_to_world_points(scan: RawLidarScan) -> Lidar:
+    # loop through scan.ranges
+    # calculate theta from angle_min + i * angle_increment
+    # add the sensor mounting offset and robot yaw
+    # use scan.transform position to make world coordinates
+    # simplify the result
+    return Lidar(points=world_points)

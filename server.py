@@ -55,6 +55,8 @@ def post_device_info(info: DeviceInfo) -> Response:
     print(f"<<< device info from {info.id}")
     return server_map.handle_device_info(info)
 
+
+
 def post_heartbeat(device_id: str) -> Response:
     print(f"<<< heartbeat from {device_id}")
     return server_map.handle_heartbeat(device_id)
