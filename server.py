@@ -1,17 +1,25 @@
 #!/usr/bin/env python
 
 import asyncio
+import math
 from websockets.asyncio.server import serve
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
-from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3
-from map.coordinate import CoordinateSystem, Direction
+from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3, RawLidarScan
+from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
 from map.map import Map
+from map.lidar import scan_to_world_points
 
 SERVER_COORDS = CoordinateSystem(
     x=Direction.SOUTH,
     y=Direction.UP,
     z=Direction.EAST,
+)
+
+TURTLEBOT_COORDS = CoordinateSystem(
+    x=Direction.NORTH,
+    y=Direction.WEST,
+    z=Direction.UP,
 )
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
@@ -68,6 +76,29 @@ def fetch_single_device_info(device_id: str) -> Response:
 def fetch_lidar_data(_: Empty) -> Response:
     return server_map.get_lidar_data()
 
+def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
+    # A scan can update an existing device but cannot create one by itself.
+    if not server_map.exists(raw_scan.id):
+        return Response(err_id_not_found={})
+    
+    lidar = scan_to_world_points(raw_scan)
+    
+    device_lidar_info = DeviceInfo(
+        id = raw_scan.id,
+        transform=convert_transform(
+            raw_scan.transform,
+            TURTLEBOT_COORDS,
+            SERVER_COORDS,
+        ),
+        lidar=convert_lidar(
+            lidar,
+            TURTLEBOT_COORDS,
+            SERVER_COORDS,
+        ),
+    )
+
+    return post_device_info(device_lidar_info)
+
 def send_command(command: Command) -> Response:
     if not server_map.exists(command.target_id):
         return Response(err_id_not_found={})
@@ -83,7 +114,8 @@ HANDLERS = {
     "fetch_all_device_info": fetch_all_device_info,
     "fetch_single_device_info": fetch_single_device_info,
     "send_command": send_command,
-    "fetch_lidar_data": fetch_lidar_data
+    "fetch_lidar_data": fetch_lidar_data,
+    "post_raw_lidar_scan": handle_raw_lidar_scan,
 }
 
 def handle_request(req: ServerRequest) -> Response:
