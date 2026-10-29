@@ -129,14 +129,11 @@ message ClientRequest {
         Command post_command = 5;
     }
 }
-
 enum RequestType {
     HEARTBEAT = 0;
     REQUEST_ALL_DATA = 1;
     TURTLE_INFO = 2;
     DOG_INFO = 3;
-<<<<<<< HEAD
-=======
 }
 
 // reqs are used to request data from the server immutably
@@ -157,5 +154,4 @@ message ClientBoundPacket {
     optional AllDataResponse all_data_res = 4;
     optional TurtleCommand turtle_cmd = 5;
     optional DogCommand dog_cmd = 6;
->>>>>>> 9368baf (updated client for robot dog)
 }
