@@ -8,7 +8,8 @@ from google.protobuf.message import DecodeError
 from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3, RawLidarScan
 from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
 from map.map import Map
-from map.lidar import scan_to_world_points
+from map.lidar import LIDAR_EPSILON, scan_to_world_points, simplify_lidar_2d
+from map.localization import ScanLocalizer
 
 SERVER_COORDS = CoordinateSystem(
     x=Direction.SOUTH,
@@ -32,6 +33,7 @@ TIMEOUT = 2.0
 MONITOR_INTERVAL = 0.04
 
 server_map = Map()
+scan_localizer = ScanLocalizer()
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
     """Return a new Vector3 shifted by the offset."""
@@ -80,9 +82,12 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
     # A scan can update an existing device but cannot create one by itself.
     if not server_map.exists(raw_scan.id):
         return Response(err_id_not_found={})
-    
-    lidar = scan_to_world_points(raw_scan)
-    
+
+    world_points = scan_to_world_points(raw_scan)
+    lidar = convert_lidar(world_points, TURTLEBOT_COORDS, SERVER_COORDS)
+
+    #TODO: apply the error and extract the scan to build map
+    yaw_error, x_error, z_error = scan_localizer.align_to_prev_scan(lidar)
     device_lidar_info = DeviceInfo(
         id = raw_scan.id,
         transform=convert_transform(
@@ -90,11 +95,7 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
             TURTLEBOT_COORDS,
             SERVER_COORDS,
         ),
-        lidar=convert_lidar(
-            lidar,
-            TURTLEBOT_COORDS,
-            SERVER_COORDS,
-        ),
+        lidar=simplify_lidar_2d(lidar, epsilon=LIDAR_EPSILON), # Moved simplify here because we dont want to simplify our ICP calculations
     )
 
     return post_device_info(device_lidar_info)
