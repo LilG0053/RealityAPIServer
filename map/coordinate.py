@@ -60,8 +60,6 @@ def get_transform_matrix(source: CoordinateSystem, target: CoordinateSystem) -> 
     source_axes = (source.x, source.y, source.z)
     target_axes = (target.x, target.y, target.z)
 
-    # Each target axis owns its row. The opposite direction uses the same row
-    # with a negative sign, so every source axis is one lookup.
     placement: dict[Direction, tuple[int, int]] = {}
     for row, direction in enumerate(target_axes):
         placement[direction] = (row, 1)

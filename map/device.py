@@ -1,13 +1,23 @@
-from dataclasses import dataclass, field
-from time import time
+"""Devices tracked by the server map."""
+
 from dataclasses import InitVar, dataclass, field
-from realityapi_pb2 import DeviceType, Transform, Vector3, DeviceInfo, Lidar
+from time import time
+from typing import Any, ClassVar
+
 from google.protobuf.json_format import MessageToDict, ParseDict
+
 from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
+from realityapi_pb2 import DeviceInfo, DeviceType, Lidar, Transform, Vector3
 
 
 def zero_transform() -> Transform:
     return Transform(position=Vector3(), rotation=Vector3())
+
+
+def _message_dict(message) -> dict[str, Any]:
+    # Print zero-valued fields too, so a coordinate of exactly 0 still reaches
+    # the dashboard JSON instead of being dropped.
+    return MessageToDict(message, always_print_fields_with_no_presence=True)
 
 
 @dataclass
@@ -18,8 +28,9 @@ class Device:
     coordinate_system: CoordinateSystem | None = field(default=None, kw_only=True)
 
     def handle_device_info(self, device_info: DeviceInfo) -> None:
-        self.id = device_info.id
-        self.device_type = device_info.device_type
+        # id and device_type are fixed when the device is created. Partial
+        # updates (a raw lidar scan, for example) leave them unset, so copying
+        # them here would silently turn a TurtleBot into device_type NONE.
         self.timestamp = device_info.timestamp
 
     def get_device_info(self, target_coords: CoordinateSystem | None = None) -> DeviceInfo:
@@ -41,97 +52,39 @@ class TransformDevice(Device):
     lidar: Lidar
     initial_heading: InitVar[Direction] = Direction.NORTH
 
-    def __post_init__(self, initial_heading: Direction):
-        self.coordinate_system = CoordinateSystem(
-            x=initial_heading,
-            y=initial_heading.counterclockwise90(),
-            z=Direction.UP,
-        )
+    # Set by each concrete subclass.
+    DEVICE_TYPE: ClassVar[int] = DeviceType.NONE
+
+    def __post_init__(self, initial_heading: Direction) -> None:
+        if self.coordinate_system is None:
+            self.coordinate_system = CoordinateSystem(
+                x=initial_heading,
+                y=initial_heading.counterclockwise90(),
+                z=Direction.UP,
+            )
 
     @classmethod
-    def from_packet(cls, device_info: DeviceInfo):
-        return cls(
+    def from_packet(cls, device_info: DeviceInfo) -> "TransformDevice":
+        device = cls(
             id=device_info.id,
-            device_type=DeviceType.TURTLE,
+            device_type=cls.DEVICE_TYPE,
             timestamp=device_info.timestamp,
-            # should have transform
-            transform=device_info.transform,
-            lidar=device_info.lidar if device_info.HasField("lidar") else Lidar(points=[])
+            transform=zero_transform(),
+            lidar=Lidar(),
         )
+        device.handle_device_info(device_info)
+        return device
 
     @classmethod
-    def from_dict(cls, d: dict):
+    def from_dict(cls, data: dict[str, Any]) -> "TransformDevice":
         return cls(
-            id=d["id"],
-            device_type=d["device_type"],
+            id=data["id"],
+            device_type=cls.DEVICE_TYPE,
             timestamp=time(),
-            transform=ParseDict(d["transform"], Transform()) if "transform" in d else Transform(
-                position=Vector3(x=0,y=0,z=0),
-                rotation=Vector3(x=0,y=0,z=0)
-            ),
-            lidar=ParseDict(d["lidar"], Lidar()) if "lidar" in d else Lidar(points=[])
+            transform=ParseDict(data.get("transform", {}), zero_transform()),
+            lidar=ParseDict(data.get("lidar", {}), Lidar()),
         )
 
-    def handle_device_info(self, device_info: DeviceInfo):
-        super().handle_device_info(device_info)
-        if device_info.HasField("transform"):
-            self.transform = device_info.transform
-        if device_info.HasField("lidar"):
-            self.lidar = device_info.lidar
-
-    def get_device_info(
-        self,
-        target_coords: CoordinateSystem | None = None,
-        include_lidar: bool = True,
-    ) -> DeviceInfo:
-        di = super().get_device_info(target_coords)
-        transform = self.transform
-        if target_coords is not None and self.coordinate_system is not None:
-            transform = convert_transform(transform, self.coordinate_system, target_coords)
-        info = DeviceInfo(
-            id=di.id,
-            device_type=di.device_type,
-            timestamp=di.timestamp,
-            transform=transform,
-        )
-        # Leave lidar unset so a pose-only post does not replace the stored scan.
-        if include_lidar:
-            lidar = self.lidar
-            if target_coords is not None and self.coordinate_system is not None:
-                lidar = convert_lidar(lidar, self.coordinate_system, target_coords)
-            info.lidar.CopyFrom(lidar)
-        return info
-
-    def to_dict(self) -> dict:
-        ret = super().to_dict()
-        ret["transform"] = MessageToDict(self.transform)
-        ret["lidar"] = MessageToDict(self.lidar)
-        return ret
-    
-    def device_type(self) -> DeviceType:
-            return DeviceType.TURTLE
-    
-
-def device_from_info(packet: DeviceInfo) -> Device | None:
-    if packet.device_type == DeviceType.TURTLE:
-        return TurtleBot.from_info(packet)
-    if packet.device_type == DeviceType.DOG:
-        return Dog.from_info(packet)
-    return None
-
-@dataclass
-class Dog(Device):
-    position: Vector3
-    rotation: Vector3
-
-    @classmethod
-    def from_packet(cls, packet: ServerBoundPacket):
-        return cls(
-            id=packet.id,
-            timestamp=packet.timestamp,
-            position=packet.dog.position,
-            rotation=packet.dog.rotation,
-        )
     def handle_device_info(self, device_info: DeviceInfo) -> None:
         super().handle_device_info(device_info)
         if device_info.HasField("transform"):
@@ -139,101 +92,59 @@ class Dog(Device):
         if device_info.HasField("lidar"):
             self.lidar.CopyFrom(device_info.lidar)
 
-    def get_device_info(self) -> DeviceInfo:
-        info = DeviceInfo(
-            id=self.id,
-            device_type=self.device_type,
-            timestamp=self.timestamp,
-            transform=self.transform,
-        )
-        if self.lidar.points:
-            info.lidar.CopyFrom(self.lidar)
+    def get_device_info(
+        self,
+        target_coords: CoordinateSystem | None = None,
+        include_lidar: bool = True,
+    ) -> DeviceInfo:
+        info = super().get_device_info(target_coords)
+        convert = target_coords is not None and self.coordinate_system is not None
+
+        transform = self.transform
+        if convert:
+            transform = convert_transform(transform, self.coordinate_system, target_coords)
+        info.transform.CopyFrom(transform)
+
+        # Leave lidar unset so a pose-only post does not replace the stored scan.
+        if include_lidar:
+            lidar = self.lidar
+            if convert:
+                lidar = convert_lidar(lidar, self.coordinate_system, target_coords)
+            info.lidar.CopyFrom(lidar)
         return info
 
     def to_dict(self) -> dict[str, Any]:
-        result = super().to_dict()
-        result["transform"] = MessageToDict(
-            self.transform,
-            always_print_fields_with_no_presence=True,
-        )
-        if self.lidar.points:
-            result["lidar"] = MessageToDict(self.lidar)
-        return result
-        
+        ret = super().to_dict()
+        ret["transform"] = _message_dict(self.transform)
+        ret["lidar"] = _message_dict(self.lidar)
+        return ret
 
-@dataclass
+
 class TurtleBot(TransformDevice):
-    @classmethod
-    def from_packet(cls, device_info: DeviceInfo) -> "TurtleBot":
-        return cls(
-            id=device_info.id,
-            device_type=device_info.device_type,
-            timestamp=device_info.timestamp,
-            transform=Transform(),
-            lidar=Lidar(),
-        )._copy_transform(device_info)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TurtleBot":
-        return cls(
-            id=data["id"],
-            device_type=DeviceType.TURTLE,
-            timestamp=time(),
-            transform=ParseDict(data.get("transform", {}), zero_transform()),
-            lidar=ParseDict(data.get("lidar", {}), Lidar()),
-        )
-
-    def _copy_transform(self, device_info: DeviceInfo) -> "TurtleBot":
-        if device_info.HasField("transform"):
-            self.transform.CopyFrom(device_info.transform)
-        if device_info.HasField("lidar"):
-            self.lidar.CopyFrom(device_info.lidar)
-        return self
+    DEVICE_TYPE = DeviceType.TURTLE
 
 
-@dataclass
 class Dog(TransformDevice):
-    @classmethod
-    def from_packet(cls, device_info: DeviceInfo) -> "Dog":
-        dog = cls(
-            id=device_info.id,
-            device_type=device_info.device_type,
-            timestamp=device_info.timestamp,
-            transform=Transform(),
-            lidar=Lidar(),
-        )
-        return dog._copy_transform(device_info)
+    DEVICE_TYPE = DeviceType.DOG
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Dog":
-        return cls(
-            id=data["id"],
-            device_type=DeviceType.DOG,
-            timestamp=time(),
-            transform=ParseDict(data.get("transform", {}), zero_transform()),
-            lidar=ParseDict(data.get("lidar", {}), Lidar()),
-        )
 
-    def _copy_transform(self, device_info: DeviceInfo) -> "Dog":
-        if device_info.HasField("transform"):
-            self.transform.CopyFrom(device_info.transform)
-        if device_info.HasField("lidar"):
-            self.lidar.CopyFrom(device_info.lidar)
-        return self
+_DEVICE_CLASSES: dict[int, type[TransformDevice]] = {
+    DeviceType.TURTLE: TurtleBot,
+    DeviceType.DOG: Dog,
+}
 
 
 def device_from_info(device_info: DeviceInfo) -> Device | None:
-    if device_info.device_type == DeviceType.TURTLE:
-        return TurtleBot.from_packet(device_info)
-    if device_info.device_type == DeviceType.DOG:
-        return Dog.from_packet(device_info)
-    return None
+    cls = _DEVICE_CLASSES.get(device_info.device_type)
+    return cls.from_packet(device_info) if cls else None
 
 
 def device_from_dict(data: dict[str, Any]) -> Device | None:
     device_type = data.get("device_type")
-    if device_type in (DeviceType.TURTLE, "TURTLE"):
-        return TurtleBot.from_dict(data)
-    if device_type in (DeviceType.DOG, "DOG"):
-        return Dog.from_dict(data)
-    return None
+    if isinstance(device_type, str):
+        try:
+            device_type = DeviceType.Value(device_type)
+        except ValueError:
+            return None
+    cls = _DEVICE_CLASSES.get(device_type)
+    return cls.from_dict(data) if cls else None

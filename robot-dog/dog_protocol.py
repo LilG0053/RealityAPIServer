@@ -1,122 +1,103 @@
+"""Build Reality API requests from the dog's ROS 2 messages."""
+ 
+# The dog runs an older Python, where `tuple[float, ...]` in a signature fails
+# at import time unless annotations are deferred.
 from __future__ import annotations
-
+ 
 import math
-import os
 from time import time
 from typing import Any
 from uuid import uuid4
-
+ 
 import numpy as np
-
-from realityapi_pb2 import DeviceInfo, Lidar, ServerRequest, Transform, Vector3
-from lidar_simplifier import simplify_points, voxel_downsample
-
-
+ 
+from realityapi_pb2 import (
+    DeviceInfo,
+    DeviceType,
+    RawPointCloud,
+    ServerRequest,
+    Transform,
+    Vector3,
+)
+ 
 DEVICE_ID = "robot-dog"
 ROS_TOPIC = "/utlidar/robot_pose"
 LIDAR_TOPIC = "/utlidar/cloud_deskewed"
-# Keep the wire value compatible with older generated protobuf modules.
-DOG_DEVICE_TYPE = 3
+# Old protobuf runtimes (like the dog's) do not allow DeviceType.DOG attribute
+# access, but Value("DOG") works on every version.
+DOG_DEVICE_TYPE = DeviceType.Value("DOG")
+ 
 POINT_FIELD_FLOAT32 = 7
 POINT_FIELD_FLOAT64 = 8
 _NUMPY_CODES = {POINT_FIELD_FLOAT32: "f4", POINT_FIELD_FLOAT64: "f8"}
-
-# RDP tolerance (m) for organized clouds, applied per scan row.
-LIDAR_EPSILON = 0.06
-# Voxel size (m) applied to every cloud; 0 disables.
-LIDAR_VOXEL_SIZE = 0.06
-# Hard cap on points per dashboard update.
-LIDAR_MAX_POINTS = 20000
-
-
-def _coordinate(position: dict[str, Any], name: str) -> float:
-    value = position.get(name)
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+ 
+ 
+def _finite(value: float, name: str) -> float:
+    if not math.isfinite(value):
         raise ValueError(f"invalid {name} coordinate: {value!r}")
     return float(value)
-
-
-def _find_position(payload: Any) -> dict[str, Any] | None:
-    current = payload
-    while isinstance(current, dict) and "position" not in current:
-        current = current.get("pose")
-    return current.get("position") if isinstance(current, dict) else None
-
-
-def position_request(message: dict[str, Any]) -> ServerRequest:
-    payload = message.get("msg")
-    if not isinstance(payload, dict):
-        raise ValueError("payload is not an object")
-
-    position = _find_position(payload)
-    if not isinstance(position, dict):
-        raise ValueError("no position object in message")
-
-    # Dog sensor axes map ROS y/z to Reality z/y.
-    transform = Transform(
-        position=Vector3(
-            x=_coordinate(position, "x"),
-            y=_coordinate(position, "z"),
-            z=_coordinate(position, "y"),
-        ),
-        rotation=Vector3(),
-    )
+ 
+ 
+def _to_reality(x: float, y: float, z: float) -> Vector3:
+    """ROS x/y/z -> Reality x/z/y (ROS y and z swap)."""
+    return Vector3(x=x, y=z, z=y)
+ 
+ 
+def _device_request(**fields: Any) -> ServerRequest:
     return ServerRequest(
         req_uuid=str(uuid4()),
         post_device_info=DeviceInfo(
             id=DEVICE_ID,
             device_type=DOG_DEVICE_TYPE,
             timestamp=time(),
-            transform=transform,
+            **fields,
         ),
     )
-
-
+ 
+ 
+def _yaw(orientation: Any) -> float:
+    """Heading in radians (counterclockwise about ROS z, up) from a quaternion.
+ 
+    An unset orientation (all zeros) gives 0.
+    """
+    x, y, z, w = (_finite(getattr(orientation, name), name) for name in "xyzw")
+    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+ 
+ 
 def pose_request(message: Any) -> ServerRequest:
-    position = message.pose.position
-    transform = Transform(
-        position=Vector3(
-            x=_coordinate({"x": position.x}, "x"),
-            y=_coordinate({"z": position.z}, "z"),
-            z=_coordinate({"y": position.y}, "y"),
-        ),
-        rotation=Vector3(),
-    )
-    return ServerRequest(
-        req_uuid=str(uuid4()),
-        post_device_info=DeviceInfo(
-            id=DEVICE_ID,
-            device_type=DOG_DEVICE_TYPE,
-            timestamp=time(),
-            transform=transform,
-        ),
-    )
-
-
+    p = message.pose.position
+    position = _to_reality(_finite(p.x, "x"), _finite(p.y, "y"), _finite(p.z, "z"))
+    # Reality's vertical axis is y (ROS z swaps into it), so the heading goes in
+    # rotation.y, which is what the dashboard turns the marker with.
+    rotation = Vector3(y=_yaw(message.pose.orientation))
+    return _device_request(transform=Transform(position=position, rotation=rotation))
+ 
+ 
 def _point_field(message: Any, name: str) -> Any:
     for field in message.fields:
         if field.name == name and field.count >= 1:
             return field
     raise ValueError(f"point cloud has no {name} field")
-
-
+ 
+ 
 def _cloud_xyz(message: Any) -> np.ndarray:
+    """Decode a sensor_msgs/msg/PointCloud2 into an (N, 3) float64 array."""
     fields = [_point_field(message, name) for name in "xyz"]
     for field in fields:
         if field.datatype not in _NUMPY_CODES:
             raise ValueError("x, y, and z fields must be float32 or float64")
-
+ 
     width = int(message.width)
     height = int(message.height)
     point_step = int(message.point_step)
     row_step = int(message.row_step)
     if width < 1 or height < 1 or point_step < 1 or row_step < width * point_step:
         raise ValueError("point cloud has invalid dimensions")
-
+ 
     data = bytes(message.data)
     if len(data) < (height - 1) * row_step + width * point_step:
         raise ValueError("point cloud data is shorter than its header claims")
-
+ 
     endian = ">" if message.is_bigendian else "<"
     try:
         dtype = np.dtype(
@@ -128,70 +109,32 @@ def _cloud_xyz(message: Any) -> np.ndarray:
             }
         )
         if row_step == width * point_step:
-            cloud = np.frombuffer(data, dtype=dtype, count=width * height)
-            xyz = np.stack([cloud["x"], cloud["y"], cloud["z"]], axis=1)
-            return xyz.reshape(height, width, 3).astype(np.float64)
-
-        rows = []
-        for row in range(height):
-            cloud = np.frombuffer(data, dtype=dtype, count=width, offset=row * row_step)
-            rows.append(np.stack([cloud["x"], cloud["y"], cloud["z"]], axis=1))
-        return np.stack(rows).astype(np.float64)
+            clouds = [np.frombuffer(data, dtype=dtype, count=width * height)]
+        else:  # rows are padded
+            clouds = [
+                np.frombuffer(data, dtype=dtype, count=width, offset=row * row_step)
+                for row in range(height)
+            ]
     except ValueError as error:
         raise ValueError(f"invalid point cloud data: {error}") from error
-
-
-def lidar_request(
-    message: Any,
-    epsilon: float = LIDAR_EPSILON,
-    voxel_size: float = LIDAR_VOXEL_SIZE,
-    max_points: int = LIDAR_MAX_POINTS,
-) -> ServerRequest:
-    """Build a request from a native sensor_msgs/msg/PointCloud2 message.
-
-    Pipeline: vectorised decode -> drop non-finite points -> per-row
-    Ramer-Douglas-Peucker (organized clouds only, where rows are ordered) ->
-    voxel downsample -> cap at ``max_points``.
-    """
+ 
+    return np.concatenate(
+        [np.stack([c["x"], c["y"], c["z"]], axis=1) for c in clouds]
+    ).astype(np.float64)
+ 
+ 
+def cloud_request(message: Any, origin: tuple[float, float, float]) -> ServerRequest:
+    ox, oy, oz = (_finite(v, name) for v, name in zip(origin, "xyz"))
     xyz = _cloud_xyz(message)
-
-    if xyz.shape[0] == 1:
-        # Unorganized cloud: point order carries no spatial meaning, so RDP
-        # would be both slow and ineffective. Voxel downsampling handles it.
-        points = xyz[0]
-        points = points[np.isfinite(points).all(axis=1)]
-    else:
-        # Bound the pure-Python RDP cost on dense scans before simplifying.
-        stride = max(1, math.ceil(xyz.shape[0] * xyz.shape[1] / (max_points * 4)))
-        kept = []
-        for row in xyz[:, ::stride]:
-            row = row[np.isfinite(row).all(axis=1)]
-            if epsilon > 0 and len(row) >= 3:
-                row = np.asarray(simplify_points(row.tolist(), epsilon), dtype=np.float64)
-            if len(row):
-                kept.append(row)
-        points = np.concatenate(kept) if kept else np.empty((0, 3))
-
-    points = voxel_downsample(points, voxel_size)
-    if len(points) > max_points:
-        points = points[:: math.ceil(len(points) / max_points)]
-    if len(points) == 0:
-        raise ValueError("point cloud has no finite points")
-
-    # Match the pose conversion: ROS x/y/z -> Reality x/z/y.
-    points = points[:, [0, 2, 1]]
-    vectors = [Vector3(x=x, y=y, z=z) for x, y, z in points.tolist()]
-
     return ServerRequest(
         req_uuid=str(uuid4()),
-        post_device_info=DeviceInfo(
+        post_raw_point_cloud=RawPointCloud(
             id=DEVICE_ID,
-            device_type=DOG_DEVICE_TYPE,
-            timestamp=time(),
-            lidar=Lidar(points=vectors),
+            transform=Transform(position=Vector3(x=ox, y=oy, z=oz), rotation=Vector3()),
+            xyz=xyz.astype("<f4").tobytes(),
         ),
     )
-
-
+ 
+ 
 def heartbeat_request() -> ServerRequest:
     return ServerRequest(req_uuid=str(uuid4()), post_heartbeat=DEVICE_ID)

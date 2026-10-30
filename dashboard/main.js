@@ -263,14 +263,15 @@ function updateLidarPointCloud(key, device) {
 
   const attribute = pointCloud.geometry.getAttribute("position");
   const coordinates = attribute.array;
-  const px = position.x;
-  const py = position.y;
-  const pz = position.z;
+  // The server sends lidar points in the same world frame as the device
+  // transform (scan_to_world_points and the dog client already add the robot's
+  // position, and the server applies OFFSET to both), so draw them as-is.
+  // Adding the device position again would double-count it.
   for (let index = 0, offset = 0; index < count; index += 1, offset += 3) {
     const point = points[index];
-    coordinates[offset] = px + point.x;
-    coordinates[offset + 1] = py + point.y;
-    coordinates[offset + 2] = pz + point.z;
+    coordinates[offset] = point.x;
+    coordinates[offset + 1] = point.y;
+    coordinates[offset + 2] = point.z;
   }
   attribute.needsUpdate = true;
   pointCloud.geometry.setDrawRange(0, count);
@@ -432,7 +433,6 @@ async function pollDevices() {
         const response = await request({ case: "fetchAllDeviceInfo", value: {} });
         if (response.data.case === "allDeviceInfo") {
           updateDevices(response.data.value.devices);
-          updateLidarMarkers(response.data.value.devices);
         } else {
           console.warn("Unexpected dashboard response case:", response.data.case);
         }

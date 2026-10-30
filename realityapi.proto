@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-import "google/protobuf/empty.proto";
-
 package realityapi;
+
+import "google/protobuf/empty.proto";
 
 message Vector3 {
   float x = 1;
@@ -11,147 +11,114 @@ message Vector3 {
 }
 
 message Transform {
-    Vector3 position = 1;
-    Vector3 rotation = 2;
+  Vector3 position = 1;
+  Vector3 rotation = 2;
 }
 
 message Lidar {
-    repeated Vector3 points = 1;
+  repeated Vector3 points = 1;
 }
 
 message RawLidarScan {
-    string id = 1;
-    Transform transform = 2; // post snapshot of robot when scan read
+  string id = 1;
+  Transform transform = 2; // snapshot of the robot pose when the scan was read
 
-    repeated float ranges = 3; // raw LaserScan distances
-    float range_min = 4;
-    float range_max = 5;
-    float angle_min = 6;
-    float angle_increment = 7;
+  repeated float ranges = 3; // raw LaserScan distances
+  float range_min = 4;
+  float range_max = 5;
+  float angle_min = 6;
+  float angle_increment = 7;
+}
+
+// A raw 3D point cloud (the dog). The server crops, downsamples and converts it.
+message RawPointCloud {
+  string id = 1;
+  // Pose of the robot when the cloud was read, in the SENDER's own axes
+  // (ROS x/y/z for the dog). The server uses its position as the crop centre.
+  Transform transform = 2;
+
+  // Packed little-endian float32 x, y, z triples: 12 bytes per point, in the
+  // same frame and axes as `transform`.
+  bytes xyz = 3;
 }
 
 enum DeviceType {
-    NONE = 0;
-    VR = 1;
-    AR = 2;
-    DOG = 3;
-    ARM = 4;
-    TURTLE = 5;
+  NONE = 0;
+  VR = 1;
+  AR = 2;
+  DOG = 3;
+  ARM = 4;
+  TURTLE = 5;
 }
 
-message DogInfo {
-    Vector3 position = 1;
-    Vector3 rotation = 2;
-}
-
-message DogInfo {
-    Vector3 position = 1;
-    Vector3 rotation = 2;
-}
-
-message DogCommand {
-    Vector3 position = 1;
-    Vector3 rotation = 2;
-}
-
-
+// A device report. Everything after timestamp is optional so a client can send
+// a pose-only or lidar-only update without clobbering the other.
 message DeviceInfo {
-    string id = 1;
-    DeviceType device_type = 2;
-    float timestamp = 3;
+  string id = 1;
+  DeviceType device_type = 2;
+  float timestamp = 3;
 
-    optional Transform transform = 4;
-    optional Lidar lidar = 5;
-    oneof data {
-        TurtleInfo turtle = 2;
-        DogInfo dog = 3;
-    }
+  optional Transform transform = 4;
+  optional Lidar lidar = 5;
 }
 
 message AllDeviceInfo {
-    repeated DeviceInfo devices = 1;
+  repeated DeviceInfo devices = 1;
 }
 
 message Response {
-    // corresponds to the request that this is a response to
-    string req_uuid = 1;
+  // corresponds to the request that this is a response to
+  string req_uuid = 1;
 
-    oneof data {
-        // basic response used to denote simple ok
-        google.protobuf.Empty ok = 4;
-        // device with id not found
-        google.protobuf.Empty err_id_not_found = 5;
-        // device/server does not support operation
-        google.protobuf.Empty err_not_supported = 6;
-        // device/server cannot execute operation at this time
-        google.protobuf.Empty err_cannot_execute = 7;
-        // device/server failed while executing operation
-        google.protobuf.Empty err_failed_execute = 8;
+  oneof data {
+    // basic response used to denote simple ok
+    google.protobuf.Empty ok = 4;
+    // device with id not found
+    google.protobuf.Empty err_id_not_found = 5;
+    // device/server does not support operation
+    google.protobuf.Empty err_not_supported = 6;
+    // device/server cannot execute operation at this time
+    google.protobuf.Empty err_cannot_execute = 7;
+    // device/server failed while executing operation
+    google.protobuf.Empty err_failed_execute = 8;
 
-        /* Ample space for more success/error types in future...? */
-
-        // actual responses
-        AllDeviceInfo all_device_info = 20;
-        DeviceInfo device_info = 21;
-        Lidar lidar_data = 22;
-    }
+    // actual responses
+    AllDeviceInfo all_device_info = 20;
+    DeviceInfo device_info = 21;
+    Lidar lidar_data = 22;
+  }
 }
 
 message Command {
-    // this is the target of the command
-    string target_id = 1;
+  // this is the target of the command
+  string target_id = 1;
 
-    // multiple demands can be packaged into one command
-    optional Transform transform = 2;
+  // multiple demands can be packaged into one command
+  optional Transform transform = 2;
 }
 
 message ServerRequest {
-    // set this and remember it!
-    string req_uuid = 1;
+  // set this and remember it!
+  string req_uuid = 1;
 
-    oneof data {
-        DeviceInfo post_device_info = 4;
-        string post_heartbeat = 5;
-        google.protobuf.Empty fetch_all_device_info = 6;
-        string fetch_single_device_info = 7;
-        Command send_command = 8;
-        google.protobuf.Empty fetch_lidar_data = 9;
-        RawLidarScan post_raw_lidar_scan = 10;
-    }
+  oneof data {
+    DeviceInfo post_device_info = 4;
+    string post_heartbeat = 5;
+    google.protobuf.Empty fetch_all_device_info = 6;
+    string fetch_single_device_info = 7;
+    Command send_command = 8;
+    google.protobuf.Empty fetch_lidar_data = 9;
+    RawLidarScan post_raw_lidar_scan = 10;
+    RawPointCloud post_raw_point_cloud = 11;
+  }
 }
 
 message ClientRequest {
-    // set this and remember it!
-    string req_uuid = 1;
+  // set this and remember it!
+  string req_uuid = 1;
 
-    oneof data {
-        google.protobuf.Empty fetch_device_info = 4;
-        Command post_command = 5;
-    }
-}
-enum RequestType {
-    HEARTBEAT = 0;
-    REQUEST_ALL_DATA = 1;
-    TURTLE_INFO = 2;
-    DOG_INFO = 3;
-}
-
-// reqs are used to request data from the server immutably
-message ServerBoundPacket {
-    string id = 1;
-    double timestamp = 2;
-    RequestType req_type = 3;
-    optional TurtleInfo turtle = 4;
-    optional DogInfo dog = 5;
-}
-
-// responses appended with _res mean they are an info only response
-// responses appended with _cmd mean they are commands that should be executed on device
-message ClientBoundPacket {
-    string id = 1;
-    double timestamp = 2;
-    int32 status = 3;
-    optional AllDataResponse all_data_res = 4;
-    optional TurtleCommand turtle_cmd = 5;
-    optional DogCommand dog_cmd = 6;
+  oneof data {
+    google.protobuf.Empty fetch_device_info = 4;
+    Command post_command = 5;
+  }
 }
