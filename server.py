@@ -6,22 +6,10 @@ from websockets.asyncio.server import serve
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
 from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3, RawLidarScan
-from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
+from map.coordinate import SERVER_COORDS, TURTLEBOT_COORDS, convert_lidar, convert_transform
 from map.map import Map
 from map.lidar import LIDAR_EPSILON, scan_to_world_points, simplify_lidar_2d
 from map.localization import ScanLocalizer
-
-SERVER_COORDS = CoordinateSystem(
-    x=Direction.SOUTH,
-    y=Direction.UP,
-    z=Direction.EAST,
-)
-
-TURTLEBOT_COORDS = CoordinateSystem(
-    x=Direction.NORTH,
-    y=Direction.WEST,
-    z=Direction.UP,
-)
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
 OFFSET = (0.1, 0.1, 2.0)

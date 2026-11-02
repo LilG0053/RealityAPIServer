@@ -52,6 +52,21 @@ class CoordinateSystem:
             raise ValueError("zero_heading must be a horizontal direction (north, south, east, west).")
 
 
+# Shared by the server and the robot nodes. Kept here, not in server.py, so the
+# robot can import them without loading the server and its dependencies.
+SERVER_COORDS = CoordinateSystem(
+    x=Direction.SOUTH,
+    y=Direction.UP,
+    z=Direction.EAST,
+)
+
+TURTLEBOT_COORDS = CoordinateSystem(
+    x=Direction.NORTH,
+    y=Direction.WEST,
+    z=Direction.UP,
+)
+
+
 def get_transform_matrix(source: CoordinateSystem, target: CoordinateSystem) -> np.ndarray:
     """Return M such that v_target = M @ v_source.
 

@@ -12,7 +12,7 @@ from websockets.sync.client import connect
 
 from init_turtlebot import create_turtlebot
 from realityapi_pb2 import Response, ServerRequest, Vector3, RawLidarScan
-from server import SERVER_COORDS
+from map.coordinate import SERVER_COORDS
 
 SERVER_URI = "ws://0.0.0.0:65432"
 
