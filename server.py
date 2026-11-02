@@ -79,26 +79,13 @@ def fetch_lidar_data(_: Empty) -> Response:
     return server_map.get_lidar_data()
 
 def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
-    # A scan can update an existing device but cannot create one by itself.
-    if not server_map.exists(raw_scan.id):
-        return Response(err_id_not_found={})
-
-    world_points = scan_to_world_points(raw_scan)
-    lidar = convert_lidar(world_points, TURTLEBOT_COORDS, SERVER_COORDS)
-
-    #TODO: apply the error and extract the scan to build map
-    yaw_error, x_error, z_error = scan_localizer.align_to_prev_scan(lidar)
-    device_lidar_info = DeviceInfo(
-        id = raw_scan.id,
-        transform=convert_transform(
-            raw_scan.transform,
-            TURTLEBOT_COORDS,
-            SERVER_COORDS,
-        ),
-        lidar=simplify_lidar_2d(lidar, epsilon=LIDAR_EPSILON), # Moved simplify here because we dont want to simplify our ICP calculations
+    lidar = convert_lidar(scan_to_world_points(raw_scan), TURTLEBOT_COORDS, SERVER_COORDS)
+    transform = convert_transform(raw_scan.transform, TURTLEBOT_COORDS, SERVER_COORDS)
+    return server_map.handle_lidar_scan(
+        raw_scan.id,
+        translate_transform(transform),
+        translate_lidar(lidar),
     )
-
-    return post_device_info(device_lidar_info)
 
 def send_command(command: Command) -> Response:
     if not server_map.exists(command.target_id):
