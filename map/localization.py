@@ -4,30 +4,46 @@ from dataclasses import dataclass, field
 from map.icp import icp
 import numpy as np
 
+
+VOXEL_SIZE = 0.03
+# Currently only 2D enabled
 @dataclass
 class ScanLocalizer:
-    prev_scan: np.ndarray | None = None
-
-    def align_to_prev_scan(self, lidar: Lidar) -> tuple[float, float, float]:
+    accumulated_scan: np.ndarray | None = None
+    # Homogeneous transformation matrix
+    correction: np.ndarray = field(default_factory=lambda: np.eye(3))
+    def update(self, lidar: Lidar) -> bool:
         """
-        Wraps around icp for 2D, returning delta angle, x, and z in that order.
+        Wraps around icp for 2D, returning bool value if successful.
         The delta is the transform that aligns this scan onto the previous one.
         All zeros means there was no usable delta (first scan, empty scan, or too few matches).
         """
         if not lidar.points:
-            return (0.0, 0.0, 0.0)
+            return False
         # Only get X and Z columns
         scan = np.array([[point.x, point.z] for point in lidar.points])
-        if self.prev_scan is None:
-            self.prev_scan = scan
-            return (0.0, 0.0, 0.0)
-        transformation_history, points = icp(self.prev_scan, scan, max_iterations=100, distance_threshold=0.3, convergence_translation_threshold=1e-3,
-        convergence_rotation_threshold=1e-4, point_pairs_threshold=10, verbose=False)
-        self.prev_scan = scan
+        # From the homogeneous matrix, multiply first by linear transformation portion and then translation. Transpose because we use row vectors for points instead of column vectors
+        scan = scan @ self.correction[:2, :2].T + self.correction[:2, 2]
+        if self.accumulated_scan is None:
+            self.accumulated_scan = scan
+            return False
+        
+        transformation_history, aligned = icp(self.accumulated_scan, scan)
+
+        if not transformation_history:
+            return False
+
 
         # Chain icp's per-iteration [R | T] steps into one transform
         total = np.eye(3)
         for step in transformation_history:
             total = np.vstack((step, [0, 0, 1])) @ total
+        # error is expressed in world space, so we do M @ delta
+        self.correction = total @ self.correction
 
-        return (float(math.atan2(total[1, 0], total[0, 0])), float(total[0, 2]), float(total[1, 2]))
+        # Downsample points to voxel
+        merged = np.vstack((self.accumulated_scan, aligned))
+        _, keep = np.unique(np.floor(merged / VOXEL_SIZE).astype(int), axis=0, return_index=True)
+        self.accumulated_scan = merged[keep]
+        return True
+
