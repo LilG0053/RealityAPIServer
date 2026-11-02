@@ -17,6 +17,7 @@ from map.coordinate import (
     convert_lidar,
     convert_transform,
 )
+from map.headset_frame import HeadsetFrame
 from map.lidar import scan_to_world_points
 from map.map import DASHBOARD_PATH, Map
 from map.pointcloud import raw_cloud_to_scan
@@ -57,6 +58,10 @@ DOG_START_YAW = math.pi
 SENDER_COORDS = {DeviceType.Value("DOG"): DOG_COORDS}
 
 server_map = Map()
+
+# AR headsets: where the ALIGN tape crosses are in the room. Edit tape.json
+# when you move the tape; it reloads automatically.
+HEADSET_FRAME = HeadsetFrame("tape.json", SERVER_COORDS)
 
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
@@ -107,6 +112,9 @@ def place_dog_lidar(lidar: Lidar) -> Lidar:
 # Handlers for each ServerRequest.data case.
 
 def post_device_info(info: DeviceInfo) -> Response:
+    if info.device_type == DeviceType.AR:
+        return post_headset_info(info)
+
     # Devices with their own axes (the dog) are converted to server axes first.
     sender = SENDER_COORDS.get(info.device_type)
     if info.HasField("transform"):
@@ -120,6 +128,19 @@ def post_device_info(info: DeviceInfo) -> Response:
     if info.HasField("lidar"):
         info.lidar.CopyFrom(translate_lidar(info.lidar))
     print(f"<<< device info from {info.id}")
+    return server_map.handle_device_info(info)
+
+
+def post_headset_info(info: DeviceInfo) -> Response:
+    """AR headset: its pose and depth points arrive in its ALIGN frame (relative
+    to the tape crosses). Place them in the room using tape.json."""
+    if not HEADSET_FRAME.ready:
+        return Response(err_cannot_execute={})
+    if info.HasField("transform"):
+        info.transform.CopyFrom(HEADSET_FRAME.transform_to_server(info.transform))
+    if info.HasField("lidar"):
+        info.lidar.CopyFrom(HEADSET_FRAME.lidar_to_server(info.lidar))
+        print(f"<<< {len(info.lidar.points)} depth points from {info.id}")
     return server_map.handle_device_info(info)
 
 
@@ -246,6 +267,7 @@ async def monitor(device_map: Map):
     while True:
         try:
             device_map.check_all(TIMEOUT)
+            HEADSET_FRAME.reload_if_changed()
         except Exception:
             traceback.print_exc()
         await asyncio.sleep(MONITOR_INTERVAL)

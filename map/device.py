@@ -128,9 +128,30 @@ class Dog(TransformDevice):
     DEVICE_TYPE = DeviceType.DOG
 
 
+class Headset(TransformDevice):
+    """An AR headset (Quest 3): its pose plus the latest depth points it sent.
+
+    Both arrive already in server axes (server.py places them using
+    tape.json), so the headset has no device coordinate system of its own.
+    """
+
+    DEVICE_TYPE = DeviceType.AR
+
+    def __post_init__(self, initial_heading: Direction) -> None:
+        pass  # keep coordinate_system None: nothing to convert from
+
+    def to_dict(self) -> dict[str, Any]:
+        # The saved JSON is only reloaded at startup; ~4000 depth points that
+        # are replaced every second aren't worth writing into it.
+        ret = super().to_dict()
+        ret.pop("lidar", None)
+        return ret
+
+
 _DEVICE_CLASSES: dict[int, type[TransformDevice]] = {
     DeviceType.TURTLE: TurtleBot,
     DeviceType.DOG: Dog,
+    DeviceType.AR: Headset,
 }
 
 
