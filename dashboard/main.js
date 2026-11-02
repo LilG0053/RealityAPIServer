@@ -277,6 +277,39 @@ function updateLidarLine(points) {
   lidarLine.visible = points.length > 1;
 }
 
+// Accumulated localization map
+// The server's ICP map, drawn as small dots on the floor under the live scan.
+const MAP_POINT_HEIGHT = 0.03;
+const mapGeometry = new THREE.SphereGeometry(0.025, 6, 4);
+const mapMaterial = new THREE.MeshBasicMaterial({ color: 0x4fc3f7 });
+const mapDot = new THREE.Object3D();
+let mapMarkers = null;
+let mapCapacity = 0;
+
+function updateMapMarkers(points) {
+  if (points.length > mapCapacity) {
+    if (mapMarkers) {
+      scene.remove(mapMarkers);
+      mapMarkers.dispose();
+    }
+    // The map only grows, so leave headroom instead of reallocating every poll.
+    mapCapacity = Math.max(points.length, mapCapacity * 2);
+    mapMarkers = new THREE.InstancedMesh(mapGeometry, mapMaterial, mapCapacity);
+    scene.add(mapMarkers);
+  }
+
+  if (!mapMarkers) return;
+
+  points.forEach((point, index) => {
+    mapDot.position.set(point.x, MAP_POINT_HEIGHT, point.z);
+    mapDot.updateMatrix();
+    mapMarkers.setMatrixAt(index, mapDot.matrix);
+  });
+  mapMarkers.count = points.length;
+  mapMarkers.instanceMatrix.needsUpdate = true;
+  mapMarkers.computeBoundingSphere();
+}
+
 // Rendering and window behavior
 function animate() {
   requestAnimationFrame(animate);
@@ -298,6 +331,10 @@ const SERVER_URL = `ws://${location.hostname || "localhost"}:65432`;
 
 // How long to wait between FetchAllDeviceInfo polls (ms).
 const POLL_INTERVAL = 50;
+
+// How long to wait between FetchLidarData polls for the accumulated map (ms).
+// The map changes slowly and is much larger than the device list.
+const MAP_POLL_INTERVAL = 500;
 
 // How long to wait before reconnecting after the socket closes (ms).
 const RECONNECT_DELAY = 1000;
@@ -414,6 +451,24 @@ async function pollDevices() {
   }
 }
 
+// Ask the server for the accumulated localization map.
+async function pollMap() {
+  while (true) {
+    if (socket.readyState === WebSocket.OPEN) {
+      try {
+        const response = await request({ case: "fetchLidarData", value: {} });
+        if (response.data.case === "lidarData") {
+          updateMapMarkers(response.data.value.points);
+        }
+      } catch (error) {
+        console.error("Error fetching map:", error);
+      }
+    }
+    await sleep(MAP_POLL_INTERVAL);
+  }
+}
+
 connect();
 pollDevices();
+pollMap();
 animate();

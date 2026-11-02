@@ -75,6 +75,56 @@ export declare type Lidar = Message<"realityapi.Lidar"> & {
 export declare const LidarSchema: GenMessage<Lidar>;
 
 /**
+ * @generated from message realityapi.RawLidarScan
+ */
+export declare type RawLidarScan = Message<"realityapi.RawLidarScan"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * post snapshot of robot when scan read
+   *
+   * @generated from field: realityapi.Transform transform = 2;
+   */
+  transform?: Transform | undefined;
+
+  /**
+   * raw LaserScan distances
+   *
+   * @generated from field: repeated float ranges = 3;
+   */
+  ranges: number[];
+
+  /**
+   * @generated from field: float range_min = 4;
+   */
+  rangeMin: number;
+
+  /**
+   * @generated from field: float range_max = 5;
+   */
+  rangeMax: number;
+
+  /**
+   * @generated from field: float angle_min = 6;
+   */
+  angleMin: number;
+
+  /**
+   * @generated from field: float angle_increment = 7;
+   */
+  angleIncrement: number;
+};
+
+/**
+ * Describes the message realityapi.RawLidarScan.
+ * Use `create(RawLidarScanSchema)` to create a new message.
+ */
+export declare const RawLidarScanSchema: GenMessage<RawLidarScan>;
+
+/**
  * @generated from message realityapi.DeviceInfo
  */
 export declare type DeviceInfo = Message<"realityapi.DeviceInfo"> & {
@@ -194,6 +244,12 @@ export declare type Response = Message<"realityapi.Response"> & {
      */
     value: DeviceInfo;
     case: "deviceInfo";
+  } | {
+    /**
+     * @generated from field: realityapi.Lidar lidar_data = 22;
+     */
+    value: Lidar;
+    case: "lidarData";
   } | { case: undefined; value?: undefined };
 };
 
@@ -272,6 +328,18 @@ export declare type ServerRequest = Message<"realityapi.ServerRequest"> & {
      */
     value: Command;
     case: "sendCommand";
+  } | {
+    /**
+     * @generated from field: google.protobuf.Empty fetch_lidar_data = 9;
+     */
+    value: Empty;
+    case: "fetchLidarData";
+  } | {
+    /**
+     * @generated from field: realityapi.RawLidarScan post_raw_lidar_scan = 10;
+     */
+    value: RawLidarScan;
+    case: "postRawLidarScan";
   } | { case: undefined; value?: undefined };
 };
 

@@ -1,7 +1,7 @@
 from uuid import UUID
 from time import time
 from map.device import Device, device_from_info, device_from_dict
-from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform
+from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform, Vector3
 import json, os
 from map.localization import ScanLocalizer
 from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
@@ -136,8 +136,10 @@ class Map:
             self.export_to_json("dashboard/updated_pos.json")
 
     def get_lidar_data(self) -> Response:
+        # Every localizer's accumulated map. Those points only track the X/Z
+        # ground plane, so they are sent at height 0.
         points = []
-        for device in self._devices.values():
-            if hasattr(device, "lidar"):
-                points.extend(device.lidar.points)
+        for localizer in self._localizers.values():
+            if localizer.accumulated_scan is not None:
+                points.extend(Vector3(x=float(x), y=0.0, z=float(z)) for x, z in localizer.accumulated_scan)
         return Response(lidar_data=Lidar(points=points))
