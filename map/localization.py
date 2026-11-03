@@ -2,7 +2,13 @@ from realityapi_pb2 import Lidar, Transform, Vector3
 import math
 from dataclasses import dataclass, field
 from map.icp import icp
+from map.lidar import LIDAR_EPSILON, inside_contour, shrink_contour, simplified_contour
 import numpy as np
+
+# Shrink the current scan's contour about its centroid before treating the
+# interior as free space. The outer band stays, so points near the walls are
+# not deleted by a contour that only approximately matches them.
+CONTOUR_SHRINK = 0.95
 
 def apply(matrix: np.ndarray, points: np.ndarray) -> np.ndarray:
         return points @ matrix[:2, :2].T + matrix[:2, 2]
@@ -43,11 +49,26 @@ class ScanLocalizer:
         # error is expressed in world space, so we do delta @ M
         self.correction = total @ self.correction
 
+        # A point the current scan encloses used to be a hit and is now free
+        # space: a transient occlusion the new scan does not see. Drop those
+        # before merging, and only inside the shrunk contour.
+        self.accumulated_scan = self._drop_enclosed(self.accumulated_scan, aligned)
+
         # Downsample points to voxel
         merged = np.vstack((self.accumulated_scan, aligned))
         _, keep = np.unique(np.floor(merged / VOXEL_SIZE).astype(int), axis=0, return_index=True)
         self.accumulated_scan = merged[keep]
         return True
+
+    def _drop_enclosed(self, accumulated: np.ndarray, scan: np.ndarray) -> np.ndarray:
+        """Remove accumulated points inside the shrunk contour of this scan."""
+        if len(scan) < 3 or len(accumulated) == 0:
+            return accumulated
+        contour = simplified_contour(scan, LIDAR_EPSILON)
+        if len(contour) < 3:
+            return accumulated
+        shrunk = shrink_contour(contour, CONTOUR_SHRINK)
+        return accumulated[~inside_contour(accumulated, shrunk)]
 
     def clear_scan(self) -> None:
         self.accumulated_scan = None
