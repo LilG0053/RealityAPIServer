@@ -49,6 +49,9 @@ class ScanLocalizer:
         self.accumulated_scan = merged[keep]
         return True
 
+    def clear_scan(self) -> None:
+        self.accumulated_scan = None
+
     def correct_lidar(self, lidar: Lidar) -> Lidar:
         # Correction lives in the server's X/Z ground plane; Y is up and stays put
         points = np.array([[p.x, p.z] for p in lidar.points]).reshape(-1, 2)

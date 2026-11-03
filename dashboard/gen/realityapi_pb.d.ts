@@ -340,6 +340,12 @@ export declare type ServerRequest = Message<"realityapi.ServerRequest"> & {
      */
     value: RawLidarScan;
     case: "postRawLidarScan";
+  } | {
+    /**
+     * @generated from field: google.protobuf.Empty clear_accumulated_scan = 11;
+     */
+    value: Empty;
+    case: "clearAccumulatedScan";
   } | { case: undefined; value?: undefined };
 };
 

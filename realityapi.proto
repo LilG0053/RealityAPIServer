@@ -97,6 +97,7 @@ message ServerRequest {
         Command send_command = 8;
         google.protobuf.Empty fetch_lidar_data = 9;
         RawLidarScan post_raw_lidar_scan = 10;
+        google.protobuf.Empty clear_accumulated_scan = 11;
     }
 }
 
