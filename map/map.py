@@ -1,21 +1,23 @@
 import json
 import os
 from time import time
-
-from map.device import Device, device_from_dict, device_from_info
-from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response
+from map.device import Device, device_from_info, device_from_dict
+from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform, Vector3
+import json, os
+from map.localization import ScanLocalizer
+from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
 
 # File the visual dashboard polls.
 DASHBOARD_PATH = "dashboard/updated_pos.json"
 
 EXPORT_INTERVAL = 1.0
 
-
 class Map:
     def __init__(self) -> None:
         self._devices: dict[str, Device] = {}
         self.export_interval = EXPORT_INTERVAL
         self._last_export = 0.0
+        self._localizers: dict[str, ScanLocalizer] = {}
 
     def add_device(self, device: Device) -> None:
         self._devices[device.id] = device
@@ -60,9 +62,26 @@ class Map:
         except Exception as error:
             print(f"Error loading from JSON: {error}")
 
+    def handle_lidar_scan(self, device_id: str, transform: Transform, lidar: Lidar) -> Response:
+        # A scan can update an existing device but cannot create one by itself.
+        if not self.exists(device_id):
+            return Response(err_id_not_found={})
+
+        localizer = self._localizers.setdefault(device_id, ScanLocalizer())
+        localizer.update(lidar)
+        return self.handle_device_info(DeviceInfo(
+            id=device_id,
+            transform=transform,
+            lidar=simplify_lidar_2d(localizer.correct_lidar(lidar), epsilon=LIDAR_EPSILON),
+        ))
+    
     def handle_device_info(self, device_info: DeviceInfo) -> Response:
-        device = self._devices.get(device_info.id)
-        if device is not None:
+        # Every pose, from /odom or a scan, gets the correction exactly once here
+        localizer = self._localizers.get(device_info.id)
+        if localizer is not None and device_info.HasField("transform"):
+            device_info.transform.CopyFrom(localizer.correct_transform(device_info.transform))
+        if device_info.id in self._devices: # if id of robot exists, set new position
+            device = self._devices[device_info.id]
             device.handle_device_info(device_info)
         else:
             device = device_from_info(device_info)
@@ -120,6 +139,8 @@ class Map:
             self.export_to_json()
 
     def get_lidar_data(self) -> Response:
+        # Every localizer's accumulated map. Those points only track the X/Z
+        # ground plane, so they are sent at height 0.
         points = []
         for device in self._devices.values():
             if hasattr(device, "lidar"):

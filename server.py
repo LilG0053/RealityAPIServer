@@ -39,6 +39,11 @@ DOG_COORDS = CoordinateSystem(
     y=Direction.WEST,
     z=Direction.UP,
 )
+from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3, RawLidarScan
+from map.coordinate import SERVER_COORDS, TURTLEBOT_COORDS, convert_lidar, convert_transform
+from map.map import Map
+from map.lidar import LIDAR_EPSILON, scan_to_world_points, simplify_lidar_2d
+from map.localization import ScanLocalizer
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
 OFFSET = (0.1, 0.1, 2.0)
@@ -50,6 +55,7 @@ TIMEOUT = 2.0
 MONITOR_INTERVAL = 0.04
 
 server_map = Map()
+scan_localizer = ScanLocalizer()
 
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
@@ -127,6 +133,14 @@ def handle_raw_point_cloud(raw: RawPointCloud) -> Response:
         DeviceInfo(id=raw.id, lidar=raw_cloud_to_world_points(raw))
     )
 
+
+    lidar = convert_lidar(scan_to_world_points(raw_scan), TURTLEBOT_COORDS, SERVER_COORDS)
+    transform = convert_transform(raw_scan.transform, TURTLEBOT_COORDS, SERVER_COORDS)
+    return server_map.handle_lidar_scan(
+        raw_scan.id,
+        translate_transform(transform),
+        translate_lidar(lidar),
+    )
 
 def send_command(command: Command) -> Response:
     if not server_map.exists(command.target_id):
