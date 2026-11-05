@@ -67,6 +67,8 @@ message Response {
         google.protobuf.Empty err_cannot_execute = 7;
         // device/server failed while executing operation
         google.protobuf.Empty err_failed_execute = 8;
+        // a saved keyframe overlaps a previous one closely enough to close a loop
+        google.protobuf.Empty loop_enclosed = 9;
 
         /* Ample space for more success/error types in future...? */
 
@@ -98,6 +100,8 @@ message ServerRequest {
         google.protobuf.Empty fetch_lidar_data = 9;
         RawLidarScan post_raw_lidar_scan = 10;
         google.protobuf.Empty clear_accumulated_scan = 11;
+        // Testing aid: write the simplified contour of the latest unadjusted scan.
+        google.protobuf.Empty save_lidar_keyframe = 12;
     }
 }
 

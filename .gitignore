@@ -223,6 +223,9 @@ __marimo__/
 dashboard/updated_pos.json.tmp
 dashboard/updated_pos.json
 
+# Test snapshots from the dashboard keyframe button
+dashboard/keyframes/
+
 # Dashboard tooling
 dashboard/node_modules/
 

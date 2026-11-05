@@ -4,12 +4,19 @@ from map.device import Device, device_from_info, device_from_dict
 from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform, Vector3
 import json, os
 from map.localization import ScanLocalizer
-from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
+import numpy as np
+from map.lidar import LIDAR_EPSILON, contour_iou, simplified_contour, simplify_lidar_2d
+
+# A new keyframe this close to any saved contour is treated as a loop closure.
+LOOP_IOU_THRESHOLD = 0.9
 
 class Map:
     def __init__(self) -> None:
         self._devices: dict[str, Device] = {}
         self._localizers: dict[str, ScanLocalizer] = {}
+        # Latest scan before the localizer's correction, kept for the test keyframe button.
+        self._unadjusted_scans: dict[str, Lidar] = {}
+        self._latest_unadjusted_id: str | None = None
 
     def add_device(self, device: Device):
         self._devices[device.id] = device
@@ -56,6 +63,12 @@ class Map:
         # A scan can update an existing device but cannot create one by itself.
         if not self.exists(device_id):
             return Response(err_id_not_found={})
+
+        # Snapshot the scan before update() applies the localization correction.
+        snapshot = Lidar()
+        snapshot.CopyFrom(lidar)
+        self._unadjusted_scans[device_id] = snapshot
+        self._latest_unadjusted_id = device_id
 
         localizer = self._localizers.setdefault(device_id, ScanLocalizer())
         localizer.update(lidar)
@@ -135,9 +148,73 @@ class Map:
         if dropped:
             self.export_to_json("dashboard/updated_pos.json")
 
-    def clear_accumulated_scans(self) -> Response:
+    def save_lidar_keyframe(self, directory: str = "dashboard/keyframes") -> Response:
+        """Write the simplified contour of the latest scan before correction."""
+        device_id = self._latest_unadjusted_id
+        lidar = self._unadjusted_scans.get(device_id) if device_id else None
+        if lidar is None or len(lidar.points) < 3:
+            return Response(err_cannot_execute={})
+
+        points = np.array([[point.x, point.z] for point in lidar.points], dtype=np.float32)
+        contour = simplified_contour(points, LIDAR_EPSILON).reshape(-1, 2)
+        if len(contour) < 3:
+            return Response(err_cannot_execute={})
+
+        # Compare before writing so the new file is not matched against itself.
+        ious = self.iou_with_saved_keyframes(contour, directory)
+        loop_enclosed = any(iou > LOOP_IOU_THRESHOLD for iou in ious)
+
+        os.makedirs(directory, exist_ok=True)
+        safe_id = device_id.replace("/", "_")
+        filename = f"{safe_id}-{time():.3f}.json"
+        payload = {
+            "id": device_id,
+            "contour": [{"x": float(x), "z": float(z)} for x, z in contour],
+        }
+        tmp_path = os.path.join(directory, filename + ".tmp")
+        path = os.path.join(directory, filename)
+        with open(tmp_path, "w") as f:
+            json.dump(payload, f, indent=2)
+        os.replace(tmp_path, path)
+        print(f"saved lidar keyframe {path}")
+        if loop_enclosed:
+            print(f"loop enclosed (max iou {max(ious):.3f})")
+            return Response(loop_enclosed={})
+        return Response(ok={})
+
+    def iou_with_saved_keyframes(
+        self,
+        contour: np.ndarray,
+        directory: str = "dashboard/keyframes",
+    ) -> list[float]:
+        """IoU of one contour against every keyframe already saved in directory."""
+        keyframe_dir = os.path.join(directory)
+        if not os.path.isdir(keyframe_dir):
+            return []
+
+        ious = []
+        for filename in sorted(os.listdir(keyframe_dir)):
+            if not filename.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(keyframe_dir, filename)) as f:
+                    saved = json.load(f)
+                other = np.array(
+                    [[point["x"], point["z"]] for point in saved["contour"]],
+                    dtype=np.float32,
+                )
+            except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+                continue
+            ious.append(contour_iou(contour, other))
+        return ious
+
+    def clear_accumulated_scans(self, directory: str = "dashboard/keyframes") -> Response:
         for localizer in self._localizers.values():
             localizer.clear_scan()
+        if os.path.isdir(directory):
+            for filename in os.listdir(directory):
+                if filename.endswith(".json") or filename.endswith(".tmp"):
+                    os.remove(os.path.join(directory, filename))
         return Response(ok={})
 
     def get_lidar_data(self) -> Response:

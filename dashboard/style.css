@@ -101,10 +101,11 @@ body {
   font-size: 1.6rem;
 }
 
-#clear-scan {
+#clear-scan,
+#save-keyframe {
   display: block;
   width: 100%;
-  margin: 0 0 1.25rem;
+  margin: 0 0 0.75rem;
   padding: 0.7rem 1rem;
   border: 0;
   border-radius: 0.5rem;
@@ -116,11 +117,17 @@ body {
   cursor: pointer;
 }
 
-#clear-scan:hover {
+#save-keyframe {
+  margin-bottom: 1.25rem;
+}
+
+#clear-scan:hover,
+#save-keyframe:hover {
   background: #354255;
 }
 
-#clear-scan:disabled {
+#clear-scan:disabled,
+#save-keyframe:disabled {
   opacity: 0.6;
   cursor: default;
 }

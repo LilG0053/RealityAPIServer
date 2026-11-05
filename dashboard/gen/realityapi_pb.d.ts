@@ -232,6 +232,14 @@ export declare type Response = Message<"realityapi.Response"> & {
     case: "errFailedExecute";
   } | {
     /**
+     * a saved keyframe overlaps a previous one closely enough to close a loop
+     *
+     * @generated from field: google.protobuf.Empty loop_enclosed = 9;
+     */
+    value: Empty;
+    case: "loopEnclosed";
+  } | {
+    /**
      * actual responses
      *
      * @generated from field: realityapi.AllDeviceInfo all_device_info = 20;
@@ -346,6 +354,12 @@ export declare type ServerRequest = Message<"realityapi.ServerRequest"> & {
      */
     value: Empty;
     case: "clearAccumulatedScan";
+  } | {
+    /**
+     * @generated from field: google.protobuf.Empty save_lidar_keyframe = 12;
+     */
+    value: Empty;
+    case: "saveLidarKeyframe";
   } | { case: undefined; value?: undefined };
 };
 

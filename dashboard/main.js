@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { DeviceType, ResponseSchema, ServerRequestSchema } from "./gen/realityapi_pb.js";
+import { DeviceType, ResponseSchema, ServerRequestSchema } from "./gen/realityapi_pb.js?v=19";
 
 const sceneContainer = document.getElementById("scene-container");
 
@@ -475,7 +475,10 @@ async function clearAccumulatedScan() {
   button.disabled = true;
   try {
     const response = await request({ case: "clearAccumulatedScan", value: {} });
-    if (response.data.case === "ok") updateMapMarkers([]);
+    if (response.data.case === "ok") {
+      updateMapMarkers([]);
+      document.getElementById("log-container").replaceChildren();
+    }
   } catch (error) {
     console.error("Error clearing accumulated scan:", error);
   } finally {
@@ -485,6 +488,34 @@ async function clearAccumulatedScan() {
 
 document.getElementById("clear-scan").addEventListener("click", () => {
   clearAccumulatedScan();
+});
+
+async function saveLidarKeyframe() {
+  const button = document.getElementById("save-keyframe");
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+  button.disabled = true;
+  try {
+    const response = await request({ case: "saveLidarKeyframe", value: {} });
+    const logContainer = document.getElementById("log-container");
+    const logEntry = document.createElement("div");
+    logEntry.className = "log-entry";
+    const savedMessage = {
+      ok: "Saved lidar keyframe",
+      loopEnclosed: "loop enclosed",
+    };
+    logEntry.textContent = savedMessage[response.data.case] ?? "No lidar scan to save";
+    logContainer.appendChild(logEntry);
+    document.querySelector(".dashboard").scrollTop = document.querySelector(".dashboard").scrollHeight;
+  } catch (error) {
+    console.error("Error saving lidar keyframe:", error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById("save-keyframe").addEventListener("click", () => {
+  saveLidarKeyframe();
 });
 
 connect();

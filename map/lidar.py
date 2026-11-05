@@ -65,6 +65,42 @@ def simplified_contour(points: np.ndarray, epsilon: float = LIDAR_EPSILON) -> np
     return cv2.approxPolyDP(curve, epsilon, True)
 
 
+def contour_iou(a: np.ndarray, b: np.ndarray, resolution: float = 0.05) -> float:
+    """Rasterized intersection-over-union of two closed planar contours."""
+    first = np.asarray(a, dtype=np.float32).reshape(-1, 2)
+    second = np.asarray(b, dtype=np.float32).reshape(-1, 2)
+    if len(first) < 3 or len(second) < 3:
+        return 0.0
+
+    first_min, first_max = first.min(axis=0), first.max(axis=0)
+    second_min, second_max = second.min(axis=0), second.max(axis=0)
+    if np.any(first_max < second_min) or np.any(second_max < first_min):
+        return 0.0
+
+    origin = np.minimum(first_min, second_min)
+    extent = np.maximum(first_max, second_max) - origin
+    width = int(np.ceil(extent[0] / resolution)) + 1
+    height = int(np.ceil(extent[1] / resolution)) + 1
+    if width > 4000 or height > 4000:
+        return 0.0
+
+    def mask(poly: np.ndarray) -> np.ndarray:
+        pixels = np.round((poly - origin) / resolution).astype(np.int32)
+        pixels[:, 0] = np.clip(pixels[:, 0], 0, width - 1)
+        pixels[:, 1] = np.clip(pixels[:, 1], 0, height - 1)
+        image = np.zeros((height, width), dtype=np.uint8)
+        cv2.fillPoly(image, [pixels], 1)
+        return image
+
+    filled_first = mask(first)
+    filled_second = mask(second)
+    intersection = np.count_nonzero(filled_first & filled_second)
+    union = np.count_nonzero(filled_first | filled_second)
+    if union == 0:
+        return 0.0
+    return float(intersection) / float(union)
+
+
 def inside_contour(points: np.ndarray, contour: np.ndarray) -> np.ndarray:
     """True for points strictly inside the contour."""
     if len(points) == 0 or len(contour) < 3:
