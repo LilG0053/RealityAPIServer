@@ -218,7 +218,7 @@ function updateRobotMarker(key, device) {
   }
 }
 
-// LiDAR scan markers
+// Global point-map markers
 // One instanced mesh draws all the dots without creating a separate mesh per point.
 const lidarGeometry = new THREE.SphereGeometry(0.04, 8, 6);
 const lidarMaterial = new THREE.MeshBasicMaterial({ color: 0xff7043 });
@@ -226,10 +226,7 @@ const lidarDot = new THREE.Object3D();
 let lidarMarkers = null;
 let lidarCapacity = 0;
 
-function updateLidarMarkers(devices) {
-  const points = devices.flatMap(device => device.lidar?.points ?? []);
-
-  console.log("LiDAR point count:", points.length, "First point:", points[0]);
+function updateLidarMarkers(points) {
 
   if (points.length > lidarCapacity) {
     if (lidarMarkers) {
@@ -248,33 +245,40 @@ function updateLidarMarkers(devices) {
     lidarMarkers.setMatrixAt(index, lidarDot.matrix);
   });
 
-  // Limit the visible instances to this scan, including zero after a timeout.
+  // Limit visible instances to the points in the current map.
   if (lidarMarkers) {
     lidarMarkers.count = points.length;
     lidarMarkers.instanceMatrix.needsUpdate = true;
     lidarMarkers.computeBoundingSphere();
   }
-  updateLidarLine(points);
 }
 
-// One polyline through the scan, in the order the points were sent.
-const lidarLine = new THREE.Line(
-  new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3)),
-  new THREE.LineBasicMaterial({ color: 0xff7043 })
-);
-lidarLine.visible = false;
-scene.add(lidarLine);
+// Global point map
+// The demo uses a separate file so it cannot replace the robot's map.
+const globalMapFile = new URLSearchParams(location.search).has("demo")
+  ? "./global_map_demo.json"
+  : "./global_map.json";
 
-function updateLidarLine(points) {
-  const positions = new Float32Array(points.length * 3);
-  points.forEach((point, index) => {
-    positions[index * 3] = point.x;
-    positions[index * 3 + 1] = point.y;
-    positions[index * 3 + 2] = point.z;
-  });
-  lidarLine.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  lidarLine.geometry.computeBoundingSphere();
-  lidarLine.visible = points.length > 1;
+async function pollGlobalMap() {
+  while (true) {
+    try {
+      const response = await fetch(globalMapFile, {
+        cache: "no-store",
+      });
+
+      if (response.ok) {
+        const points = await response.json();
+        updateLidarMarkers(points);
+      } else if (response.status !== 404) {
+        console.error("Could not load global map:", response.status);
+      }
+    } catch (error) {
+      console.error("Error loading global map:", error);
+    }
+
+    // The map doesn't need to refresh as often as the robot position.
+    await sleep(1000);
+  }
 }
 
 // Rendering and window behavior
@@ -404,7 +408,6 @@ async function pollDevices() {
         const response = await request({ case: "fetchAllDeviceInfo", value: {} });
         if (response.data.case === "allDeviceInfo") {
           updateDevices(response.data.value.devices);
-          updateLidarMarkers(response.data.value.devices);
         }
       } catch (error) {
         console.error("Error fetching devices:", error);
@@ -417,3 +420,4 @@ async function pollDevices() {
 connect();
 pollDevices();
 animate();
+pollGlobalMap();

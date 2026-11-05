@@ -5,7 +5,7 @@ import math
 from websockets.asyncio.server import serve
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
-from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3, RawLidarScan
+from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3, RawLidarScan, DeviceType
 from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
 from map.map import Map
 from map.lidar import LIDAR_EPSILON, scan_to_world_points, simplify_lidar_2d
@@ -56,22 +56,20 @@ def translate_transform(transform: Transform, offset=OFFSET) -> Transform:
 def translate_lidar(lidar: Lidar, offset=OFFSET) -> Lidar:
     return Lidar(points=(translate_vec3(point, offset) for point in lidar.points))
 
-# Handlers for each ServerRequest.data case.
-def handle_raw_odom(info: DeviceInfo) -> Response:
+def handle_raw_odom(info: DeviceInfo) -> Transform:
     # ensures device has its own ScanLocalizer class
     if info.id not in scan_localizers:
         scan_localizers[info.id] = ScanLocalizer()
 
     localizer = scan_localizers[info.id]
-    if info.HasField("transform"):
-        corrected = localizer.corrected_transform(info.transform, (0.0, 0.0, 0.0))
-        info.transform.CopyFrom(corrected)
+    corrected = localizer.corrected_transform(info.transform, (0.0, 0.0, 0.0))
 
-    return post_device_info(info)
+    return corrected
 
+# Handlers for each ServerRequest.data case.
 def post_device_info(info: DeviceInfo) -> Response:
     if info.HasField("transform"):
-        info.transform.CopyFrom(translate_transform(info.transform))
+        info.transform.CopyFrom(handle_raw_odom(info))
 
     if info.HasField("lidar"):
         info.lidar.CopyFrom(translate_lidar(info.lidar))
@@ -113,12 +111,13 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
         SERVER_COORDS,
     )
 
-    corrected_pose = localizer.corrected_transform(server_transform, (0.0, 0.0, 0.0))
     corrected_lidar = localizer.corrected_lidar(lidar)
+    server_map.update_point_map(corrected_lidar)
+    server_map.export_global_points("dashboard/global_map.json")
 
     device_lidar_info = DeviceInfo(
         id = raw_scan.id,
-        transform=corrected_pose,
+        transform=server_transform,
         lidar=simplify_lidar_2d(corrected_lidar, epsilon=LIDAR_EPSILON), # Moved simplify here because we dont want to simplify our ICP calculations
     )
 
@@ -134,7 +133,7 @@ def send_command(command: Command) -> Response:
 
 # Keyed by the ServerRequest.data oneof field names.
 HANDLERS = {
-    "post_device_info": handle_raw_odom,
+    "post_device_info": post_device_info,
     "post_heartbeat": post_heartbeat,
     "fetch_all_device_info": fetch_all_device_info,
     "fetch_single_device_info": fetch_single_device_info,

@@ -3,10 +3,21 @@ from time import time
 from map.device import Device, device_from_info, device_from_dict
 from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response
 import json, os
+import math
 
 class Map:
     def __init__(self) -> None:
         self._devices: dict[str, Device] = {}
+        self.point_map: dict[tuple[int, int], list[tuple[float, float, float]]] = {}
+
+        self.cell_size = 0.10       # meters: each cell is 10 cm × 10 cm
+        self.max_points_per_cell = 5
+
+    def point_cell(self, point):
+        cell_x = math.floor(point.x / self.cell_size)
+        cell_z = math.floor(point.z / self.cell_size)
+
+        return (cell_x, cell_z)
 
     def add_device(self, device: Device):
         self._devices[device.id] = device
@@ -14,6 +25,26 @@ class Map:
 
     def exists(self, id: str) -> bool:
         return id in self._devices
+    
+    def export_global_points(self, filepath: str):
+        """Write the accumulated point map as a JSON array."""
+        points = []
+
+        for cell_points in self.point_map.values():
+            for x, y, z in cell_points:
+                points.append({
+                    "x": x,
+                    "y": y,
+                    "z": z,
+                })
+
+        # Write to a temporary file first, like export_to_json() does.
+        tmp_path = filepath + ".tmp"
+
+        with open(tmp_path, "w") as file:
+            json.dump(points, file)
+
+        os.replace(tmp_path, filepath)
 
     # function that defines what values are sent to updated_pos.json
     def export_to_json(self, filepath: str):
@@ -76,6 +107,21 @@ class Map:
         self._devices[device_id].heartbeat()
 
         return Response(ok={})
+
+    def update_point_map(self, lidar: Lidar):
+        """Add corrected, server-coordinate points to the global point map."""
+        for point in lidar.points:
+            cell = self.point_cell(point)
+
+            if cell not in self.point_map:
+                self.point_map[cell] = []
+
+            points_in_cell = self.point_map[cell]
+
+            if len(points_in_cell) < self.max_points_per_cell:
+                points_in_cell.append(
+                    (float(point.x), float(point.y), float(point.z))
+                )
 
     def get_device_info(self, id: str) -> Response:
         if not id in self._devices:
