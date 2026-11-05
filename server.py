@@ -1,10 +1,44 @@
 #!/usr/bin/env python
 
+"""Reality API websocket server."""
+
 import asyncio
-import math
-from websockets.asyncio.server import serve
+import traceback
+
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
+from websockets.asyncio.server import serve
+
+from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
+from map.lidar import scan_to_world_points
+from map.map import DASHBOARD_PATH, Map
+from map.pointcloud import raw_cloud_to_world_points
+from realityapi_pb2 import (
+    Command,
+    DeviceInfo,
+    Lidar,
+    RawLidarScan,
+    RawPointCloud,
+    Response,
+    ServerRequest,
+    Transform,
+    Vector3,
+)
+
+HOST = "0.0.0.0"
+PORT = 65432
+
+SERVER_COORDS = CoordinateSystem(
+    x=Direction.SOUTH,
+    y=Direction.UP,
+    z=Direction.EAST,
+)
+
+DOG_COORDS = CoordinateSystem(
+    x=Direction.NORTH,
+    y=Direction.WEST,
+    z=Direction.UP,
+)
 from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3, RawLidarScan
 from map.coordinate import SERVER_COORDS, TURTLEBOT_COORDS, convert_lidar, convert_transform
 from map.map import Map
@@ -23,6 +57,7 @@ MONITOR_INTERVAL = 0.04
 server_map = Map()
 scan_localizer = ScanLocalizer()
 
+
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
     """Return a new Vector3 shifted by the offset."""
     return Vector3(
@@ -31,6 +66,7 @@ def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
         z=vec.z + offset[2],
     )
 
+
 def translate_transform(transform: Transform, offset=OFFSET) -> Transform:
     """Return a new Transform with its position shifted by the offset."""
     return Transform(
@@ -38,37 +74,64 @@ def translate_transform(transform: Transform, offset=OFFSET) -> Transform:
         rotation=transform.rotation,
     )
 
+
 def translate_lidar(lidar: Lidar, offset=OFFSET) -> Lidar:
-    return Lidar(points=(translate_vec3(point, offset) for point in lidar.points))
+    """Return a new Lidar with every point shifted by the offset."""
+    return Lidar(points=[translate_vec3(point, offset) for point in lidar.points])
+
 
 # Handlers for each ServerRequest.data case.
 
 def post_device_info(info: DeviceInfo) -> Response:
+    # The transform and the lidar are shifted together, otherwise scan points
+    # drift away from the robot that produced them.
     if info.HasField("transform"):
         info.transform.CopyFrom(translate_transform(info.transform))
-
     if info.HasField("lidar"):
         info.lidar.CopyFrom(translate_lidar(info.lidar))
-
     print(f"<<< device info from {info.id}")
     return server_map.handle_device_info(info)
+
 
 def post_heartbeat(device_id: str) -> Response:
     print(f"<<< heartbeat from {device_id}")
     return server_map.handle_heartbeat(device_id)
 
+
 def fetch_all_device_info(_: Empty) -> Response:
     return server_map.get_all_device_info()
+
 
 def fetch_single_device_info(device_id: str) -> Response:
     return server_map.get_device_info(device_id)
 
+
 def fetch_lidar_data(_: Empty) -> Response:
     return server_map.get_lidar_data()
 
+
 def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
-    lidar = convert_lidar(scan_to_world_points(raw_scan), TURTLEBOT_COORDS, SERVER_COORDS)
-    transform = convert_transform(raw_scan.transform, TURTLEBOT_COORDS, SERVER_COORDS)
+    if not server_map.exists(raw_scan.id):
+        return Response(err_id_not_found={})
+
+    lidar = scan_to_world_points(raw_scan)
+    return post_device_info(
+        DeviceInfo(
+            id=raw_scan.id,
+            transform=convert_transform(raw_scan.transform, TURTLEBOT_COORDS, SERVER_COORDS),
+            lidar=convert_lidar(lidar, TURTLEBOT_COORDS, SERVER_COORDS),
+        )
+    )
+
+
+def handle_raw_point_cloud(raw_scan: RawPointCloud) -> Response:
+    # Like a raw scan, a cloud can update an existing device but not create one.
+    if not server_map.exists(raw_scan.id):
+        return Response(err_id_not_found={})
+
+    # Convert the point cloud to world coordinates.
+    lidar = convert_lidar(scan_to_world_points(raw_scan), DOG_COORDS, SERVER_COORDS)
+    transform = convert_transform(raw_scan.transform, DOG_COORDS, SERVER_COORDS)
     return server_map.handle_lidar_scan(
         raw_scan.id,
         translate_transform(transform),
@@ -83,6 +146,7 @@ def send_command(command: Command) -> Response:
     # tracks each device's connection.
     return Response(err_not_supported={})
 
+
 # Keyed by the ServerRequest.data oneof field names.
 HANDLERS = {
     "post_device_info": post_device_info,
@@ -92,17 +156,27 @@ HANDLERS = {
     "send_command": send_command,
     "fetch_lidar_data": fetch_lidar_data,
     "post_raw_lidar_scan": handle_raw_lidar_scan,
+    "post_raw_point_cloud": handle_raw_point_cloud,
 }
+
 
 def handle_request(req: ServerRequest) -> Response:
     kind = req.WhichOneof("data")
-    if kind is None:
+    handle = HANDLERS.get(kind)
+    if handle is None:
         ret = Response(err_not_supported={})
     else:
-        ret = HANDLERS[kind](getattr(req, kind))
+        try:
+            ret = handle(getattr(req, kind))
+        except Exception:
+            # One bad packet must not tear down the client's connection.
+            print(f"[!] {kind} failed:")
+            traceback.print_exc()
+            ret = Response(err_failed_execute={})
 
     ret.req_uuid = req.req_uuid
     return ret
+
 
 async def handler(websocket):
     async for message in websocket:
@@ -112,27 +186,35 @@ async def handler(websocket):
 
         req = ServerRequest()
         try:
-            req.ParseFromString(message)                  # decode
+            req.ParseFromString(message)  # decode
         except DecodeError:
             print("[!] ignoring frame that is not a ServerRequest")
             continue
 
         ret = handle_request(req)
-        await websocket.send(ret.SerializeToString())   # encode + send binary
+        await websocket.send(ret.SerializeToString())  # encode + send binary
 
-async def monitor(map: Map):
+
+async def monitor(device_map: Map):
     """Sweep the map so devices that stop sending heartbeats disappear."""
     while True:
-        map.check_all(TIMEOUT)
+        try:
+            device_map.check_all(TIMEOUT)
+        except Exception:
+            traceback.print_exc()
         await asyncio.sleep(MONITOR_INTERVAL)
 
 
 async def main():
-    server_map.load_from_json("dashboard/updated_pos.json")
-    server = await serve(handler, "0.0.0.0", 65432)
-    asyncio.create_task(monitor(server_map))
-    print("realityapi server on ws://0.0.0.0:65432")
-    await server.serve_forever()
+    server_map.load_from_json(DASHBOARD_PATH)
+    monitor_task = asyncio.create_task(monitor(server_map))
+    try:
+    
+        async with serve(handler, HOST, PORT, compression=None) as server:
+            print(f"realityapi server on ws://{HOST}:{PORT}")
+            await server.serve_forever()
+    finally:
+        monitor_task.cancel()
 
 
 if __name__ == "__main__":
