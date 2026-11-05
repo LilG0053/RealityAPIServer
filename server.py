@@ -10,6 +10,7 @@ from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_t
 from map.map import Map
 from map.lidar import LIDAR_EPSILON, scan_to_world_points, simplify_lidar_2d
 from map.localization import ScanLocalizer
+import numpy as np
 
 SERVER_COORDS = CoordinateSystem(
     x=Direction.SOUTH,
@@ -24,16 +25,18 @@ TURTLEBOT_COORDS = CoordinateSystem(
 )
 
 # Offset added to every incoming position vector. Adjust to your task's spec.
-OFFSET = (0.1, 0.1, 2.0)
+OFFSET = (0.0, 0.0, 0.0)
 
 # A device is dropped from the map once it has been quiet this long (seconds).
 TIMEOUT = 2.0
 
 # How often the monitor task sweeps the map for timed-out devices (seconds).
-MONITOR_INTERVAL = 0.04
+MONITOR_INTERVAL = 0.10
 
 server_map = Map()
-scan_localizer = ScanLocalizer()
+
+# unique scan localizer for each device_id
+scan_localizers: dict[str, ScanLocalizer]= {}
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
     """Return a new Vector3 shifted by the offset."""
@@ -54,6 +57,17 @@ def translate_lidar(lidar: Lidar, offset=OFFSET) -> Lidar:
     return Lidar(points=(translate_vec3(point, offset) for point in lidar.points))
 
 # Handlers for each ServerRequest.data case.
+def handle_raw_odom(info: DeviceInfo) -> Response:
+    # ensures device has its own ScanLocalizer class
+    if info.id not in scan_localizers:
+        scan_localizers[info.id] = ScanLocalizer()
+
+    localizer = scan_localizers[info.id]
+    if info.HasField("transform"):
+        corrected = localizer.corrected_transform(info.transform, (0.0, 0.0, 0.0))
+        info.transform.CopyFrom(corrected)
+
+    return post_device_info(info)
 
 def post_device_info(info: DeviceInfo) -> Response:
     if info.HasField("transform"):
@@ -86,16 +100,26 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
     world_points = scan_to_world_points(raw_scan)
     lidar = convert_lidar(world_points, TURTLEBOT_COORDS, SERVER_COORDS)
 
-    #TODO: apply the error and extract the scan to build map
-    yaw_error, x_error, z_error = scan_localizer.align_to_prev_scan(lidar)
+    # ensures device has its own ScanLocalizer class
+    if raw_scan.id not in scan_localizers:
+        scan_localizers[raw_scan.id] = ScanLocalizer()
+
+    localizer = scan_localizers[raw_scan.id]
+    localizer.update_correction(lidar)
+
+    server_transform = convert_transform(
+        raw_scan.transform,
+        TURTLEBOT_COORDS,
+        SERVER_COORDS,
+    )
+
+    corrected_pose = localizer.corrected_transform(server_transform, (0.0, 0.0, 0.0))
+    corrected_lidar = localizer.corrected_lidar(lidar)
+
     device_lidar_info = DeviceInfo(
         id = raw_scan.id,
-        transform=convert_transform(
-            raw_scan.transform,
-            TURTLEBOT_COORDS,
-            SERVER_COORDS,
-        ),
-        lidar=simplify_lidar_2d(lidar, epsilon=LIDAR_EPSILON), # Moved simplify here because we dont want to simplify our ICP calculations
+        transform=corrected_pose,
+        lidar=simplify_lidar_2d(corrected_lidar, epsilon=LIDAR_EPSILON), # Moved simplify here because we dont want to simplify our ICP calculations
     )
 
     return post_device_info(device_lidar_info)
@@ -110,7 +134,7 @@ def send_command(command: Command) -> Response:
 
 # Keyed by the ServerRequest.data oneof field names.
 HANDLERS = {
-    "post_device_info": post_device_info,
+    "post_device_info": handle_raw_odom,
     "post_heartbeat": post_heartbeat,
     "fetch_all_device_info": fetch_all_device_info,
     "fetch_single_device_info": fetch_single_device_info,
