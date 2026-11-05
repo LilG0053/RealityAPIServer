@@ -330,7 +330,7 @@ window.addEventListener("resize", resizeRenderer);
 const SERVER_URL = `ws://${location.hostname || "localhost"}:65432`;
 
 // How long to wait between FetchAllDeviceInfo polls (ms).
-const POLL_INTERVAL = 10;
+const POLL_INTERVAL = 50;
 
 // How long to wait between FetchLidarData polls for the accumulated map (ms).
 // The map changes slowly and is much larger than the device list.

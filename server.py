@@ -118,24 +118,20 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
     return post_device_info(
         DeviceInfo(
             id=raw_scan.id,
-            transform=convert_transform(raw_scan.transform, DOG_COORDS, SERVER_COORDS),
-            lidar=convert_lidar(lidar, DOG_COORDS, SERVER_COORDS),
+            transform=convert_transform(raw_scan.transform, TURTLEBOT_COORDS, SERVER_COORDS),
+            lidar=convert_lidar(lidar, TURTLEBOT_COORDS, SERVER_COORDS),
         )
     )
 
 
-def handle_raw_point_cloud(raw: RawPointCloud) -> Response:
+def handle_raw_point_cloud(raw_scan: RawPointCloud) -> Response:
     # Like a raw scan, a cloud can update an existing device but not create one.
-    if not server_map.exists(raw.id):
+    if not server_map.exists(raw_scan.id):
         return Response(err_id_not_found={})
 
-    return post_device_info(
-        DeviceInfo(id=raw.id, lidar=raw_cloud_to_world_points(raw))
-    )
-
-
-    lidar = convert_lidar(scan_to_world_points(raw_scan), TURTLEBOT_COORDS, SERVER_COORDS)
-    transform = convert_transform(raw_scan.transform, TURTLEBOT_COORDS, SERVER_COORDS)
+    # Convert the point cloud to world coordinates.
+    lidar = convert_lidar(scan_to_world_points(raw_scan), DOG_COORDS, SERVER_COORDS)
+    transform = convert_transform(raw_scan.transform, DOG_COORDS, SERVER_COORDS)
     return server_map.handle_lidar_scan(
         raw_scan.id,
         translate_transform(transform),
