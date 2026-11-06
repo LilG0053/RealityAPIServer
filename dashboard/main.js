@@ -3,9 +3,9 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { DeviceType, ResponseSchema, ServerRequestSchema } from "./gen/realityapi_pb.js";
 
+// Dashboard elements and room dimensions
 const sceneContainer = document.getElementById("scene-container");
 
-// Room measurements
 // One Three.js unit represents one real-world meter.
 // Width is X, height is Y, depth is Z.
 const WALL_HEIGHT = 3;
@@ -46,7 +46,7 @@ renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(sceneContainer.clientWidth, sceneContainer.clientHeight);
 sceneContainer.appendChild(renderer.domElement);
 
-// Camera controls
+// Camera interaction
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0, 0);
 controls.enableDamping = true;
@@ -70,7 +70,7 @@ const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
 directionalLight.position.set(5, 10, 5);
 scene.add(directionalLight);
 
-// Room floor
+// Room geometry: floor
 // ShapeGeometry fills the exact L-shaped outline from roomCorners.
 const floorShape = new THREE.Shape();
 floorShape.moveTo(roomCorners[0].x, roomCorners[0].z);
@@ -91,7 +91,7 @@ const floor = new THREE.Mesh(
 floor.rotation.x = Math.PI / 2;
 scene.add(floor);
 
-// Coordinate axes
+// Coordinate axes and labels
 // X is red, Y is green, and Z is blue. All axes begin at (0, 0, 0).
 scene.add(new THREE.AxesHelper(2));
 
@@ -123,7 +123,7 @@ createMapLabel("X", "#ff5555", [2.3, 0.15, 0]);
 createMapLabel("Y", "#65dc65", [0, 2.3, 0]);
 createMapLabel("Z", "#6fa8ff", [0, 0.15, 2.3]);
 
-// Room walls
+// Room geometry: walls and outline
 function createWallBetween(start, end) {
   const dx = end.x - start.x;
   const dz = end.z - start.z;
@@ -163,7 +163,7 @@ const roomOutline = new THREE.LineLoop(
 );
 scene.add(roomOutline);
 
-// Store 3D markers by device ID
+// Robot markers and device colors
 const robotMarkers = {};
 
 // Generate consistent color from string
@@ -218,42 +218,92 @@ function updateRobotMarker(key, device) {
   }
 }
 
-// Global point-map markers
-// One instanced mesh draws all the dots without creating a separate mesh per point.
-const lidarGeometry = new THREE.SphereGeometry(0.04, 8, 6);
-const lidarMaterial = new THREE.MeshBasicMaterial({ color: 0xff7043 });
-const lidarDot = new THREE.Object3D();
-let lidarMarkers = null;
-let lidarCapacity = 0;
+// Shared point-layer rendering
+// Instancing keeps each layer to one draw call as point counts grow.
+function createPointLayer(color, radius, minHeight) {
+  const geometry = new THREE.SphereGeometry(radius, 8, 6);
+  const material = new THREE.MeshBasicMaterial({ color });
+  const marker = new THREE.Object3D();
+  let mesh = null;
+  let capacity = 0;
 
-function updateLidarMarkers(points) {
-
-  if (points.length > lidarCapacity) {
-    if (lidarMarkers) {
-      scene.remove(lidarMarkers);
-      lidarMarkers.dispose();
+  return function updatePoints(points) {
+    if (points.length > capacity) {
+      if (mesh) {
+        scene.remove(mesh);
+        mesh.dispose();
+      }
+      capacity = points.length;
+      mesh = new THREE.InstancedMesh(geometry, material, capacity);
+      scene.add(mesh);
     }
-    lidarCapacity = points.length;
-    lidarMarkers = new THREE.InstancedMesh(lidarGeometry, lidarMaterial, lidarCapacity);
-    scene.add(lidarMarkers);
-  }
+    if (!mesh) return;
 
-  if (lidarMarkers) points.forEach((point, index) => {
-    // Lift floor-level readings slightly so they remain visible above the floor.
-    lidarDot.position.set(point.x, point.y, point.z);
-    lidarDot.updateMatrix();
-    lidarMarkers.setMatrixAt(index, lidarDot.matrix);
-  });
-
-  // Limit visible instances to the points in the current map.
-  if (lidarMarkers) {
-    lidarMarkers.count = points.length;
-    lidarMarkers.instanceMatrix.needsUpdate = true;
-    lidarMarkers.computeBoundingSphere();
-  }
+    points.forEach((point, index) => {
+      marker.position.set(point.x, Math.max(point.y, minHeight), point.z);
+      marker.updateMatrix();
+      mesh.setMatrixAt(index, marker.matrix);
+    });
+    mesh.count = points.length;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (points.length) mesh.computeBoundingSphere();
+  };
 }
 
-// Global point map
+// Live LiDAR scan visualization
+const updateLiveScan = createPointLayer(0xff4d4d, 0.045, 0.10);
+
+// Accumulated global point-map visualization
+const updateGlobalPoints = createPointLayer(0x438cff, 0.035, 0.06);
+
+// Occupancy-grid visualization
+// The room floor represents unknown cells; only observed cells need meshes.
+const occupancyGeometry = new THREE.PlaneGeometry(1, 1);
+const occupancyMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+const occupancyMarker = new THREE.Object3D();
+const occupancyColors = {
+  free: new THREE.Color(0x4cbd83),
+  occupied: new THREE.Color(0xe5a134),
+  uncertain: new THREE.Color(0xd4cc79),
+};
+let occupancyMesh = null;
+let occupancyCapacity = 0;
+
+function updateOccupancyGrid(grid) {
+  if (!Number.isFinite(grid.cell_size) || grid.cell_size <= 0 || !Array.isArray(grid.cells)) return;
+  const cells = grid.cells;
+  if (cells.length > occupancyCapacity) {
+    if (occupancyMesh) {
+      scene.remove(occupancyMesh);
+      occupancyMesh.dispose();
+    }
+    occupancyCapacity = cells.length;
+    occupancyMesh = new THREE.InstancedMesh(occupancyGeometry, occupancyMaterial, occupancyCapacity);
+    scene.add(occupancyMesh);
+  }
+  if (!occupancyMesh) return;
+
+  cells.forEach((cell, index) => {
+    occupancyMarker.position.set((cell.x + 0.5) * grid.cell_size, 0.015, (cell.z + 0.5) * grid.cell_size);
+    occupancyMarker.rotation.set(-Math.PI / 2, 0, 0);
+    occupancyMarker.scale.set(grid.cell_size * 0.96, grid.cell_size * 0.96, 1);
+    occupancyMarker.updateMatrix();
+    occupancyMesh.setMatrixAt(index, occupancyMarker.matrix);
+    let color;
+    if (cell.status === 1) {
+      color = occupancyColors.occupied;
+    } else if (cell.status === 0) {
+      color = occupancyColors.free;
+    }
+    occupancyMesh.setColorAt(index, color);
+  });
+  occupancyMesh.count = cells.length;
+  occupancyMesh.instanceMatrix.needsUpdate = true;
+  if (occupancyMesh.instanceColor) occupancyMesh.instanceColor.needsUpdate = true;
+  if (cells.length) occupancyMesh.computeBoundingSphere();
+}
+
+// Global point-map data loading
 // The demo uses a separate file so it cannot replace the robot's map.
 const globalMapFile = new URLSearchParams(location.search).has("demo")
   ? "./global_map_demo.json"
@@ -268,7 +318,7 @@ async function pollGlobalMap() {
 
       if (response.ok) {
         const points = await response.json();
-        updateLidarMarkers(points);
+        updateGlobalPoints(points);
       } else if (response.status !== 404) {
         console.error("Could not load global map:", response.status);
       }
@@ -281,7 +331,28 @@ async function pollGlobalMap() {
   }
 }
 
-// Rendering and window behavior
+// Occupancy-grid data loading
+async function pollOccupancyGrid() {
+  while (true) {
+    try {
+      const response = await fetch("./occupancy_grid.json", { cache: "no-store" });
+      if (response.ok) {
+        const grid = await response.json();
+        updateOccupancyGrid(grid);
+        document.getElementById("occupancy-status").textContent = "Occupancy grid loaded";
+      } else {
+        document.getElementById("occupancy-status").textContent = "Waiting for occupancy grid";
+        if (response.status !== 404) console.error("Could not load occupancy grid:", response.status);
+      }
+    } catch (error) {
+      document.getElementById("occupancy-status").textContent = "Occupancy grid unavailable";
+      console.error("Error loading occupancy grid:", error);
+    }
+    await sleep(1000);
+  }
+}
+
+// Rendering and responsive window behavior
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
@@ -296,7 +367,7 @@ function resizeRenderer() {
 
 window.addEventListener("resize", resizeRenderer);
 
-// Server connection
+// WebSocket connection and requests
 // The dashboard is served from the same machine as the realityapi server.
 const SERVER_URL = `ws://${location.hostname || "localhost"}:65432`;
 
@@ -344,7 +415,7 @@ function request(data) {
   });
 }
 
-// Track device positions
+// Device markers and activity log
 let lastPositions = {};
 
 function updateDevices(devices) {
@@ -398,6 +469,7 @@ function updateDevices(devices) {
   });
 }
 
+// Device polling
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Ask the server for every device's state, one request at a time.
@@ -408,6 +480,7 @@ async function pollDevices() {
         const response = await request({ case: "fetchAllDeviceInfo", value: {} });
         if (response.data.case === "allDeviceInfo") {
           updateDevices(response.data.value.devices);
+          updateLiveScan(response.data.value.devices.flatMap(device => device.lidar?.points ?? []));
         }
       } catch (error) {
         console.error("Error fetching devices:", error);
@@ -417,7 +490,9 @@ async function pollDevices() {
   }
 }
 
+// Start dashboard updates
 connect();
 pollDevices();
 animate();
 pollGlobalMap();
+pollOccupancyGrid();

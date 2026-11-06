@@ -137,7 +137,6 @@ def icp(reference_points, points, max_iterations=100, distance_threshold=0.3, co
             break
 
         # trim or robustweighting and degeneracy before computing
-        
 
         # compute translation and rotation using point correspondences
         closest_rot_angle, closest_translation_x, closest_translation_y = point_based_matching(closest_point_pairs, weights)

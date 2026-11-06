@@ -9,11 +9,12 @@ import numpy as np
 
 from map.localization import ScanLocalizer
 from map.map import Map
-from realityapi_pb2 import Lidar, Transform, Vector3
+from realityapi_pb2 import Transform, Vector3
 
 
-def lidar_from_xz(points):
-    return Lidar(points=[Vector3(x=float(x), y=0.0, z=float(z)) for x, z in points])
+def points_from_xz(points):
+    xz = np.asarray(points, dtype=float).reshape(-1, 2)
+    return np.column_stack((xz[:, 0], np.zeros(len(xz)), xz[:, 1]))
 
 
 class GlobalPointMapTest(unittest.TestCase):
@@ -29,13 +30,14 @@ class GlobalPointMapTest(unittest.TestCase):
         localizer = ScanLocalizer()
         point_map = Map()
 
-        self.assertEqual(localizer.update_correction(lidar_from_xz(reference)), "first_scan")
-        point_map.update_point_map(localizer.corrected_lidar(lidar_from_xz(reference)))
+        status, corrected_scan = localizer.update_correction(points_from_xz(reference))
+        self.assertEqual(status, "first_scan")
+        point_map.update_point_map(corrected_scan)
 
-        shifted_scan = lidar_from_xz(reference + odometry_error)
-        self.assertEqual(localizer.update_correction(shifted_scan), "updated")
-        corrected_scan = localizer.corrected_lidar(shifted_scan)
-        actual = np.array([[point.x, point.z] for point in corrected_scan.points])
+        shifted_scan = points_from_xz(reference + odometry_error)
+        status, corrected_scan = localizer.update_correction(shifted_scan)
+        self.assertEqual(status, "updated")
+        actual = corrected_scan[:, [0, 2]]
         np.testing.assert_allclose(actual, reference, atol=1e-5)
 
         # An odometry pose with the same error should be corrected consistently.
@@ -57,18 +59,20 @@ class GlobalPointMapTest(unittest.TestCase):
     def test_cell_limit_and_negative_coordinates(self):
         point_map = Map()
         point_map.max_points_per_cell = 2
-        scan = lidar_from_xz([[-0.02, -0.02], [-0.03, -0.03], [-0.04, -0.04]])
+        scan = points_from_xz([[-0.02, -0.02], [-0.03, -0.03], [-0.04, -0.04]])
         point_map.update_point_map(scan)
         self.assertEqual(set(point_map.point_map), {(-1, -1)})
         self.assertEqual(len(point_map.point_map[(-1, -1)]), 2)
 
     def test_no_overlap_does_not_change_correction_or_reference(self):
         localizer = ScanLocalizer()
-        first = lidar_from_xz([[i * 0.1, (i % 3) * 0.2] for i in range(15)])
-        far = lidar_from_xz([[10 + i * 0.1, 10 + (i % 3) * 0.2] for i in range(15)])
-        self.assertEqual(localizer.update_correction(first), "first_scan")
+        first = points_from_xz([[i * 0.1, (i % 3) * 0.2] for i in range(15)])
+        far = points_from_xz([[10 + i * 0.1, 10 + (i % 3) * 0.2] for i in range(15)])
+        status, _ = localizer.update_correction(first)
+        self.assertEqual(status, "first_scan")
         previous = localizer.prev_scan.copy()
-        self.assertEqual(localizer.update_correction(far), "no_update")
+        status, _ = localizer.update_correction(far)
+        self.assertEqual(status, "no_update")
         np.testing.assert_array_equal(localizer.correction, np.eye(3))
         np.testing.assert_array_equal(localizer.prev_scan, previous)
 

@@ -78,6 +78,43 @@ body {
   color: #6fa8ff;
 }
 
+/* Map layer legend */
+.map-legend {
+  position: absolute;
+  z-index: 1;
+  top: 7rem;
+  left: 1rem;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.45rem;
+  background: rgb(0 0 0 / 75%);
+  color: #fff;
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.45rem;
+  border: 1px solid rgb(255 255 255 / 50%);
+}
+
+.live-scan { background: #ff4d4d; }
+.global-points { background: #438cff; }
+.free-cell { background: #4cbd83; }
+.occupied-cell { background: #e5a134; }
+.uncertain-cell { background: #d4cc79; }
+.unknown-cell { background: #68717d; }
+
+#occupancy-status {
+  max-width: 13rem;
+  margin-top: 0.25rem;
+  color: #d3dce6;
+}
+
 /* Robot status dashboard */
 .dashboard {
   box-sizing: border-box;

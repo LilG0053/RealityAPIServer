@@ -6,9 +6,9 @@ from websockets.asyncio.server import serve
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
 from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3, RawLidarScan, DeviceType
-from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
+from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform, convert_point_array
 from map.map import Map
-from map.lidar import LIDAR_EPSILON, scan_to_world_points, simplify_lidar_2d
+from map.lidar import LIDAR_EPSILON, scan_to_world_points, simplify_lidar_2d, points_to_lidar
 from map.localization import ScanLocalizer
 import numpy as np
 
@@ -96,28 +96,37 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
         return Response(err_id_not_found={})
 
     world_points = scan_to_world_points(raw_scan)
-    lidar = convert_lidar(world_points, TURTLEBOT_COORDS, SERVER_COORDS)
+    lidar_points = convert_point_array(world_points, TURTLEBOT_COORDS, SERVER_COORDS)
 
     # ensures device has its own ScanLocalizer class
     if raw_scan.id not in scan_localizers:
         scan_localizers[raw_scan.id] = ScanLocalizer()
 
     localizer = scan_localizers[raw_scan.id]
-    localizer.update_correction(lidar)
+    status, corrected_points = localizer.update_correction(lidar_points)
+    
+    # gets corrected transform of robot
+    corrected_robot_transform = convert_transform(
+            raw_scan.transform,
+            TURTLEBOT_COORDS,
+            SERVER_COORDS,
+        )
+    
+    # updates global points of LiDAR (may want to change this so it doens't run everytime)
+    if (status == "updated" or status == "first_scan"):
+        server_map.update_point_map(corrected_points)
+        server_map.update_occupancy_grid(corrected_robot_transform, corrected_points)
+        server_map.export_global_points("dashboard/global_map.json")
+        server_map.export_occupancy_grid("dashboard/occupancy_grid.json")
 
-    server_transform = convert_transform(
-        raw_scan.transform,
-        TURTLEBOT_COORDS,
-        SERVER_COORDS,
-    )
+    # turns the corrected lidar points back to protobuf LIDAR message
+    corrected_lidar = points_to_lidar(corrected_points)
 
-    corrected_lidar = localizer.corrected_lidar(lidar)
-    server_map.update_point_map(corrected_lidar)
-    server_map.export_global_points("dashboard/global_map.json")
-
+    
+    
     device_lidar_info = DeviceInfo(
         id = raw_scan.id,
-        transform=server_transform,
+        transform=corrected_robot_transform,
         lidar=simplify_lidar_2d(corrected_lidar, epsilon=LIDAR_EPSILON), # Moved simplify here because we dont want to simplify our ICP calculations
     )
 

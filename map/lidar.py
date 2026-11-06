@@ -44,32 +44,45 @@ def simplify_lidar_2d(
         points=[Vector3(x=float(point[0]), y=float(point[1]), z=float(point[2])) for point in simplified]
     )
 
-def scan_to_world_points(raw_scan: RawLidarScan) -> Lidar:
-    # Convert each LiDAR range reading into a point in the robot's world-fixed odom frame.
-    #
-    # Computing the ray angle `theta` in the odom XY plane requires chaining three angles:
-    #   1. `(i * delta) + angle_min`:
-    #      The angle of beam `i` in the LiDAR sensor's own frame (`rplidar_link`),
-    #      measured counterclockwise from the sensor's 0-radian axis.
-    #   2. `+ (math.pi / 2)`:
-    #       transforms from `rplidar_link` into the robot body frame (`base_link`).
-    #      On the TurtleBot 4, the RPLIDAR is physically mounted rotated +90 degrees
-    #      counterclockwise (rpy="0 0 pi/2" in turtlebot4.urdf.xacro), so the sensor's
-    #      0-radian axis points out the left side (+y) of `base_link` rather than the
-    #      front (+x). Adding pi/2 aligns 0 radians with the robot's forward +x axis.
-    #   3. `+ transform.rotation.z`:
-    #      Transforms from the rotating `base_link` frame into the world-fixed `odom`
-    #      frame by adding the robot's current yaw relative to its starting orientation.
-    points = []
-    for i, r in enumerate(raw_scan.ranges):
-        if raw_scan.range_min < r < raw_scan.range_max:
-            theta = (i * raw_scan.angle_increment) + raw_scan.angle_min + (math.pi / 2) + raw_scan.transform.rotation.z
-            points.append(
-                Vector3(
-                    x=raw_scan.transform.position.x + (r * math.cos(theta)),
-                    y=raw_scan.transform.position.y + (r * math.sin(theta)),
-                    z=raw_scan.transform.position.z,
-                )
-            )
-    return Lidar(points=points)
+def points_to_lidar(points: np.ndarray) -> Lidar:
+    """Convert an (N, 3) array into a protobuf Lidar message."""
+    return Lidar(
+        points=[
+            Vector3(x=float(x), y=float(y), z=float(z))
+            for x, y, z in points
+        ]
+    )
+
+def scan_to_world_points(raw_scan: RawLidarScan) -> np.ndarray:
+    """Return valid scan endpoints in ROS odometry coordinates, shape (N, 3)."""
+
+    # Convert the protobuf range sequence into a NumPy array.
+    ranges = np.asarray(raw_scan.ranges, dtype=float)
+    # Each index corresponds to a LiDAR beam.
+    beam_indices = np.arange(len(ranges))
+
+    valid = (
+        np.isfinite(ranges)
+        & (ranges > raw_scan.range_min)
+        & (ranges < raw_scan.range_max)
+    )
+
+    valid_ranges = ranges[valid]
+    valid_indices = beam_indices[valid]
+
+    angles = (
+        raw_scan.angle_min
+        + valid_indices * raw_scan.angle_increment
+        + math.pi / 2 # accounts for mounting
+        + raw_scan.transform.rotation.z # adjuts for yaw
+    )
+
+    # in ROS coordinates, x, y represents the 2D, and Z represents height so we keep Z the same
+    x = raw_scan.transform.position.x + valid_ranges * np.cos(angles)
+    y = raw_scan.transform.position.y + valid_ranges * np.sin(angles)
+
+    # Every point in this planar scan has the same ROS z coordinate.
+    z = np.full_like(x, raw_scan.transform.position.z)
+
+    return np.column_stack((x, y, z))
 

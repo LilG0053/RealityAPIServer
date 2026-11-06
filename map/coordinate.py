@@ -112,7 +112,6 @@ def _heading_offset(source_heading: Direction, target_heading: Direction) -> flo
     angles = [0.0, math.pi / 2, math.pi, -math.pi / 2]
     return angles[ccw_order.index(source_heading)]
 
-
 def convert_transform(
     transform: Transform,
     source: CoordinateSystem,
@@ -136,7 +135,6 @@ def convert_transform(
 
     return Transform(position=position, rotation=rotation)
 
-
 def convert_lidar(
     lidar: Lidar,
     source: CoordinateSystem,
@@ -147,3 +145,9 @@ def convert_lidar(
         return Lidar(points=lidar.points)
     matrix = get_transform_matrix(source, target)
     return Lidar(points=[_apply_matrix(pt, matrix) for pt in lidar.points])
+
+def convert_point_array(points, source, target):
+    """Convert an (N, 3) point array between coordinate systems."""
+    matrix = get_transform_matrix(source, target)
+
+    return points @ matrix.T

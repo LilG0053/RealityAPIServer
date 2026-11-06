@@ -12,51 +12,24 @@ class ScanLocalizer:
     # stores the accumulated correction from the devices odometry
     correction: np.ndarray = field(default_factory=lambda: np.eye(3))
 
-    def align_to_prev_scan(self, lidar: Lidar) -> tuple[float, float, float]:
-        """
-        Wraps around icp for 2D, returning delta angle, x, and z in that order.
-        The delta is the transform that aligns this scan onto the previous one.
-        All zeros means there was no usable delta (first scan, empty scan, or too few matches).
-        """
-        if not lidar.points:
-            return (0.0, 0.0, 0.0)
-        # Only get X and Z columns
-        scan = np.array([[point.x, point.z] for point in lidar.points])
-        if self.prev_scan is None:
-            self.prev_scan = scan
-            return (0.0, 0.0, 0.0)
-        transformation_history, points = icp(self.prev_scan, scan, max_iterations=100, distance_threshold=0.3, convergence_translation_threshold=1e-3,
-        convergence_rotation_threshold=1e-4, point_pairs_threshold=10, verbose=False)
-        self.prev_scan = points
-
-        # Chain icp's per-iteration [R | T] steps into one transform
-        total = np.eye(3)
-        for step in transformation_history:
-            total = np.vstack((step, [0, 0, 1])) @ total
-
-        return (float(math.atan2(total[1, 0], total[0, 0])), float(total[0, 2]), float(total[1, 2]))
-
-    def update_correction(self, lidar: Lidar) -> str:
+    def update_correction(self, points: np.ndarray) -> tuple[str, np.ndarray]:
         """
         Match an odometry-placed scan against the previous corrected scan.
 
         The scan must be in server coordinates, before OFFSET is applied.
         """
-        if not lidar.points:
-            return "empty_scan"
+        if len(points) == 0:
+            return "empty_scan", points
 
-        # Apply the existing accumulated correction before matching.
-        predicted_lidar = self.corrected_lidar(lidar)
+        # Apply the correction accumulated before this scan.
+        predicted_points = self.corrected_lidar(points)
 
         # gets the x, z values for each point
-        predicted_scan = np.array([
-            [point.x, point.z]
-            for point in predicted_lidar.points
-        ])
+        predicted_scan = predicted_points[:, [0, 2]]
 
         if self.prev_scan is None:
             self.prev_scan = predicted_scan
-            return "first_scan"
+            return "first_scan", predicted_points
 
         history, aligned_points = icp(
             reference_points=self.prev_scan,
@@ -69,42 +42,40 @@ class ScanLocalizer:
 
         if not history:
             # Keep the last corrected scan and correction matrix.
-            return "no_update"
+            return "no_update", predicted_points
 
+        # Combines history from ICP into one matrix
         new_correction = np.eye(3)
 
         for step in history:
             step_3x3 = np.vstack((step, [0, 0, 1]))
             new_correction = step_3x3 @ new_correction
 
-        # The new correction acts after the existing correction.
+        # Updating correction
         self.correction = new_correction @ self.correction
 
-        # ICP already applied the new correction to the predicted scan.
         self.prev_scan = aligned_points
 
-        return "updated"
+        # updates the x, z values of predicted points with aligned points
+        predicted_points[:, [0, 2]] = aligned_points
+
+        return "updated", predicted_points
     
-    def corrected_lidar(
-        self,
-        lidar: Lidar,
-        offset=(0.0, 0.0, 0.0),
-    ) -> Lidar:
-        corrected_points = []
+    def corrected_lidar(self, points: np.ndarray) -> np.ndarray:
+        """Apply the current correction to server-coordinate points."""
+        # gets a copy of the lidar points so raw points array is not changed
+        corrected = points.copy()
 
-        for point in lidar.points:
-            position = np.array([point.x, point.z, 1.0])
-            corrected_position = self.correction @ position
+        # Extract x and z as an (N, 2) array.
+        xz = points[:, [0, 2]]
 
-            corrected_points.append(
-                Vector3(
-                    x=float(corrected_position[0]) + offset[0],
-                    y=point.y + offset[1],
-                    z=float(corrected_position[1]) + offset[2],
-                )
-            )
+        rotation = self.correction[:2, :2]
+        translation = self.correction[:2, 2]
 
-        return Lidar(points=corrected_points)
+        corrected[:, [0, 2]] = xz @ rotation.T + translation
+
+        # Column 1, the server's vertical y coordinate, stays unchanged.
+        return corrected
 
     def corrected_transform(
         self,
