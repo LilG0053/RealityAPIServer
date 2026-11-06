@@ -3,19 +3,27 @@
 """Reality API websocket server."""
 
 import asyncio
+import math
 import traceback
 
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
 from websockets.asyncio.server import serve
 
-from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
+from map.coordinate import (
+    DOG_COORDS,
+    SERVER_COORDS,
+    TURTLEBOT_COORDS,
+    convert_lidar,
+    convert_transform,
+)
 from map.lidar import scan_to_world_points
 from map.map import DASHBOARD_PATH, Map
-from map.pointcloud import raw_cloud_to_world_points
+from map.pointcloud import raw_cloud_to_scan
 from realityapi_pb2 import (
     Command,
     DeviceInfo,
+    DeviceType,
     Lidar,
     RawLidarScan,
     RawPointCloud,
@@ -28,23 +36,6 @@ from realityapi_pb2 import (
 HOST = "0.0.0.0"
 PORT = 65432
 
-SERVER_COORDS = CoordinateSystem(
-    x=Direction.SOUTH,
-    y=Direction.UP,
-    z=Direction.EAST,
-)
-
-DOG_COORDS = CoordinateSystem(
-    x=Direction.NORTH,
-    y=Direction.WEST,
-    z=Direction.UP,
-)
-from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3, RawLidarScan
-from map.coordinate import SERVER_COORDS, TURTLEBOT_COORDS, convert_lidar, convert_transform
-from map.map import Map
-from map.lidar import LIDAR_EPSILON, scan_to_world_points, simplify_lidar_2d
-from map.localization import ScanLocalizer
-
 # Offset added to every incoming position vector. Adjust to your task's spec.
 OFFSET = (0.1, 0.1, 2.0)
 
@@ -54,8 +45,18 @@ TIMEOUT = 2.0
 # How often the monitor task sweeps the map for timed-out devices (seconds).
 MONITOR_INTERVAL = 0.04
 
+# Where the dog starts in the room, in dashboard axes (meters, X and Z), and which
+# way it faces there (radians: 0 = toward +X, pi/2 = toward +Z). The dog's own
+# odometry always starts at (0, 0) facing "forward", so these two numbers decide
+# where that start is drawn. Change them to match where you set the dog down.
+DOG_START_POSITION = (1.0, 2.0)
+DOG_START_YAW = math.pi
+
+# Devices that send plain pose updates in their own axes. Value("DOG") instead of
+# DeviceType.DOG so this also works on older protobuf runtimes.
+SENDER_COORDS = {DeviceType.Value("DOG"): DOG_COORDS}
+
 server_map = Map()
-scan_localizer = ScanLocalizer()
 
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
@@ -80,13 +81,42 @@ def translate_lidar(lidar: Lidar, offset=OFFSET) -> Lidar:
     return Lidar(points=[translate_vec3(point, offset) for point in lidar.points])
 
 
+def place_dog_vec3(vec: Vector3) -> Vector3:
+    """Rotate a dog-start-relative point by the start heading, then move it to the start."""
+    c, s = math.cos(DOG_START_YAW), math.sin(DOG_START_YAW)
+    return Vector3(
+        x=c * vec.x - s * vec.z + DOG_START_POSITION[0],
+        y=vec.y + OFFSET[1],
+        z=s * vec.x + c * vec.z + DOG_START_POSITION[1],
+    )
+
+
+def place_dog_transform(transform: Transform) -> Transform:
+    """Put a dog pose (already in server axes) at the dog's start in the room."""
+    r = transform.rotation
+    return Transform(
+        position=place_dog_vec3(transform.position),
+        rotation=Vector3(x=r.x, y=r.y + DOG_START_YAW, z=r.z),
+    )
+
+
+def place_dog_lidar(lidar: Lidar) -> Lidar:
+    return Lidar(points=[place_dog_vec3(point) for point in lidar.points])
+
+
 # Handlers for each ServerRequest.data case.
 
 def post_device_info(info: DeviceInfo) -> Response:
-    # The transform and the lidar are shifted together, otherwise scan points
-    # drift away from the robot that produced them.
+    # Devices with their own axes (the dog) are converted to server axes first.
+    sender = SENDER_COORDS.get(info.device_type)
     if info.HasField("transform"):
-        info.transform.CopyFrom(translate_transform(info.transform))
+        if sender is not None:
+            converted = convert_transform(info.transform, sender, SERVER_COORDS)
+            info.transform.CopyFrom(place_dog_transform(converted))
+        else:
+            # The transform and the lidar are shifted together, otherwise scan
+            # points drift away from the robot that produced them.
+            info.transform.CopyFrom(translate_transform(info.transform))
     if info.HasField("lidar"):
         info.lidar.CopyFrom(translate_lidar(info.lidar))
     print(f"<<< device info from {info.id}")
@@ -110,33 +140,46 @@ def fetch_lidar_data(_: Empty) -> Response:
     return server_map.get_lidar_data()
 
 
+def clear_accumulated_scan(_: Empty) -> Response:
+    server_map.clear_accumulated_scan()
+    return Response(ok={})
+
+
 def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
     if not server_map.exists(raw_scan.id):
         return Response(err_id_not_found={})
 
+    # Goes through Map.handle_lidar_scan so the scan is run through the
+    # localizer. post_device_info would skip it.
     lidar = scan_to_world_points(raw_scan)
-    return post_device_info(
-        DeviceInfo(
-            id=raw_scan.id,
-            transform=convert_transform(raw_scan.transform, TURTLEBOT_COORDS, SERVER_COORDS),
-            lidar=convert_lidar(lidar, TURTLEBOT_COORDS, SERVER_COORDS),
-        )
-    )
-
-
-def handle_raw_point_cloud(raw_scan: RawPointCloud) -> Response:
-    # Like a raw scan, a cloud can update an existing device but not create one.
-    if not server_map.exists(raw_scan.id):
-        return Response(err_id_not_found={})
-
-    # Convert the point cloud to world coordinates.
-    lidar = convert_lidar(scan_to_world_points(raw_scan), DOG_COORDS, SERVER_COORDS)
-    transform = convert_transform(raw_scan.transform, DOG_COORDS, SERVER_COORDS)
+    transform = convert_transform(raw_scan.transform, TURTLEBOT_COORDS, SERVER_COORDS)
     return server_map.handle_lidar_scan(
         raw_scan.id,
         translate_transform(transform),
-        translate_lidar(lidar),
+        translate_lidar(convert_lidar(lidar, TURTLEBOT_COORDS, SERVER_COORDS)),
     )
+
+
+def handle_raw_point_cloud(raw: RawPointCloud) -> Response:
+    # Like a raw scan, a cloud can update an existing device but not create one.
+    if not server_map.exists(raw.id):
+        return Response(err_id_not_found={})
+
+    # Flatten the 3D cloud to a ring, then convert it and the pose to server
+    # axes. Map.handle_lidar_scan runs the localizer, so this skips
+    # post_device_info (which would convert the pose a second time).
+    scan = raw_cloud_to_scan(raw)
+    lidar = convert_lidar(scan, DOG_COORDS, SERVER_COORDS)
+    transform = place_dog_transform(convert_transform(raw.transform, DOG_COORDS, SERVER_COORDS))
+    if not lidar.points:
+        # Nothing in range: update the pose but keep the last scan on the map.
+        return server_map.handle_device_info(DeviceInfo(id=raw.id, transform=transform))
+    return server_map.handle_lidar_scan(
+        raw.id,
+        transform,
+        place_dog_lidar(lidar),
+    )
+
 
 def send_command(command: Command) -> Response:
     if not server_map.exists(command.target_id):
@@ -157,6 +200,7 @@ HANDLERS = {
     "fetch_lidar_data": fetch_lidar_data,
     "post_raw_lidar_scan": handle_raw_lidar_scan,
     "post_raw_point_cloud": handle_raw_point_cloud,
+    "clear_accumulated_scan": clear_accumulated_scan,
 }
 
 
@@ -209,7 +253,6 @@ async def main():
     server_map.load_from_json(DASHBOARD_PATH)
     monitor_task = asyncio.create_task(monitor(server_map))
     try:
-    
         async with serve(handler, HOST, PORT, compression=None) as server:
             print(f"realityapi server on ws://{HOST}:{PORT}")
             await server.serve_forever()

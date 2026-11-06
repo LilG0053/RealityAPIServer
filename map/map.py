@@ -138,11 +138,14 @@ class Map:
         if dropped:
             self.export_to_json()
 
-    def get_lidar_data(self) -> Response:
-        # Every localizer's accumulated map. Those points only track the X/Z
-        # ground plane, so they are sent at height 0.
-        points = []
-        for device in self._devices.values():
-            if hasattr(device, "lidar"):
-                points.extend(device.lidar.points)
-        return Response(lidar_data=Lidar(points=points))
+def get_lidar_data(self) -> Response:
+    # Every localizer's accumulated map. Those points only track the X/Z
+    # ground plane, so they are sent at height 0.
+    points = []
+    for localizer in self._localizers.values():
+        if localizer.accumulated_scan is not None:
+            points.extend(
+                Vector3(x=float(x), y=0.0, z=float(z))
+                for x, z in localizer.accumulated_scan
+            )
+    return Response(lidar_data=Lidar(points=points))

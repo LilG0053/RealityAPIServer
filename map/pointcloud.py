@@ -1,20 +1,30 @@
-"""Server-side processing of a robot's raw 3D point cloud (the dog).
+"""Server-side flattening of the dog's raw 3D point cloud into a 2D scan.
 
- The dog sends a full 3D cloud, so instead of
-flattening it we keep it 3D, and as a first cut keep only the points within
-DOG_LIDAR_RADIUS of the dog and thin them with a voxel grid.
+numpy only (no ROS, OpenCV or extra protobuf classes), so it can be tested
+without the robot.
+
+The server's localizer and dashboard work on a flat ring of points, like the
+TurtleBot's. The dog sends a full 3D cloud, so we keep a horizontal slice around
+the dog's body, keep the nearest return per bearing, and hand back at most
+DOG_SCAN_BINS points at a constant height.
 """
+
+import math
 
 import numpy as np
 
 from realityapi_pb2 import Lidar, RawPointCloud, Vector3
 
-# Keep points within this distance (meters, straight-line 3D) of the dog.
-DOG_LIDAR_RADIUS = 1.0
-# Voxel edge (meters): one point is kept per cell. 0 disables downsampling.
-DOG_LIDAR_VOXEL = 0.03
-# Hard cap on points per update, applied after downsampling.
-DOG_LIDAR_MAX_POINTS = 5000
+# Slice of the cloud kept, in meters relative to the dog's pose z. The floor
+# sits below the low edge and the ceiling above the high one.
+DOG_SCAN_Z_MIN = -0.15
+DOG_SCAN_Z_MAX = 0.25
+# Horizontal range kept around the dog (meters).
+DOG_SCAN_RANGE_MIN = 0.2
+DOG_SCAN_RANGE_MAX = 10.0
+# Angular bins around the dog; one point (the nearest) survives per bin. This
+# also caps the scan size, which keeps the server's 2D ICP fast.
+DOG_SCAN_BINS = 180
 
 _BYTES_PER_POINT = 12  # three little-endian float32
 
@@ -28,48 +38,47 @@ def decode_xyz(data: bytes) -> np.ndarray:
     return np.frombuffer(data, dtype="<f4").reshape(-1, 3).astype(np.float64)
 
 
-def crop_to_radius(points: np.ndarray, origin: np.ndarray, radius: float) -> np.ndarray:
-    """Keep finite points within ``radius`` meters of ``origin``."""
+def flatten_to_scan(
+    points: np.ndarray,
+    origin: np.ndarray,
+    z_min: float = DOG_SCAN_Z_MIN,
+    z_max: float = DOG_SCAN_Z_MAX,
+    range_min: float = DOG_SCAN_RANGE_MIN,
+    range_max: float = DOG_SCAN_RANGE_MAX,
+    bins: int = DOG_SCAN_BINS,
+) -> np.ndarray:
+    """Return an (M, 2) array of x/y points: nearest return per bearing bin."""
     points = points[np.isfinite(points).all(axis=1)]
-    return points[np.linalg.norm(points - origin, axis=1) <= radius]
+    rel = points - origin
+    rel = rel[(rel[:, 2] >= z_min) & (rel[:, 2] <= z_max)]
+    dist = np.hypot(rel[:, 0], rel[:, 1])
+    keep = (dist >= range_min) & (dist <= range_max)
+    rel, dist = rel[keep], dist[keep]
+    if len(rel) == 0:
+        return np.empty((0, 2))
+
+    angle = np.arctan2(rel[:, 1], rel[:, 0])
+    bin_index = np.minimum(((angle + math.pi) / (2 * math.pi) * bins).astype(int), bins - 1)
+    # Sort by (bin, distance); the first row of each bin is its nearest point.
+    order = np.lexsort((dist, bin_index))
+    _, first = np.unique(bin_index[order], return_index=True)
+    nearest = order[first]
+    return rel[nearest, :2] + origin[:2]
 
 
-def voxel_downsample(points: np.ndarray, voxel_size: float) -> np.ndarray:
-    """Keep the first point in each ``voxel_size`` (meters) grid cell."""
-    if voxel_size <= 0 or len(points) < 2:
-        return points
-    cells = np.floor(points / voxel_size).astype(np.int64)
-    cells -= cells.min(axis=0)
-    dims = cells.max(axis=0) + 1
-    if int(dims[0]) * int(dims[1]) * int(dims[2]) < 2**62:
-        flat = (cells[:, 0] * dims[1] + cells[:, 1]) * dims[2] + cells[:, 2]
-        _, first = np.unique(flat, return_index=True)
-    else:  # huge sparse extent: fall back to the slower row-wise unique
-        _, first = np.unique(cells, axis=0, return_index=True)
-    return points[np.sort(first)]
-
-
-def raw_cloud_to_world_points(
-    raw: RawPointCloud,
-    radius: float = DOG_LIDAR_RADIUS,
-    voxel_size: float = DOG_LIDAR_VOXEL,
-    max_points: int = DOG_LIDAR_MAX_POINTS,
-) -> Lidar:
-    """Crop, downsample and convert a dog cloud to server-frame lidar points.
+def raw_cloud_to_scan(raw: RawPointCloud) -> Lidar:
+    """Flatten a dog cloud into a constant-height ring in the sender's axes.
 
     The cloud and ``raw.transform.position`` must share a frame and axes (the
-    dog sends ROS odom axes for both).
+    dog sends raw ROS odom axes for both). Output points stay in that world
+    frame at z = the dog's z, so the caller converts them with
+    ``convert_lidar(scan, DOG_COORDS, SERVER_COORDS)``. An empty Lidar means
+    nothing was in range.
     """
     p = raw.transform.position
     origin = np.array([p.x, p.y, p.z], dtype=np.float64)
     if not np.isfinite(origin).all():
         raise ValueError("point cloud transform has a non-finite position")
 
-    points = crop_to_radius(decode_xyz(raw.xyz), origin, radius)
-    points = voxel_downsample(points, voxel_size)
-    if len(points) > max_points:
-        points = points[:: -(-len(points) // max_points)]  # even stride, ceil
-
-    return Lidar(
-        points=[Vector3(x=x, y=z, z=y) for x, y, z in points.tolist()]
-    )
+    ring = flatten_to_scan(decode_xyz(raw.xyz), origin)
+    return Lidar(points=[Vector3(x=x, y=y, z=float(origin[2])) for x, y in ring.tolist()])

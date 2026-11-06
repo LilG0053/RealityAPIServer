@@ -3,8 +3,6 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { DeviceType, ResponseSchema, ServerRequestSchema } from "./gen/realityapi_pb.js";
 
-console.log("Reality dashboard main.js loaded");
-
 const sceneContainer = document.getElementById("scene-container");
 
 // Room measurements
@@ -167,9 +165,6 @@ scene.add(roomOutline);
 
 // Store 3D markers by device ID
 const robotMarkers = {};
-const lidarPointClouds = {};
-// Upper bound on points drawn per device; keep >= REALITYAPI_LIDAR_MAX_POINTS on the client.
-const MAX_LIDAR_POINTS = 40000;
 
 // Generate consistent color from string
 function stringToColor(str) {
@@ -223,58 +218,67 @@ function updateRobotMarker(key, device) {
   }
 }
 
-function updateLidarPointCloud(key, device) {
-  const points = device.lidar?.points;
-  const position = device.transform?.position;
-  if (!points?.length || !position) {
-    const previous = lidarPointClouds[key];
-    if (previous) {
-      scene.remove(previous);
-      previous.geometry.dispose();
-      previous.material.dispose();
-      delete lidarPointClouds[key];
+// LiDAR scan markers
+// One instanced mesh draws all the dots without creating a separate mesh per point.
+const lidarGeometry = new THREE.SphereGeometry(0.04, 8, 6);
+const lidarMaterial = new THREE.MeshBasicMaterial({ color: 0xff7043 });
+const lidarDot = new THREE.Object3D();
+let lidarMarkers = null;
+let lidarCapacity = 0;
+
+function updateLidarMarkers(devices) {
+  const points = devices.flatMap(device => device.lidar?.points ?? []);
+
+  console.log("LiDAR point count:", points.length, "First point:", points[0]);
+
+  if (points.length > lidarCapacity) {
+    if (lidarMarkers) {
+      scene.remove(lidarMarkers);
+      lidarMarkers.dispose();
     }
-    return;
+    lidarCapacity = points.length;
+    lidarMarkers = new THREE.InstancedMesh(lidarGeometry, lidarMaterial, lidarCapacity);
+    scene.add(lidarMarkers);
   }
 
-  const count = Math.min(points.length, MAX_LIDAR_POINTS);
+  if (lidarMarkers) points.forEach((point, index) => {
+    // Lift floor-level readings slightly so they remain visible above the floor.
+    lidarDot.position.set(point.x, point.y, point.z);
+    lidarDot.updateMatrix();
+    lidarMarkers.setMatrixAt(index, lidarDot.matrix);
+  });
 
-  let pointCloud = lidarPointClouds[key];
-  if (!pointCloud) {
-    // Allocate the GPU buffer once at full size and reuse it for every update.
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.BufferAttribute(new Float32Array(MAX_LIDAR_POINTS * 3), 3)
-    );
-    pointCloud = new THREE.Points(
-      geometry,
-      new THREE.PointsMaterial({
-        color: stringToColor(device.id),
-        size: 0.04,
-        sizeAttenuation: true
-      })
-    );
-    // The preallocated buffer's bounding sphere would be wrong, so skip culling.
-    pointCloud.frustumCulled = false;
-    scene.add(pointCloud);
-    lidarPointClouds[key] = pointCloud;
+  // Limit the visible instances to this scan, including zero after a timeout.
+  if (lidarMarkers) {
+    lidarMarkers.count = points.length;
+    lidarMarkers.instanceMatrix.needsUpdate = true;
+    lidarMarkers.computeBoundingSphere();
   }
+  updateLidarLine(devices);
+}
 
-  const attribute = pointCloud.geometry.getAttribute("position");
-  const coordinates = attribute.array;
-  // The server sends lidar points in the same world frame as the device
-  // transform (scan_to_world_points and the dog client already add the robot's
-  // position, and the server applies OFFSET to both), so draw them as-is.
-  // Adding the device position again would double-count it.
-  for (let index = 0, offset = 0; index < count; index += 1, offset += 3) {
-    const point = points[index];
-    coordinates[offset] = point.x;
-    coordinates[offset + 1] = point.y;
-    coordinates[offset + 2] = point.z;
-  }
-  attribute.needsUpdate = true;
-  pointCloud.geometry.setDrawRange(0, count);
+// One polyline through each robot's scan, in the order the points were sent.
+// Drawn as separate segments per device so two robots' scans are never joined.
+const lidarLine = new THREE.LineSegments(
+  new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3)),
+  new THREE.LineBasicMaterial({ color: 0xff7043 })
+);
+lidarLine.visible = false;
+scene.add(lidarLine);
+
+function updateLidarLine(devices) {
+  const coordinates = [];
+  devices.forEach(device => {
+    const points = device.lidar?.points ?? [];
+    for (let index = 0; index + 1 < points.length; index += 1) {
+      const start = points[index];
+      const end = points[index + 1];
+      coordinates.push(start.x, start.y, start.z, end.x, end.y, end.z);
+    }
+  });
+  lidarLine.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(coordinates), 3));
+  lidarLine.geometry.computeBoundingSphere();
+  lidarLine.visible = coordinates.length > 0;
 }
 
 // Accumulated localization map
@@ -345,41 +349,19 @@ let nextRequestId = 0;
 const pendingRequests = new Map();
 
 function connect() {
-  console.log("Opening dashboard WebSocket:", SERVER_URL);
   socket = new WebSocket(SERVER_URL);
   socket.binaryType = "arraybuffer";
 
-  socket.addEventListener("open", () => {
-    console.log("Dashboard WebSocket opened:", SERVER_URL);
-  });
-
   socket.addEventListener("message", (event) => {
-    // No per-message console logging here: responses carry thousands of lidar
-    // points and logging them (devtools keeps and serializes the objects) is
-    // very slow.
-    let response;
-    try {
-      response = fromBinary(ResponseSchema, new Uint8Array(event.data));
-    } catch (error) {
-      console.error("Failed to decode dashboard response:", error);
-      return;
-    }
-
+    const response = fromBinary(ResponseSchema, new Uint8Array(event.data));
     const pending = pendingRequests.get(response.reqUuid);
     if (pending) {
       pendingRequests.delete(response.reqUuid);
       pending.resolve(response);
-    } else {
-      console.warn("Received response with no pending request:", response.reqUuid);
     }
   });
 
-  socket.addEventListener("error", (event) => {
-    console.error("Dashboard WebSocket error:", event);
-  });
-
   socket.addEventListener("close", () => {
-    console.warn("Dashboard WebSocket closed; reconnecting:", SERVER_URL);
     for (const pending of pendingRequests.values()) {
       pending.reject(new Error("connection closed"));
     }
@@ -419,7 +401,6 @@ function updateDevices(devices) {
 
     // Update 3D marker
     updateRobotMarker(key, device);
-    updateLidarPointCloud(key, device);
 
     // Check if position changed or device is new
     if (!lastPositions[key] ||
@@ -449,12 +430,6 @@ function updateDevices(devices) {
     if (!currentKeys.has(key)) {
       scene.remove(robotMarkers[key]);
       delete robotMarkers[key];
-      if (lidarPointClouds[key]) {
-        scene.remove(lidarPointClouds[key]);
-        lidarPointClouds[key].geometry.dispose();
-        lidarPointClouds[key].material.dispose();
-        delete lidarPointClouds[key];
-      }
       delete lastPositions[key];
     }
   });
@@ -470,8 +445,7 @@ async function pollDevices() {
         const response = await request({ case: "fetchAllDeviceInfo", value: {} });
         if (response.data.case === "allDeviceInfo") {
           updateDevices(response.data.value.devices);
-        } else {
-          console.warn("Unexpected dashboard response case:", response.data.case);
+          updateLidarMarkers(response.data.value.devices);
         }
       } catch (error) {
         console.error("Error fetching devices:", error);
@@ -497,6 +471,27 @@ async function pollMap() {
     await sleep(MAP_POLL_INTERVAL);
   }
 }
+
+async function clearAccumulatedScan() {
+  const button = document.getElementById("clear-scan");
+  if (!button || !socket || socket.readyState !== WebSocket.OPEN) return;
+
+  button.disabled = true;
+  try {
+    const response = await request({ case: "clearAccumulatedScan", value: {} });
+    if (response.data.case === "ok") updateMapMarkers([]);
+  } catch (error) {
+    console.error("Error clearing accumulated scan:", error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// index.html may not have the button; without this check a missing button
+// throws here and stops the whole dashboard from starting.
+document.getElementById("clear-scan")?.addEventListener("click", () => {
+  clearAccumulatedScan();
+});
 
 connect();
 pollDevices();

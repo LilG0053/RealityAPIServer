@@ -66,6 +66,13 @@ TURTLEBOT_COORDS = CoordinateSystem(
     z=Direction.UP,
 )
 
+# The dog reports in ROS axes: x north, y west, z up (same layout as the TurtleBot).
+DOG_COORDS = CoordinateSystem(
+    x=Direction.NORTH,
+    y=Direction.WEST,
+    z=Direction.UP,
+)
+
 
 def get_transform_matrix(source: CoordinateSystem, target: CoordinateSystem) -> np.ndarray:
     """Return M such that v_target = M @ v_source.
