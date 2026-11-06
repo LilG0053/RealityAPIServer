@@ -220,8 +220,10 @@ function updateRobotMarker(key, device) {
 
 // LiDAR scan markers
 // One instanced mesh draws all the dots without creating a separate mesh per point.
-const lidarGeometry = new THREE.SphereGeometry(0.04, 8, 6);
-const lidarMaterial = new THREE.MeshBasicMaterial({ color: 0xff7043 });
+// Bigger dots, drawn on top of the room and the accumulated map, so the live scan
+// is not lost against them from the default camera distance.
+const lidarGeometry = new THREE.SphereGeometry(0.1, 8, 6);
+const lidarMaterial = new THREE.MeshBasicMaterial({ color: 0xff7043, depthTest: false, transparent: true });
 const lidarDot = new THREE.Object3D();
 let lidarMarkers = null;
 let lidarCapacity = 0;
@@ -238,6 +240,7 @@ function updateLidarMarkers(devices) {
     }
     lidarCapacity = points.length;
     lidarMarkers = new THREE.InstancedMesh(lidarGeometry, lidarMaterial, lidarCapacity);
+    lidarMarkers.renderOrder = 2;
     scene.add(lidarMarkers);
   }
 
@@ -261,8 +264,9 @@ function updateLidarMarkers(devices) {
 // Drawn as separate segments per device so two robots' scans are never joined.
 const lidarLine = new THREE.LineSegments(
   new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3)),
-  new THREE.LineBasicMaterial({ color: 0xff7043 })
+  new THREE.LineBasicMaterial({ color: 0xff7043, depthTest: false, transparent: true })
 );
+lidarLine.renderOrder = 2;
 lidarLine.visible = false;
 scene.add(lidarLine);
 
@@ -284,13 +288,19 @@ function updateLidarLine(devices) {
 // Accumulated localization map
 // The server's ICP map, drawn as small dots on the floor under the live scan.
 const MAP_POINT_HEIGHT = 0.03;
-const mapGeometry = new THREE.SphereGeometry(0.025, 6, 4);
+const mapGeometry = new THREE.SphereGeometry(0.05, 6, 4);
 const mapMaterial = new THREE.MeshBasicMaterial({ color: 0x4fc3f7 });
 const mapDot = new THREE.Object3D();
 let mapMarkers = null;
 let mapCapacity = 0;
 
+let lastMapCount = -1;
+
 function updateMapMarkers(points) {
+  if (points.length !== lastMapCount) {
+    lastMapCount = points.length;
+    console.log("Accumulated map points:", points.length);
+  }
   if (points.length > mapCapacity) {
     if (mapMarkers) {
       scene.remove(mapMarkers);
@@ -477,9 +487,15 @@ async function clearAccumulatedScan() {
   if (!button || !socket || socket.readyState !== WebSocket.OPEN) return;
 
   button.disabled = true;
+  console.log("Clear accumulated scan: button clicked, sending request");
   try {
     const response = await request({ case: "clearAccumulatedScan", value: {} });
-    if (response.data.case === "ok") updateMapMarkers([]);
+    if (response.data.case === "ok") {
+      console.log("Clear accumulated scan: server accepted");
+      updateMapMarkers([]);
+    } else {
+      console.warn("Clear accumulated scan was not accepted; server replied:", response.data.case);
+    }
   } catch (error) {
     console.error("Error clearing accumulated scan:", error);
   } finally {
@@ -487,8 +503,32 @@ async function clearAccumulatedScan() {
   }
 }
 
-// index.html may not have the button; without this check a missing button
-// throws here and stops the whole dashboard from starting.
+// Not every index.html has the button. Create one in the corner of the 3D view
+// when it is missing, so the dashboard works with either page.
+if (!document.getElementById("clear-scan")) {
+  const clearButton = document.createElement("button");
+  clearButton.id = "clear-scan";
+  clearButton.type = "button";
+  clearButton.textContent = "Clear accumulated scan";
+  Object.assign(clearButton.style, {
+    position: "absolute",
+    top: "12px",
+    right: "12px",
+    zIndex: "10",
+    padding: "12px 16px",
+    font: "16px system-ui, sans-serif",
+    color: "#fff",
+    background: "#0f1115",
+    border: "none",
+    borderRadius: "10px",
+    cursor: "pointer"
+  });
+  if (getComputedStyle(sceneContainer).position === "static") {
+    sceneContainer.style.position = "relative";
+  }
+  sceneContainer.appendChild(clearButton);
+}
+
 document.getElementById("clear-scan")?.addEventListener("click", () => {
   clearAccumulatedScan();
 });

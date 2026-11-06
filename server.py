@@ -141,6 +141,7 @@ def fetch_lidar_data(_: Empty) -> Response:
 
 
 def clear_accumulated_scan(_: Empty) -> Response:
+    print("<<< clear accumulated scan")
     server_map.clear_accumulated_scan()
     return Response(ok={})
 
@@ -208,6 +209,9 @@ def handle_request(req: ServerRequest) -> Response:
     kind = req.WhichOneof("data")
     handle = HANDLERS.get(kind)
     if handle is None:
+        # kind is None when the sender used a field this server's generated
+        # realityapi_pb2.py does not know (e.g. it was not regenerated).
+        print(f"[!] unsupported request: {kind}")
         ret = Response(err_not_supported={})
     else:
         try:

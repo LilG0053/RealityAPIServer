@@ -18,6 +18,7 @@ class Map:
         self.export_interval = EXPORT_INTERVAL
         self._last_export = 0.0
         self._localizers: dict[str, ScanLocalizer] = {}
+        self._last_map_size = -1
 
     def add_device(self, device: Device) -> None:
         self._devices[device.id] = device
@@ -138,14 +139,24 @@ class Map:
         if dropped:
             self.export_to_json()
 
-def get_lidar_data(self) -> Response:
-    # Every localizer's accumulated map. Those points only track the X/Z
-    # ground plane, so they are sent at height 0.
-    points = []
-    for localizer in self._localizers.values():
-        if localizer.accumulated_scan is not None:
-            points.extend(
-                Vector3(x=float(x), y=0.0, z=float(z))
-                for x, z in localizer.accumulated_scan
-            )
-    return Response(lidar_data=Lidar(points=points))
+    def get_lidar_data(self) -> Response:
+        # Every localizer's accumulated map. Those points only track the X/Z
+        # ground plane, so they are sent at height 0.
+        points = []
+        for localizer in self._localizers.values():
+            if localizer.accumulated_scan is not None:
+                points.extend(
+                    Vector3(x=float(x), y=0.0, z=float(z))
+                    for x, z in localizer.accumulated_scan
+                )
+        # Log only when the size changes, so an empty map is visible in the terminal.
+        if len(points) != self._last_map_size:
+            self._last_map_size = len(points)
+            print(f"accumulated map: {len(points)} points from {len(self._localizers)} localizer(s)")
+        return Response(lidar_data=Lidar(points=points))
+
+    def clear_accumulated_scan(self) -> None:
+        # Forget every robot's accumulated map but keep its drift correction, so
+        # poses don't jump and the next scan simply starts a new map.
+        for localizer in self._localizers.values():
+            localizer.accumulated_scan = None
