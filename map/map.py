@@ -162,6 +162,12 @@ class Map:
 
     def exists(self, id: str) -> bool:
         return id in self._devices
+
+    def clear_lidar_scans(self):
+        """Keep connected devices and poses, but discard their last scans."""
+        for device in self._devices.values():
+            if hasattr(device, "lidar"):
+                device.lidar = Lidar()
     
     def get_device_info(self, id: str) -> Response:
         if not id in self._devices:

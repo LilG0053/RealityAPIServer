@@ -26,11 +26,11 @@
       <p class="axis-key"><span class="x-axis">X</span> width · <span class="y-axis">Y</span> height · <span
           class="z-axis">Z</span> depth</p>
       <div class="map-legend" aria-label="Map layer colors">
+        <span><i class="legend-swatch robot-location"></i>Robot location</span>
         <span><i class="legend-swatch live-scan"></i>Live scan</span>
         <span><i class="legend-swatch global-points"></i>Global points</span>
         <span><i class="legend-swatch free-cell"></i>Free evidence</span>
         <span><i class="legend-swatch occupied-cell"></i>Occupied evidence</span>
-        <span><i class="legend-swatch uncertain-cell"></i>Balanced evidence</span>
         <span><i class="legend-swatch unknown-cell"></i>Unknown / unobserved</span>
         <span id="occupancy-status" role="status">Waiting for occupancy grid</span>
       </div>
@@ -39,11 +39,16 @@
 
     <aside class="dashboard" aria-labelledby="dashboard-title">
       <h1 id="dashboard-title">DASHBOARD</h1>
+      <div class="map-controls" aria-label="Map controls">
+        <button id="save-maps" type="button">Save scans and maps</button>
+        <button id="clear-maps" type="button">Clear scans and maps</button>
+        <p id="map-control-status" role="status" aria-live="polite"></p>
+      </div>
       <div id="log-container"></div>
     </aside>
   </main>
 
-  <script type="module" src="main.js?v=15"></script>
+  <script type="module" src="main.js?v=20"></script>
 </body>
 
 </html>

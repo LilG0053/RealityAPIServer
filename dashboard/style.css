@@ -102,12 +102,12 @@ body {
   border: 1px solid rgb(255 255 255 / 50%);
 }
 
-.live-scan { background: #ff4d4d; }
+.robot-location { border: 2px solid #fff; border-radius: 50%; box-sizing: border-box; }
+.live-scan { background: #ff4d8d; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 .global-points { background: #438cff; }
-.free-cell { background: #4cbd83; }
-.occupied-cell { background: #e5a134; }
-.uncertain-cell { background: #d4cc79; }
-.unknown-cell { background: #68717d; }
+.free-cell { background: #a9dac5; }
+.occupied-cell { background: #ffd28a; }
+.unknown-cell { background: #20232a; }
 
 #occupancy-status {
   max-width: 13rem;
@@ -137,6 +137,29 @@ body {
   margin: 0 0 1.5rem;
   font-size: 1.6rem;
 }
+
+/* Scan and map controls */
+.map-controls {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.map-controls button {
+  padding: 0.7rem;
+  border: 1px solid #718298;
+  border-radius: 0.4rem;
+  background: #293747;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+
+.map-controls button:disabled { opacity: 0.5; cursor: wait; }
+.map-controls p { margin: 0; color: #d3dce6; font-size: 0.85rem; overflow-wrap: anywhere; }
+
+/* Keyboard accessibility */
+.map-controls button:focus-visible { outline: 3px solid #8bc7ff; outline-offset: 2px; }
 
 #log-container {
   display: flex;

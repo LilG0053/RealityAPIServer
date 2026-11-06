@@ -23,14 +23,17 @@ class RawLidarPipelineTest(unittest.TestCase):
 
     def setUp(self):
         self.original_map = server.server_map
+        self.original_localizers = server.scan_localizers
         self.original_directory = Path.cwd()
         self.temporary_directory = tempfile.TemporaryDirectory()
         os.chdir(self.temporary_directory.name)
         Path("dashboard").mkdir()
         server.server_map = Map()
+        server.scan_localizers = {}
 
     def tearDown(self):
         server.server_map = self.original_map
+        server.scan_localizers = self.original_localizers
         os.chdir(self.original_directory)
         self.temporary_directory.cleanup()
 
@@ -81,6 +84,30 @@ class RawLidarPipelineTest(unittest.TestCase):
         exported_data = json.loads(Path("dashboard/updated_pos.json").read_text())
         self.assertEqual(exported_data[0]["id"], device_id)
         self.assertGreater(len(exported_data[0]["lidar"]["points"]), 0)
+
+    def test_save_then_clear_preserves_archive_and_resets_live_state(self):
+        device = DeviceInfo(id="robot", device_type=DeviceType.TURTLE,
+                            transform=Transform(), lidar={"points": [{"x": 1}]})
+        self.dispatch(ServerRequest(post_device_info=device))
+        server.server_map.point_map[(1, 1)] = [(1.0, 0.0, 1.0)]
+        server.server_map.occupancy_grid[(1, 1)] = 3
+        server.server_map.export_global_points("dashboard/global_map.json")
+        server.server_map.export_occupancy_grid("dashboard/occupancy_grid.json")
+        server.scan_localizers["robot"] = object()
+
+        saved = server.handle_map_control("save_maps")
+        archive = Path(saved["path"])
+        self.assertEqual(len(json.loads((archive / "global_map.json").read_text())), 1)
+        self.assertEqual(len(json.loads((archive / "occupancy_grid.json").read_text())["cells"]), 1)
+        self.assertEqual(len(json.loads((archive / "updated_pos.json").read_text())[0]["lidar"]["points"]), 1)
+        self.assertNotEqual(server.handle_map_control("save_maps")["path"], saved["path"])
+
+        self.assertTrue(server.handle_map_control("clear_maps")["ok"])
+        self.assertEqual(json.loads(Path("dashboard/global_map.json").read_text()), [])
+        self.assertEqual(json.loads(Path("dashboard/occupancy_grid.json").read_text())["cells"], [])
+        self.assertFalse(server.server_map.get_all_device_info().all_device_info.devices[0].lidar.points)
+        self.assertFalse(server.scan_localizers)
+        self.assertEqual(len(json.loads((archive / "global_map.json").read_text())), 1)
 
 
 if __name__ == "__main__":

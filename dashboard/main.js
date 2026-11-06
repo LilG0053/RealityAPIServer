@@ -12,6 +12,9 @@ const sceneContainer = document.getElementById("scene-container");
 // Width is X, height is Y, depth is Z.
 const WALL_HEIGHT = 3;
 const WALL_THICKNESS = 0.15;
+// Hide the fixed room outline while the robot's starting pose is uncalibrated.
+const SHOW_ROOM_WALLS = false;
+const SHOW_ROOM_FLOOR = false;
 
 // Room corners (in meters)
 // (0, 0) is the corner furthest from the door.
@@ -91,7 +94,7 @@ const floor = new THREE.Mesh(
   })
 );
 floor.rotation.x = Math.PI / 2;
-scene.add(floor);
+if (SHOW_ROOM_FLOOR) scene.add(floor);
 
 // Coordinate axes and labels
 // X is red, Y is green, and Z is blue. All axes begin at (0, 0, 0).
@@ -151,19 +154,21 @@ function createWallBetween(start, end) {
   scene.add(wall);
 }
 
-for (let index = 0; index < roomCorners.length; index += 1) {
-  const start = roomCorners[index];
-  const end = roomCorners[(index + 1) % roomCorners.length];
-  createWallBetween(start, end);
-}
+if (SHOW_ROOM_WALLS) {
+  for (let index = 0; index < roomCorners.length; index += 1) {
+    const start = roomCorners[index];
+    const end = roomCorners[(index + 1) % roomCorners.length];
+    createWallBetween(start, end);
+  }
 
-const roomOutline = new THREE.LineLoop(
-  new THREE.BufferGeometry().setFromPoints(
-    roomCorners.map((corner) => new THREE.Vector3(corner.x, 0.02, corner.z))
-  ),
-  new THREE.LineBasicMaterial({ color: 0xffffff })
-);
-scene.add(roomOutline);
+  const roomOutline = new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints(
+      roomCorners.map((corner) => new THREE.Vector3(corner.x, 0.02, corner.z))
+    ),
+    new THREE.LineBasicMaterial({ color: 0xffffff })
+  );
+  scene.add(roomOutline);
+}
 
 // Robot markers and device colors
 const robotMarkers = {};
@@ -190,7 +195,8 @@ function createChevron(material) {
   const chevron = new THREE.Mesh(new THREE.ShapeGeometry(shape), material);
   // ShapeGeometry is drawn in XY; lay it flat so it reads from above.
   chevron.rotation.x = -Math.PI / 2;
-  chevron.position.set(0.25, 0, 0);
+  // Place the heading above the sphere so it remains visible from above.
+  chevron.position.set(0.25, 0.22, 0);
   return chevron;
 }
 
@@ -209,10 +215,23 @@ function updateRobotMarker(key, device) {
     // Create new marker
     const material = new THREE.MeshBasicMaterial({
       color: parseInt(color.replace('#', '0x')),
-      side: THREE.DoubleSide
+      side: THREE.DoubleSide,
+      depthTest: false
     });
-    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.2, 32, 32), material);
-    marker.add(createChevron(material));
+    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.3, 32, 32), material);
+    marker.renderOrder = 10;
+    // A bright outline keeps the robot visible even when its device color is dark.
+    const halo = new THREE.Mesh(
+      new THREE.RingGeometry(0.38, 0.47, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, depthTest: false })
+    );
+    halo.rotation.x = -Math.PI / 2;
+    halo.renderOrder = 10;
+    marker.add(halo);
+    const headingMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, depthTest: false });
+    const heading = createChevron(headingMaterial);
+    heading.renderOrder = 11;
+    marker.add(heading);
     marker.position.set(position.x, 0.3, position.z);
     marker.rotation.set(rotation.x, -rotation.y, rotation.z);
     scene.add(marker);
@@ -222,9 +241,8 @@ function updateRobotMarker(key, device) {
 
 // Shared point-layer rendering
 // Instancing keeps each layer to one draw call as point counts grow.
-function createPointLayer(color, radius, verticalLift) {
-  const geometry = new THREE.SphereGeometry(radius, 8, 6);
-  const material = new THREE.MeshBasicMaterial({ color });
+function createPointLayer(color, geometry, verticalLift) {
+  const material = new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide });
   const marker = new THREE.Object3D();
   let mesh = null;
   let capacity = 0;
@@ -254,20 +272,21 @@ function createPointLayer(color, radius, verticalLift) {
 }
 
 // Live LiDAR scan visualization
-const updateLiveScan = createPointLayer(0xff4d4d, 0.022, 0.10);
+const scanTriangle = new THREE.CircleGeometry(0.075, 3);
+scanTriangle.rotateX(-Math.PI / 2);
+const updateLiveScan = createPointLayer(0xff4d8d, scanTriangle, 0.16);
 
 // Accumulated global point-map visualization
-const updateGlobalPoints = createPointLayer(0x438cff, 0.045, 0.01);
+const updateGlobalPoints = createPointLayer(0x438cff, new THREE.SphereGeometry(0.045, 8, 6), 0.01);
 
 // Occupancy-grid visualization
-// The room floor represents unknown cells; only observed cells need meshes.
+// Only observed cells need meshes; the background represents unknown space.
 const occupancyGeometry = new THREE.PlaneGeometry(1, 1);
 const occupancyMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
 const occupancyMarker = new THREE.Object3D();
 const occupancyColors = {
-  free: new THREE.Color(0x4cbd83),
-  occupied: new THREE.Color(0xe5a134),
-  uncertain: new THREE.Color(0xd4cc79),
+  free: new THREE.Color(0xa9dac5),
+  occupied: new THREE.Color(0xffd28a),
 };
 let occupancyMesh = null;
 let occupancyCapacity = 0;
@@ -374,7 +393,12 @@ window.addEventListener("resize", resizeRenderer);
 
 // WebSocket connection and requests
 // The dashboard is served from the same machine as the realityapi server.
-const SERVER_URL = `ws://${location.hostname || "localhost"}:65432`;
+// Wildcard addresses identify a listening interface, not a remote server.
+const pageHost = location.hostname;
+const serverHost = !pageHost || pageHost === "[::]" || pageHost === "::" || pageHost === "0.0.0.0"
+  ? "localhost"
+  : pageHost;
+const SERVER_URL = `ws://${serverHost}:65432`;
 
 // How long to wait between FetchAllDeviceInfo polls (ms).
 const POLL_INTERVAL = 50;
@@ -392,6 +416,15 @@ function connect() {
   socket.binaryType = "arraybuffer";
 
   socket.addEventListener("message", (event) => {
+    if (typeof event.data === "string") {
+      const response = JSON.parse(event.data);
+      const pending = pendingRequests.get(response.id);
+      if (pending) {
+        pendingRequests.delete(response.id);
+        pending.resolve(response);
+      }
+      return;
+    }
     const response = fromBinary(ResponseSchema, new Uint8Array(event.data));
     const pending = pendingRequests.get(response.reqUuid);
     if (pending) {
@@ -419,6 +452,55 @@ function request(data) {
     socket.send(toBinary(ServerRequestSchema, message));
   });
 }
+
+// Save or clear the server's scan and map state.
+async function runMapControl(action) {
+  const status = document.getElementById("map-control-status");
+  const buttons = document.querySelectorAll(".map-controls button");
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    status.textContent = "Server disconnected. Reconnect and try again.";
+    return;
+  }
+  if (action === "clear_maps" && !window.confirm("Clear the current scans and maps? Save them first if you want to keep them.")) return;
+  buttons.forEach(button => { button.disabled = true; });
+  status.textContent = action === "save_maps" ? "Saving…" : "Clearing…";
+  try {
+    const id = `map-${nextRequestId++}`;
+    const response = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingRequests.delete(id);
+        reject(new Error("Server did not respond; restart it and try again"));
+      }, 10000);
+      pendingRequests.set(id, {
+        resolve: value => { clearTimeout(timeout); resolve(value); },
+        reject: error => { clearTimeout(timeout); reject(error); },
+      });
+      try {
+        socket.send(JSON.stringify({ id, action }));
+      } catch (error) {
+        pendingRequests.delete(id);
+        clearTimeout(timeout);
+        reject(error);
+      }
+    });
+    if (!response.ok) throw new Error(response.error || "Server could not complete the action");
+    if (action === "clear_maps") {
+      updateLiveScan([]);
+      updateGlobalPoints([]);
+      updateOccupancyGrid({ cell_size: 0.1, cells: [] });
+      status.textContent = "Cleared. New scans will appear as the robot reports them.";
+    } else {
+      status.textContent = `Saved to ${response.path}`;
+    }
+  } catch (error) {
+    status.textContent = `Could not complete action: ${error.message}`;
+  } finally {
+    buttons.forEach(button => { button.disabled = false; });
+  }
+}
+
+document.getElementById("save-maps").addEventListener("click", () => runMapControl("save_maps"));
+document.getElementById("clear-maps").addEventListener("click", () => runMapControl("clear_maps"));
 
 // Device markers and activity log
 let lastPositions = {};

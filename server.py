@@ -2,6 +2,12 @@
 
 import asyncio
 import math
+import os
+import time
+import json
+import shutil
+from datetime import datetime
+from pathlib import Path
 from websockets.asyncio.server import serve
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
@@ -9,7 +15,8 @@ from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, 
 from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform, convert_point_array
 from map.map import Map
 from map.lidar import LIDAR_EPSILON, simplify_lidar_2d, points_to_lidar
-from map.kiss_icp_2d import OdometryICP2D
+from map.kiss_icp_2d import OdometryICP2D, pose_matrix
+from map.icp_diagnostics import ICPDiagnostics
 import numpy as np
 
 SERVER_COORDS = CoordinateSystem(
@@ -37,6 +44,7 @@ server_map = Map()
 
 # unique scan localizer for each device_id
 scan_localizers: dict[str, OdometryICP2D] = {}
+icp_diagnostics: ICPDiagnostics | None = None
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
     """Return a new Vector3 shifted by the offset."""
@@ -92,8 +100,18 @@ def fetch_lidar_data(_: Empty) -> Response:
     return server_map.get_lidar_data()
 
 def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
+    global icp_diagnostics
+    registered = server_map.exists(raw_scan.id)
+    received_utc = None
+    if icp_diagnostics is not None:
+        try:
+            received_utc = icp_diagnostics.record_scan(raw_scan, registered=registered)
+        except OSError as exc:
+            print(f'ICP recording stopped: {exc}', flush=True)
+            icp_diagnostics.close()
+            icp_diagnostics = None
     # A scan can update an existing device but cannot create one by itself.
-    if not server_map.exists(raw_scan.id):
+    if not registered:
         return Response(err_id_not_found={})
 
     # Registration receives robot-local points and the odometry pose separately.
@@ -101,7 +119,20 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
         scan_localizers[raw_scan.id] = OdometryICP2D()
 
     localizer = scan_localizers[raw_scan.id]
+    predicted_pose = (localizer.map_from_odom @ pose_matrix(raw_scan.transform)
+                      if icp_diagnostics is not None else None)
+    started = time.perf_counter()
     result = localizer.register_scan(raw_scan)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    if icp_diagnostics is not None:
+        try:
+            icp_diagnostics.write(raw_scan, result, predicted_pose, elapsed_ms,
+                                  sum(len(bucket) for bucket in localizer.local_map.voxels.values()),
+                                  received_utc=received_utc)
+        except OSError as exc:
+            print(f'ICP recording stopped: {exc}', flush=True)
+            icp_diagnostics.close()
+            icp_diagnostics = None
     corrected_ros = localizer.corrected_transform(raw_scan.transform)
     corrected_robot_transform = convert_transform(corrected_ros, TURTLEBOT_COORDS, SERVER_COORDS)
     ros_points = np.column_stack((
@@ -157,10 +188,58 @@ def handle_request(req: ServerRequest) -> Response:
     ret.req_uuid = req.req_uuid
     return ret
 
+
+# Dashboard map controls use text frames; robot traffic remains protobuf.
+def handle_map_control(action: str) -> dict:
+    dashboard = Path("dashboard")
+    if action == "save_maps":
+        archive_root = Path("saved_scans")
+        archive_root.mkdir(exist_ok=True)
+        stem = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        archive = archive_root / stem
+        suffix = 2
+        while archive.exists():
+            archive = archive_root / f"{stem}_{suffix}"
+            suffix += 1
+        archive.mkdir()
+        try:
+            # updated_pos contains the latest per-device LiDAR scan and pose.
+            defaults = {"updated_pos.json": [], "global_map.json": [],
+                        "occupancy_grid.json": {"cell_size": server_map.cell_size, "cells": []}}
+            for name, empty in defaults.items():
+                source = dashboard / name
+                if source.exists():
+                    shutil.copyfile(source, archive / name)
+                else:
+                    (archive / name).write_text(json.dumps(empty))
+        except OSError:
+            shutil.rmtree(archive, ignore_errors=True)
+            raise
+        return {"ok": True, "path": str(archive)}
+    if action == "clear_maps":
+        server_map.point_map.clear()
+        server_map.occupancy_grid.clear()
+        scan_localizers.clear()
+        server_map.clear_lidar_scans()
+        server_map.export_global_points(str(dashboard / "global_map.json"))
+        server_map.export_occupancy_grid(str(dashboard / "occupancy_grid.json"))
+        server_map.export_to_json(str(dashboard / "updated_pos.json"))
+        return {"ok": True}
+    return {"ok": False, "error": "Unknown map action"}
+
 async def handler(websocket):
     async for message in websocket:
         if isinstance(message, str):
-            print("[!] ignoring text frame (expected binary protobuf)")
+            request_id = None
+            try:
+                request = json.loads(message)
+                if not isinstance(request, dict):
+                    raise ValueError("Expected an object")
+                request_id = request.get("id")
+                result = handle_map_control(request.get("action"))
+                await websocket.send(json.dumps({"id": request_id, **result}))
+            except (ValueError, OSError) as exc:
+                await websocket.send(json.dumps({"id": request_id, "ok": False, "error": str(exc)}))
             continue
 
         req = ServerRequest()
@@ -184,11 +263,19 @@ async def monitor(map: Map):
 
 
 async def main():
+    global icp_diagnostics
+    log_dir = os.environ.get('ICP_LOG_DIR')
+    if log_dir:
+        icp_diagnostics = ICPDiagnostics(log_dir, name=os.environ.get('ICP_RUN_NAME'))
     server_map.load_from_json("dashboard/updated_pos.json")
     server = await serve(handler, "0.0.0.0", 65432)
     asyncio.create_task(monitor(server_map))
     print("realityapi server on ws://0.0.0.0:65432")
-    await server.serve_forever()
+    try:
+        await server.serve_forever()
+    finally:
+        if icp_diagnostics is not None:
+            icp_diagnostics.close()
 
 
 if __name__ == "__main__":

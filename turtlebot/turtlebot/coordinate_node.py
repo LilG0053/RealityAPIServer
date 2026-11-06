@@ -27,6 +27,8 @@ class CoordinateNode(Node):
         self.ws = connect(SERVER_URI)
         self.post_device_info()
 
+        self.has_odometry = False
+
         self.odom_sub = self.create_subscription(
             Odometry,
             '/odom',
@@ -44,6 +46,7 @@ class CoordinateNode(Node):
         self.create_timer(HEARTBEAT_INTERVAL, self.heartbeat_callback)
 
     def position_update_callback(self, data: Odometry):
+        self.has_odometry = True
         position = data.pose.pose.position
         pos_vec = Vector3(x=position.x, y=position.y, z=position.z)
 
@@ -60,6 +63,9 @@ class CoordinateNode(Node):
         self.post_device_info(log=True)
 
     def lidar_update_callback(self, data: LaserScan):
+        if not self.has_odometry:
+            return
+        
         self.send_scan(data)
 
     def send_scan(self, ros_data):
