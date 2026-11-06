@@ -44,6 +44,38 @@ def simplify_lidar_2d(
         points=[Vector3(x=float(point[0]), y=float(point[1]), z=float(point[2])) for point in simplified]
     )
 
+
+def shrink_contour(contour: np.ndarray, scale: float) -> np.ndarray:
+    """Scale a contour about its centroid.
+
+    scale < 1 shrinks it. scale > 1 expands it. Coordinates stay in meters;
+    the centroid is not snapped to an integer, which would quantize a metric
+    contour down to whole meters.
+    """
+    moments = cv2.moments(contour.astype(np.float32))
+    if moments["m00"] == 0:
+        return contour
+    center = np.array([moments["m10"] / moments["m00"], moments["m01"] / moments["m00"]])
+    return (contour - center) * scale + center
+
+
+def simplified_contour(points: np.ndarray, epsilon: float = LIDAR_EPSILON) -> np.ndarray:
+    """Closed approxPolyDP contour of a 2D scan, shape (N, 1, 2)."""
+    curve = np.ascontiguousarray(points, dtype=np.float32).reshape(-1, 1, 2)
+    return cv2.approxPolyDP(curve, epsilon, True)
+
+
+def inside_contour(points: np.ndarray, contour: np.ndarray) -> np.ndarray:
+    """True for points strictly inside the contour."""
+    if len(points) == 0 or len(contour) < 3:
+        return np.zeros(len(points), dtype=bool)
+    contour = np.ascontiguousarray(contour, dtype=np.float32).reshape(-1, 1, 2)
+    inside = np.empty(len(points), dtype=bool)
+    for index, (x, y) in enumerate(points):
+        inside[index] = cv2.pointPolygonTest(contour, (float(x), float(y)), False) > 0
+    return inside
+
+
 def scan_to_world_points(raw_scan: RawLidarScan) -> Lidar:
     # Convert each LiDAR range reading into a point in the robot's world-fixed odom frame.
     #

@@ -135,6 +135,11 @@ class Map:
         if dropped:
             self.export_to_json("dashboard/updated_pos.json")
 
+    def clear_accumulated_scans(self) -> Response:
+        for localizer in self._localizers.values():
+            localizer.clear_scan()
+        return Response(ok={})
+
     def get_lidar_data(self) -> Response:
         # Every localizer's accumulated map. Those points only track the X/Z
         # ground plane, so they are sent at height 0.

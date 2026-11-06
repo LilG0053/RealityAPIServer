@@ -101,6 +101,30 @@ body {
   font-size: 1.6rem;
 }
 
+#clear-scan {
+  display: block;
+  width: 100%;
+  margin: 0 0 1.25rem;
+  padding: 0.7rem 1rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: #2a3442;
+  color: #f5f7fa;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#clear-scan:hover {
+  background: #354255;
+}
+
+#clear-scan:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 #log-container {
   display: flex;
   flex-direction: column;

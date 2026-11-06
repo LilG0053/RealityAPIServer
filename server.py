@@ -66,6 +66,9 @@ def fetch_single_device_info(device_id: str) -> Response:
 def fetch_lidar_data(_: Empty) -> Response:
     return server_map.get_lidar_data()
 
+def clear_accumulated_scan(_: Empty) -> Response:
+    return server_map.clear_accumulated_scans()
+
 def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
     lidar = convert_lidar(scan_to_world_points(raw_scan), TURTLEBOT_COORDS, SERVER_COORDS)
     transform = convert_transform(raw_scan.transform, TURTLEBOT_COORDS, SERVER_COORDS)
@@ -92,6 +95,7 @@ HANDLERS = {
     "send_command": send_command,
     "fetch_lidar_data": fetch_lidar_data,
     "post_raw_lidar_scan": handle_raw_lidar_scan,
+    "clear_accumulated_scan": clear_accumulated_scan,
 }
 
 def handle_request(req: ServerRequest) -> Response:

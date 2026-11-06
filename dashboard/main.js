@@ -468,6 +468,25 @@ async function pollMap() {
   }
 }
 
+async function clearAccumulatedScan() {
+  const button = document.getElementById("clear-scan");
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+  button.disabled = true;
+  try {
+    const response = await request({ case: "clearAccumulatedScan", value: {} });
+    if (response.data.case === "ok") updateMapMarkers([]);
+  } catch (error) {
+    console.error("Error clearing accumulated scan:", error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById("clear-scan").addEventListener("click", () => {
+  clearAccumulatedScan();
+});
+
 connect();
 pollDevices();
 pollMap();
