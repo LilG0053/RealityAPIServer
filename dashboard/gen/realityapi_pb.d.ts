@@ -84,7 +84,7 @@ export declare type RawLidarScan = Message<"realityapi.RawLidarScan"> & {
   id: string;
 
   /**
-   * post snapshot of robot when scan read
+   * snapshot of the robot pose when the scan was read
    *
    * @generated from field: realityapi.Transform transform = 2;
    */
@@ -125,6 +125,43 @@ export declare type RawLidarScan = Message<"realityapi.RawLidarScan"> & {
 export declare const RawLidarScanSchema: GenMessage<RawLidarScan>;
 
 /**
+ * A raw 3D point cloud (the dog). The server crops, downsamples and converts it.
+ *
+ * @generated from message realityapi.RawPointCloud
+ */
+export declare type RawPointCloud = Message<"realityapi.RawPointCloud"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * Pose of the robot when the cloud was read, in the SENDER's own axes
+   * (ROS x/y/z for the dog). The server uses its position as the crop centre.
+   *
+   * @generated from field: realityapi.Transform transform = 2;
+   */
+  transform?: Transform | undefined;
+
+  /**
+   * Packed little-endian float32 x, y, z triples: 12 bytes per point, in the
+   * same frame and axes as `transform`.
+   *
+   * @generated from field: bytes xyz = 3;
+   */
+  xyz: Uint8Array;
+};
+
+/**
+ * Describes the message realityapi.RawPointCloud.
+ * Use `create(RawPointCloudSchema)` to create a new message.
+ */
+export declare const RawPointCloudSchema: GenMessage<RawPointCloud>;
+
+/**
+ * A device report. Everything after timestamp is optional so a client can send
+ * a pose-only or lidar-only update without clobbering the other.
+ *
  * @generated from message realityapi.DeviceInfo
  */
 export declare type DeviceInfo = Message<"realityapi.DeviceInfo"> & {
@@ -340,6 +377,18 @@ export declare type ServerRequest = Message<"realityapi.ServerRequest"> & {
      */
     value: RawLidarScan;
     case: "postRawLidarScan";
+  } | {
+    /**
+     * @generated from field: google.protobuf.Empty clear_accumulated_scan = 11;
+     */
+    value: Empty;
+    case: "clearAccumulatedScan";
+  } | {
+    /**
+     * @generated from field: realityapi.RawPointCloud post_raw_point_cloud = 12;
+     */
+    value: RawPointCloud;
+    case: "postRawPointCloud";
   } | { case: undefined; value?: undefined };
 };
 
