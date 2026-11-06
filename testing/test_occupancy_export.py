@@ -30,9 +30,9 @@ class OccupancyExportTest(unittest.TestCase):
             world.export_occupancy_grid(str(path))
             data = json.loads(path.read_text())
         self.assertEqual(data['cell_size'], 1.0)
-        cells = {(cell['x'], cell['z']): cell['evidence'] for cell in data['cells']}
+        cells = {(cell['x'], cell['z']): cell['status'] for cell in data['cells']}
         self.assertEqual(cells[(0, 1)], 0)
-        self.assertEqual(cells[(3, 0)], 3)
+        self.assertEqual(cells[(3, 0)], 1)
         self.assertNotIn((4, 0), cells)
 
 

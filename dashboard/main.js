@@ -1,3 +1,5 @@
+// python3 -m http.server 8000 --directory dashboard
+
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
@@ -220,7 +222,7 @@ function updateRobotMarker(key, device) {
 
 // Shared point-layer rendering
 // Instancing keeps each layer to one draw call as point counts grow.
-function createPointLayer(color, radius, minHeight) {
+function createPointLayer(color, radius, verticalLift) {
   const geometry = new THREE.SphereGeometry(radius, 8, 6);
   const material = new THREE.MeshBasicMaterial({ color });
   const marker = new THREE.Object3D();
@@ -240,7 +242,8 @@ function createPointLayer(color, radius, minHeight) {
     if (!mesh) return;
 
     points.forEach((point, index) => {
-      marker.position.set(point.x, Math.max(point.y, minHeight), point.z);
+      // Display-only lift separates overlapping scan and map markers.
+      marker.position.set(point.x, Math.max(point.y, 0.04) + verticalLift, point.z);
       marker.updateMatrix();
       mesh.setMatrixAt(index, marker.matrix);
     });
@@ -251,10 +254,10 @@ function createPointLayer(color, radius, minHeight) {
 }
 
 // Live LiDAR scan visualization
-const updateLiveScan = createPointLayer(0xff4d4d, 0.045, 0.10);
+const updateLiveScan = createPointLayer(0xff4d4d, 0.022, 0.10);
 
 // Accumulated global point-map visualization
-const updateGlobalPoints = createPointLayer(0x438cff, 0.035, 0.06);
+const updateGlobalPoints = createPointLayer(0x438cff, 0.045, 0.01);
 
 // Occupancy-grid visualization
 // The room floor represents unknown cells; only observed cells need meshes.
@@ -286,7 +289,9 @@ function updateOccupancyGrid(grid) {
   cells.forEach((cell, index) => {
     occupancyMarker.position.set((cell.x + 0.5) * grid.cell_size, 0.015, (cell.z + 0.5) * grid.cell_size);
     occupancyMarker.rotation.set(-Math.PI / 2, 0, 0);
-    occupancyMarker.scale.set(grid.cell_size * 0.96, grid.cell_size * 0.96, 1);
+    // Smaller occupied squares leave space around the point markers.
+    const fill = cell.status === 1 ? 0.55 : 0.96;
+    occupancyMarker.scale.set(grid.cell_size * fill, grid.cell_size * fill, 1);
     occupancyMarker.updateMatrix();
     occupancyMesh.setMatrixAt(index, occupancyMarker.matrix);
     let color;

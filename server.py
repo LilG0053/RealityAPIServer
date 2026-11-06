@@ -8,8 +8,8 @@ from google.protobuf.message import DecodeError
 from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, Transform, Vector3, RawLidarScan, DeviceType
 from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform, convert_point_array
 from map.map import Map
-from map.lidar import LIDAR_EPSILON, scan_to_world_points, simplify_lidar_2d, points_to_lidar
-from map.localization import ScanLocalizer
+from map.lidar import LIDAR_EPSILON, simplify_lidar_2d, points_to_lidar
+from map.kiss_icp_2d import OdometryICP2D
 import numpy as np
 
 SERVER_COORDS = CoordinateSystem(
@@ -36,7 +36,7 @@ MONITOR_INTERVAL = 0.10
 server_map = Map()
 
 # unique scan localizer for each device_id
-scan_localizers: dict[str, ScanLocalizer]= {}
+scan_localizers: dict[str, OdometryICP2D] = {}
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
     """Return a new Vector3 shifted by the offset."""
@@ -57,19 +57,20 @@ def translate_lidar(lidar: Lidar, offset=OFFSET) -> Lidar:
     return Lidar(points=(translate_vec3(point, offset) for point in lidar.points))
 
 def handle_raw_odom(info: DeviceInfo) -> Transform:
-    # ensures device has its own ScanLocalizer class
+    # DeviceInfo odometry is already in server coordinates; registration uses ROS XY.
     if info.id not in scan_localizers:
-        scan_localizers[info.id] = ScanLocalizer()
+        scan_localizers[info.id] = OdometryICP2D()
 
     localizer = scan_localizers[info.id]
-    corrected = localizer.corrected_transform(info.transform, (0.0, 0.0, 0.0))
-
-    return corrected
+    ros_odom = convert_transform(info.transform, SERVER_COORDS, TURTLEBOT_COORDS)
+    corrected_ros = localizer.corrected_transform(ros_odom)
+    return convert_transform(corrected_ros, TURTLEBOT_COORDS, SERVER_COORDS)
 
 # Handlers for each ServerRequest.data case.
-def post_device_info(info: DeviceInfo) -> Response:
+def post_device_info(info: DeviceInfo, *, pose_is_corrected: bool = False) -> Response:
     if info.HasField("transform"):
-        info.transform.CopyFrom(handle_raw_odom(info))
+        corrected = info.transform if pose_is_corrected else handle_raw_odom(info)
+        info.transform.CopyFrom(translate_transform(corrected))
 
     if info.HasField("lidar"):
         info.lidar.CopyFrom(translate_lidar(info.lidar))
@@ -95,25 +96,22 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
     if not server_map.exists(raw_scan.id):
         return Response(err_id_not_found={})
 
-    world_points = scan_to_world_points(raw_scan)
-    lidar_points = convert_point_array(world_points, TURTLEBOT_COORDS, SERVER_COORDS)
-
-    # ensures device has its own ScanLocalizer class
+    # Registration receives robot-local points and the odometry pose separately.
     if raw_scan.id not in scan_localizers:
-        scan_localizers[raw_scan.id] = ScanLocalizer()
+        scan_localizers[raw_scan.id] = OdometryICP2D()
 
     localizer = scan_localizers[raw_scan.id]
-    status, corrected_points = localizer.update_correction(lidar_points)
-    
-    # gets corrected transform of robot
-    corrected_robot_transform = convert_transform(
-            raw_scan.transform,
-            TURTLEBOT_COORDS,
-            SERVER_COORDS,
-        )
-    
-    # updates global points of LiDAR (may want to change this so it doens't run everytime)
-    if (status == "updated" or status == "first_scan"):
+    result = localizer.register_scan(raw_scan)
+    corrected_ros = localizer.corrected_transform(raw_scan.transform)
+    corrected_robot_transform = convert_transform(corrected_ros, TURTLEBOT_COORDS, SERVER_COORDS)
+    ros_points = np.column_stack((
+        result.points,
+        np.full(len(result.points), raw_scan.transform.position.z),
+    ))
+    corrected_points = convert_point_array(ros_points, TURTLEBOT_COORDS, SERVER_COORDS)
+
+    # Bad matches can be displayed at the predicted pose but must not enter either map.
+    if result.accepted:
         server_map.update_point_map(corrected_points)
         server_map.update_occupancy_grid(corrected_robot_transform, corrected_points)
         server_map.export_global_points("dashboard/global_map.json")
@@ -121,8 +119,6 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
 
     # turns the corrected lidar points back to protobuf LIDAR message
     corrected_lidar = points_to_lidar(corrected_points)
-
-    
     
     device_lidar_info = DeviceInfo(
         id = raw_scan.id,
@@ -130,7 +126,7 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
         lidar=simplify_lidar_2d(corrected_lidar, epsilon=LIDAR_EPSILON), # Moved simplify here because we dont want to simplify our ICP calculations
     )
 
-    return post_device_info(device_lidar_info)
+    return post_device_info(device_lidar_info, pose_is_corrected=True)
 
 def send_command(command: Command) -> Response:
     if not server_map.exists(command.target_id):
@@ -181,6 +177,9 @@ async def monitor(map: Map):
     """Sweep the map so devices that stop sending heartbeats disappear."""
     while True:
         map.check_all(TIMEOUT)
+        for device_id in list(scan_localizers):
+            if not map.exists(device_id):
+                del scan_localizers[device_id]
         await asyncio.sleep(MONITOR_INTERVAL)
 
 
