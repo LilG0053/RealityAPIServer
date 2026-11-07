@@ -141,7 +141,6 @@ def fetch_lidar_data(_: Empty) -> Response:
 
 
 def clear_accumulated_scan(_: Empty) -> Response:
-    print("<<< clear accumulated scan")
     server_map.clear_accumulated_scan()
     return Response(ok={})
 

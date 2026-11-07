@@ -503,8 +503,6 @@ async function clearAccumulatedScan() {
   }
 }
 
-// Not every index.html has the button. Create one in the corner of the 3D view
-// when it is missing, so the dashboard works with either page.
 if (!document.getElementById("clear-scan")) {
   const clearButton = document.createElement("button");
   clearButton.id = "clear-scan";
