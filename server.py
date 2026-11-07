@@ -160,7 +160,7 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
         translate_lidar(convert_lidar(lidar, TURTLEBOT_COORDS, SERVER_COORDS)),
     )
 
-
+#This method is specifically for the dog, whose raw LIDAR data is in three dimensions.
 def handle_raw_point_cloud(raw: RawPointCloud) -> Response:
     # Like a raw scan, a cloud can update an existing device but not create one.
     if not server_map.exists(raw.id):
