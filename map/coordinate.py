@@ -66,6 +66,13 @@ TURTLEBOT_COORDS = CoordinateSystem(
     z=Direction.UP,
 )
 
+# The dog reports in ROS axes: x north, y west, z up (same layout as the TurtleBot).
+DOG_COORDS = CoordinateSystem(
+    x=Direction.NORTH,
+    y=Direction.WEST,
+    z=Direction.UP,
+)
+
 
 def get_transform_matrix(source: CoordinateSystem, target: CoordinateSystem) -> np.ndarray:
     """Return M such that v_target = M @ v_source.
@@ -74,9 +81,9 @@ def get_transform_matrix(source: CoordinateSystem, target: CoordinateSystem) -> 
     """
     source_axes = (source.x, source.y, source.z)
     target_axes = (target.x, target.y, target.z)
-
     # Each target axis owns its row. The opposite direction uses the same row
     # with a negative sign, so every source axis is one lookup.
+
     placement: dict[Direction, tuple[int, int]] = {}
     for row, direction in enumerate(target_axes):
         placement[direction] = (row, 1)

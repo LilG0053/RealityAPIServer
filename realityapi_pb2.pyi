@@ -64,6 +64,37 @@ class RawLidarScan(_message.Message):
     angle_min: float
     angle_increment: float
     def __init__(self, id: _Optional[str] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ..., ranges: _Optional[_Iterable[float]] = ..., range_min: _Optional[float] = ..., range_max: _Optional[float] = ..., angle_min: _Optional[float] = ..., angle_increment: _Optional[float] = ...) -> None: ...
+class DogInfo(_message.Message):
+    __slots__ = ("position", "rotation")
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    ROTATION_FIELD_NUMBER: _ClassVar[int]
+    position: Vector3
+    rotation: Vector3
+    def __init__(self, position: _Optional[_Union[Vector3, _Mapping]] = ..., rotation: _Optional[_Union[Vector3, _Mapping]] = ...) -> None: ...
+
+class DogCommand(_message.Message):
+    __slots__ = ("position", "rotation")
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    ROTATION_FIELD_NUMBER: _ClassVar[int]
+    position: Vector3
+    rotation: Vector3
+    def __init__(self, position: _Optional[_Union[Vector3, _Mapping]] = ..., rotation: _Optional[_Union[Vector3, _Mapping]] = ...) -> None: ...
+
+class DogInfo(_message.Message):
+    __slots__ = ("position", "rotation")
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    ROTATION_FIELD_NUMBER: _ClassVar[int]
+    position: Vector3
+    rotation: Vector3
+    def __init__(self, position: _Optional[_Union[Vector3, _Mapping]] = ..., rotation: _Optional[_Union[Vector3, _Mapping]] = ...) -> None: ...
+
+class DogCommand(_message.Message):
+    __slots__ = ("position", "rotation")
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    ROTATION_FIELD_NUMBER: _ClassVar[int]
+    position: Vector3
+    rotation: Vector3
+    def __init__(self, position: _Optional[_Union[Vector3, _Mapping]] = ..., rotation: _Optional[_Union[Vector3, _Mapping]] = ...) -> None: ...
 
 class DeviceInfo(_message.Message):
     __slots__ = ("id", "device_type", "timestamp", "transform", "lidar")
@@ -136,6 +167,54 @@ class ServerRequest(_message.Message):
     post_raw_lidar_scan: RawLidarScan
     clear_accumulated_scan: _empty_pb2.Empty
     def __init__(self, req_uuid: _Optional[str] = ..., post_device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., post_heartbeat: _Optional[str] = ..., fetch_all_device_info: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., fetch_single_device_info: _Optional[str] = ..., send_command: _Optional[_Union[Command, _Mapping]] = ..., fetch_lidar_data: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., post_raw_lidar_scan: _Optional[_Union[RawLidarScan, _Mapping]] = ..., clear_accumulated_scan: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ...) -> None: ...
+
+class ClientRequest(_message.Message):
+    __slots__ = ("req_uuid", "fetch_device_info", "post_command")
+    REQ_UUID_FIELD_NUMBER: _ClassVar[int]
+    FETCH_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
+    POST_COMMAND_FIELD_NUMBER: _ClassVar[int]
+    req_uuid: str
+    fetch_device_info: _empty_pb2.Empty
+    post_command: Command
+    def __init__(self, req_uuid: _Optional[str] = ..., fetch_device_info: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., post_command: _Optional[_Union[Command, _Mapping]] = ...) -> None: ...
+class ServerBoundPacket(_message.Message):
+    __slots__ = ("id", "timestamp", "req_type", "turtle", "dog")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
+    REQ_TYPE_FIELD_NUMBER: _ClassVar[int]
+    TURTLE_FIELD_NUMBER: _ClassVar[int]
+    DOG_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    timestamp: float
+    req_type: RequestType
+    turtle: TurtleInfo
+    dog: DogInfo
+    def __init__(self, id: _Optional[str] = ..., timestamp: _Optional[float] = ..., req_type: _Optional[_Union[RequestType, str]] = ..., turtle: _Optional[_Union[TurtleInfo, _Mapping]] = ..., dog: _Optional[_Union[DogInfo, _Mapping]] = ...) -> None: ...
+    def __init__(self, req_uuid: _Optional[str] = ..., ok: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_id_not_found: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_not_supported: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_cannot_execute: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_failed_execute: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., all_device_info: _Optional[_Union[AllDeviceInfo, _Mapping]] = ..., device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ...) -> None: ...
+
+class Command(_message.Message):
+    __slots__ = ("target_id", "transform")
+    TARGET_ID_FIELD_NUMBER: _ClassVar[int]
+    TRANSFORM_FIELD_NUMBER: _ClassVar[int]
+    target_id: str
+    transform: Transform
+    def __init__(self, target_id: _Optional[str] = ..., transform: _Optional[_Union[Transform, _Mapping]] = ...) -> None: ...
+
+class ServerRequest(_message.Message):
+    __slots__ = ("req_uuid", "post_device_info", "post_heartbeat", "fetch_all_device_info", "fetch_single_device_info", "send_command")
+    REQ_UUID_FIELD_NUMBER: _ClassVar[int]
+    POST_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
+    POST_HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
+    FETCH_ALL_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
+    FETCH_SINGLE_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
+    SEND_COMMAND_FIELD_NUMBER: _ClassVar[int]
+    req_uuid: str
+    post_device_info: DeviceInfo
+    post_heartbeat: str
+    fetch_all_device_info: _empty_pb2.Empty
+    fetch_single_device_info: str
+    send_command: Command
+    def __init__(self, req_uuid: _Optional[str] = ..., post_device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., post_heartbeat: _Optional[str] = ..., fetch_all_device_info: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., fetch_single_device_info: _Optional[str] = ..., send_command: _Optional[_Union[Command, _Mapping]] = ...) -> None: ...
 
 class ClientRequest(_message.Message):
     __slots__ = ("req_uuid", "fetch_device_info", "post_command")
