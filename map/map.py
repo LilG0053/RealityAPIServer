@@ -139,9 +139,10 @@ class Map:
         if dropped:
             self.export_to_json()
 
-    def clear_accumulated_scans(self) -> Response:
+    def clear_accumulated_scan(self) -> Response:
         for localizer in self._localizers.values():
             localizer.clear_scan()
+            
         return Response(ok={})
 
     def get_lidar_data(self) -> Response:
@@ -159,9 +160,3 @@ class Map:
             self._last_map_size = len(points)
             print(f"accumulated map: {len(points)} points from {len(self._localizers)} localizer(s)")
         return Response(lidar_data=Lidar(points=points))
-
-    def clear_accumulated_scan(self) -> None:
-        # Forget every robot's accumulated map but keep its drift correction, so
-        # poses don't jump and the next scan simply starts a new map.
-        for localizer in self._localizers.values():
-            localizer.accumulated_scan = None
