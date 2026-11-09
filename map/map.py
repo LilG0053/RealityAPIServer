@@ -35,9 +35,14 @@ class Map:
         # reads a half-written file.
         # json.dumps without indent uses the C encoder; switched from Python's json.dump to increase speed.
         tmp_path = filepath + ".tmp"
-        with open(tmp_path, "w") as f:
-            f.write(json.dumps(devices_data))
-        os.replace(tmp_path, filepath)
+        try:
+            with open(tmp_path, "w") as f:
+                f.write(json.dumps(devices_data))
+            os.replace(tmp_path, filepath)
+        except OSError as e:
+            # Windows/OneDrive can briefly lock the file. Skip this write (the
+            # next one rewrites it) instead of crashing the connection.
+            print(f"[!] could not write {filepath}: {e}")
         self._last_export = time()
 
     def _export_if_due(self) -> None:

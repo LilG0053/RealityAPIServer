@@ -192,3 +192,27 @@ body {
     overflow-y: auto;
   }
 }
+
+/* Room-map point count + clear button */
+.map-controls {
+  position: fixed;
+  z-index: 1;
+  top: 7.5rem;
+  left: 1rem;
+  margin: 0;
+  padding: 0.5rem 0.8rem;
+  border-radius: 0.45rem;
+  background: rgb(0 0 0 / 70%);
+  color: #ffffff;
+  font-size: 0.875rem;
+}
+
+.map-controls button {
+  margin-left: 0.5rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid #ffffff55;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+}

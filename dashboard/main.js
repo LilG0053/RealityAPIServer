@@ -229,7 +229,11 @@ let lidarMarkers = null;
 let lidarCapacity = 0;
 
 function updateLidarMarkers(devices) {
-  const points = devices.flatMap(device => device.lidar?.points ?? []);
+  // Headsets' depth points are a 3D cloud, drawn by the room map below;
+  // the dots-and-line drawing here is for planar scans (TurtleBot).
+  updateRoomMap(devices.filter(device => device.deviceType === DeviceType.AR));
+  const scanDevices = devices.filter(device => device.deviceType !== DeviceType.AR);
+  const points = scanDevices.flatMap(device => device.lidar?.points ?? []);
 
   console.log("LiDAR point count:", points.length, "First point:", points[0]);
 
@@ -257,7 +261,7 @@ function updateLidarMarkers(devices) {
     lidarMarkers.instanceMatrix.needsUpdate = true;
     lidarMarkers.computeBoundingSphere();
   }
-  updateLidarLine(devices);
+  updateLidarLine(scanDevices);
 }
 
 // One polyline through each robot's scan, in the order the points were sent.
@@ -323,6 +327,78 @@ function updateMapMarkers(points) {
   mapMarkers.instanceMatrix.needsUpdate = true;
   mapMarkers.computeBoundingSphere();
 }
+
+// Room map from AR headsets
+// Every depth frame a headset sends is added to one growing cloud. Space is cut
+// into ROOM_MAP_VOXEL-sized cubes and each cube keeps a single point, so looking at
+// the same wall again doesn't pile up points. Colored by height: floor blue,
+// head height orange.
+const ROOM_MAP_VOXEL = 0.05;          // meters
+const ROOM_MAP_MAX_POINTS = 400000;
+let roomMapPositions = new Float32Array(65536 * 3);
+let roomMapColors = new Float32Array(65536 * 3);
+let roomMapCount = 0;
+const roomMapCubes = new Set();
+const roomMapLastFrame = new Map();   // device id -> signature of the last frame added
+const roomMapGeometry = new THREE.BufferGeometry();
+const roomMapPoints = new THREE.Points(roomMapGeometry, new THREE.PointsMaterial({ size: 0.05, vertexColors: true }));
+roomMapPoints.frustumCulled = false;
+scene.add(roomMapPoints);
+const roomMapCountLabel = document.getElementById("map-count");
+const roomMapColor = new THREE.Color();
+
+function setRoomMapBuffers() {
+  roomMapGeometry.setAttribute("position", new THREE.BufferAttribute(roomMapPositions, 3));
+  roomMapGeometry.setAttribute("color", new THREE.BufferAttribute(roomMapColors, 3));
+  roomMapGeometry.setDrawRange(0, roomMapCount);
+}
+setRoomMapBuffers();
+
+function updateRoomMap(headsets) {
+  let added = 0;
+  for (const device of headsets) {
+    const points = device.lidar?.points ?? [];
+    if (!points.length) continue;
+    // The dashboard polls 20x a second but a headset sends ~1 frame a second:
+    // skip frames already added.
+    const first = points[0], last = points[points.length - 1];
+    const signature = `${points.length}:${first.x}:${first.y}:${first.z}:${last.x}:${last.z}`;
+    if (roomMapLastFrame.get(device.id) === signature) continue;
+    roomMapLastFrame.set(device.id, signature);
+
+    for (const point of points) {
+      if (roomMapCount >= ROOM_MAP_MAX_POINTS) break;
+      const key = `${Math.floor(point.x / ROOM_MAP_VOXEL)},${Math.floor(point.y / ROOM_MAP_VOXEL)},${Math.floor(point.z / ROOM_MAP_VOXEL)}`;
+      if (roomMapCubes.has(key)) continue;
+      roomMapCubes.add(key);
+      if ((roomMapCount + 1) * 3 > roomMapPositions.length) {           // out of room: double the buffers
+        const grow = (old) => { const a = new Float32Array(old.length * 2); a.set(old); return a; };
+        roomMapPositions = grow(roomMapPositions);
+        roomMapColors = grow(roomMapColors);
+        setRoomMapBuffers();
+      }
+      roomMapPositions.set([point.x, point.y, point.z], roomMapCount * 3);
+      roomMapColor.setHSL(0.66 - 0.58 * Math.min(Math.max(point.y / 2.5, 0), 1), 0.9, 0.55);
+      roomMapColors.set([roomMapColor.r, roomMapColor.g, roomMapColor.b], roomMapCount * 3);
+      roomMapCount++;
+      added++;
+    }
+  }
+  if (added) {
+    roomMapGeometry.setDrawRange(0, roomMapCount);
+    roomMapGeometry.attributes.position.needsUpdate = true;
+    roomMapGeometry.attributes.color.needsUpdate = true;
+    if (roomMapCountLabel) roomMapCountLabel.textContent = roomMapCount.toLocaleString();
+  }
+}
+
+document.getElementById("clear-map")?.addEventListener("click", () => {
+  roomMapCount = 0;
+  roomMapCubes.clear();
+  roomMapLastFrame.clear();
+  roomMapGeometry.setDrawRange(0, 0);
+  if (roomMapCountLabel) roomMapCountLabel.textContent = "0";
+});
 
 // Rendering and window behavior
 function animate() {
