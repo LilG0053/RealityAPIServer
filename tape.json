@@ -1,4 +1,4 @@
 {
-  "floor_cross": [4.0, 6.0],
-  "wall_cross": [4.0, 0.0]
+  "floor_cross": [0.0, 0.0],
+  "wall_cross": [1.0, 0.0]
 }
