@@ -14,7 +14,7 @@ from init_turtlebot import create_turtlebot
 from realityapi_pb2 import Response, ServerRequest, Vector3, RawLidarScan
 from server import SERVER_COORDS
 
-SERVER_URI = "ws://10.89.46.127:65432"
+SERVER_URI = "ws://10.89.56.72:65432"
 
 # The server drops a device after 2 seconds of silence.
 HEARTBEAT_INTERVAL = 1.0
