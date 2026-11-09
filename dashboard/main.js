@@ -558,6 +558,44 @@ async function pollMap() {
   }
 }
 
+// Fetch the server's accumulated map and save it as a JSON file of {x, y, z} points.
+async function downloadPointCloud() {
+  const button = document.getElementById("download-scan");
+  if (!button) return;
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    console.warn("Download point cloud: not connected to the server");
+    return;
+  }
+
+  button.disabled = true;
+  console.log("Preparing accumulated scan for download.");
+  try {
+    const response = await request({ case: "fetchLidarData", value: {} });
+    if (response.data.case !== "lidarData") {
+      console.warn("Download point cloud: unexpected reply from server:", response.data.case);
+      return;
+    }
+
+    // Copy plain coordinates so protobuf message metadata stays out of the file.
+    const points = response.data.value.points.map(({ x, y, z }) => ({ x, y, z }));
+    const blob = new Blob([JSON.stringify(points)], { type: "application/json" });
+    const blobUrl = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = "pointCloudData.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(blobUrl);
+    console.log("Downloaded", points.length, "points.");
+  } catch (error) {
+    console.error("Error downloading point cloud:", error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function clearAccumulatedScan() {
   const button = document.getElementById("clear-scan");
   if (!button || !socket || socket.readyState !== WebSocket.OPEN) return;
@@ -605,6 +643,10 @@ if (!document.getElementById("clear-scan")) {
 
 document.getElementById("clear-scan")?.addEventListener("click", () => {
   clearAccumulatedScan();
+});
+
+document.getElementById("download-scan")?.addEventListener("click", () => {
+  downloadPointCloud();
 });
 
 connect();
