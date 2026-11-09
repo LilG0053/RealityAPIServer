@@ -101,10 +101,11 @@ body {
   font-size: 1.6rem;
 }
 
-#clear-scan {
+#clear-scan,
+#save-rmse-histogram {
   display: block;
   width: 100%;
-  margin: 0 0 1.25rem;
+  margin: 0 0 0.75rem;
   padding: 0.7rem 1rem;
   border: 0;
   border-radius: 0.5rem;
@@ -116,13 +117,27 @@ body {
   cursor: pointer;
 }
 
-#clear-scan:hover {
+#save-rmse-histogram {
+  margin-bottom: 0.5rem;
+}
+
+#clear-scan:hover,
+#save-rmse-histogram:hover {
   background: #354255;
 }
 
-#clear-scan:disabled {
+#clear-scan:disabled,
+#save-rmse-histogram:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+#rmse-status {
+  min-height: 1.2rem;
+  margin: 0 0 1.25rem;
+  color: #d3dce6;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
 }
 
 #log-container {

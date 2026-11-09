@@ -363,6 +363,15 @@ function connect() {
   socket.binaryType = "arraybuffer";
 
   socket.addEventListener("message", (event) => {
+    if (typeof event.data === "string") {
+      const response = JSON.parse(event.data);
+      const pending = pendingRequests.get(response.id);
+      if (pending) {
+        pendingRequests.delete(response.id);
+        pending.resolve(response);
+      }
+      return;
+    }
     const response = fromBinary(ResponseSchema, new Uint8Array(event.data));
     const pending = pendingRequests.get(response.reqUuid);
     if (pending) {
@@ -530,6 +539,41 @@ if (!document.getElementById("clear-scan")) {
 document.getElementById("clear-scan")?.addEventListener("click", () => {
   clearAccumulatedScan();
 });
+
+document.getElementById("save-rmse-histogram")?.addEventListener("click", () => {
+  saveRmseHistogram();
+});
+
+async function saveRmseHistogram() {
+  const button = document.getElementById("save-rmse-histogram");
+  const status = document.getElementById("rmse-status");
+  if (!button || !status || !socket || socket.readyState !== WebSocket.OPEN) {
+    if (status) status.textContent = "Server disconnected. Reconnect and try again.";
+    return;
+  }
+  button.disabled = true;
+  status.textContent = "Building histogram…";
+  const id = `rmse-${nextRequestId++}`;
+  try {
+    const response = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingRequests.delete(id);
+        reject(new Error("Server did not respond; restart it and try again"));
+      }, 10000);
+      pendingRequests.set(id, {
+        resolve: value => { clearTimeout(timeout); resolve(value); },
+        reject: error => { clearTimeout(timeout); reject(error); },
+      });
+      socket.send(JSON.stringify({ id, action: "save_rmse_histogram" }));
+    });
+    if (!response.ok) throw new Error(response.error || "Server could not save the histogram");
+    status.textContent = `Saved histogram of ${response.count} scans to ${response.path}`;
+  } catch (error) {
+    status.textContent = `Could not complete action: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+}
 
 connect();
 pollDevices();

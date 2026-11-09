@@ -3,8 +3,13 @@
 """Reality API websocket server."""
 
 import asyncio
+import json
 import math
+import subprocess
+import sys
 import traceback
+from datetime import datetime
+from pathlib import Path
 
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
@@ -224,10 +229,47 @@ def handle_request(req: ServerRequest) -> Response:
     return ret
 
 
+def save_rmse_histogram() -> dict:
+    """Write the collected scan RMSEs and run the histogram script."""
+    if not server_map.scan_rmses:
+        return {"ok": False, "error": "No scan RMSEs yet. Match a few scans first."}
+    directory = Path("saved_scans") / "rmse-histograms"
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    values_path = directory / f"{stem}.json"
+    image_path = directory / f"{stem}.png"
+    values_path.write_text(json.dumps(server_map.scan_rmses))
+    script = Path(__file__).resolve().parent / "testing" / "rmse_histogram.py"
+    completed = subprocess.run(
+        [sys.executable, str(script), str(values_path), "-o", str(image_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip() or "Histogram script failed"
+        return {"ok": False, "error": detail}
+    return {"ok": True, "path": str(image_path), "count": len(server_map.scan_rmses)}
+
+
+def handle_text_control(message: str) -> dict:
+    """Dashboard controls that are not part of the protobuf robot protocol."""
+    try:
+        request = json.loads(message)
+        if not isinstance(request, dict):
+            raise ValueError("Expected an object")
+        request_id = request.get("id")
+        if request.get("action") != "save_rmse_histogram":
+            return {"id": request_id, "ok": False, "error": "Unknown dashboard action"}
+        return {"id": request_id, **save_rmse_histogram()}
+    except (ValueError, OSError) as exc:
+        return {"id": None, "ok": False, "error": str(exc)}
+
+
 async def handler(websocket):
     async for message in websocket:
         if isinstance(message, str):
-            print("[!] ignoring text frame (expected binary protobuf)")
+            await websocket.send(json.dumps(handle_text_control(message)))
             continue
 
         req = ServerRequest()

@@ -12,6 +12,9 @@ DASHBOARD_PATH = "dashboard/updated_pos.json"
 
 EXPORT_INTERVAL = 1.0
 
+# Histogram samples kept in arrival order. Older values are dropped past this.
+SCAN_RMSE_LIMIT = 2000
+
 class Map:
     def __init__(self) -> None:
         self._devices: dict[str, Device] = {}
@@ -19,6 +22,8 @@ class Map:
         self._last_export = 0.0
         self._localizers: dict[str, ScanLocalizer] = {}
         self._last_map_size = -1
+        # Finite closest-point RMSE of each scan after the first, oldest first.
+        self.scan_rmses: list[float] = []
 
     def add_device(self, device: Device) -> None:
         self._devices[device.id] = device
@@ -69,7 +74,9 @@ class Map:
             return Response(err_id_not_found={})
 
         localizer = self._localizers.setdefault(device_id, ScanLocalizer())
-        localizer.update(lidar)
+        localizer.update(lidar, rmse_limit=self.rmse_limit_for(device_id))
+        if localizer.last_rmse is not None:
+            self.record_scan_rmse(localizer.last_rmse)
         return self.handle_device_info(DeviceInfo(
             id=device_id,
             transform=transform,
@@ -139,10 +146,22 @@ class Map:
         if dropped:
             self.export_to_json()
 
+    def rmse_limit_for(self, device_id: str) -> float:
+        """The device class decides which scan RMSE is too large to merge."""
+        return self._devices[device_id].RMSE_LIMIT
+
+    def record_scan_rmse(self, rmse: float) -> None:
+        """Keep at most SCAN_RMSE_LIMIT samples, dropping the oldest first."""
+        self.scan_rmses.append(rmse)
+        overflow = len(self.scan_rmses) - SCAN_RMSE_LIMIT
+        if overflow > 0:
+            del self.scan_rmses[:overflow]
+
     def clear_accumulated_scan(self) -> Response:
         for localizer in self._localizers.values():
             localizer.clear_scan()
-            
+        self.scan_rmses.clear()
+
         return Response(ok={})
 
     def get_lidar_data(self) -> Response:

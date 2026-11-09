@@ -20,12 +20,16 @@ class ScanLocalizer:
     accumulated_scan: np.ndarray | None = None
     # Homogeneous transformation matrix
     correction: np.ndarray = field(default_factory=lambda: np.eye(3))
-    def update(self, lidar: Lidar) -> bool:
+    # Closest-point RMSE of the scan most recently compared with the map.
+    last_rmse: float | None = None
+    def update(self, lidar: Lidar, rmse_limit: float = math.inf) -> bool:
         """
         Wraps around icp for 2D, returning bool value if successful.
         The delta is the transform that aligns this scan onto the accumulated map.
-        False means there was no usable delta (first scan, empty scan, or too few matches).
+        False means there was no usable delta (first scan, empty scan, too few
+        matches, or a closest-point RMSE above rmse_limit).
         """
+        self.last_rmse = None
         if not lidar.points:
             return False
         # Only get X and Z columns
@@ -36,9 +40,18 @@ class ScanLocalizer:
             self.accumulated_scan = scan
             return False
         
-        transformation_history, aligned = icp(self.accumulated_scan, scan)
+        transformation_history, aligned, rmse = icp(self.accumulated_scan, scan)
+        self.last_rmse = rmse
+        if rmse is None:
+            print("lidar scan RMSE: no closest point pairs")
+        else:
+            print(f"lidar scan RMSE: {rmse:.4f} m")
 
         if not transformation_history:
+            return False
+
+        if rmse is not None and rmse > rmse_limit:
+            print(f"lidar scan discarded: RMSE {rmse:.4f} m exceeds {rmse_limit:.1f} m")
             return False
 
 
