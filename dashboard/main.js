@@ -453,18 +453,82 @@ function request(data) {
   });
 }
 
+// Live ICP convergence counts from the server
+async function pollIcpStatus() {
+  const status = document.getElementById("icp-status");
+  while (true) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      status.textContent = "Waiting for server";
+    } else {
+      const id = `icp-${nextRequestId++}`;
+      try {
+        const response = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => { pendingRequests.delete(id); reject(new Error("timeout")); }, 3000);
+          pendingRequests.set(id, {
+            resolve: value => { clearTimeout(timeout); resolve(value); },
+            reject: error => { clearTimeout(timeout); reject(error); },
+          });
+          try { socket.send(JSON.stringify({ id, action: "icp_status" })); }
+          catch (error) { pendingRequests.delete(id); clearTimeout(timeout); reject(error); }
+        });
+        if (!response.ok || !Array.isArray(response.devices)) throw new Error("invalid response");
+        status.textContent = response.devices.length ? response.devices.map(device => {
+          const counts = device.counts;
+          const converged = counts.converged ?? 0;
+          const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+          return `${device.id}: ${converged}/${total} converged\nLast: ${device.last_stop_reason}`;
+        }).join("\n") : "Waiting for scans";
+      } catch (error) {
+        status.textContent = "ICP status unavailable";
+      }
+    }
+    await sleep(1000);
+  }
+}
+
+// Clear saved files directly when the RealityAPI server is offline.
+async function clearOfflineFiles() {
+  if (!window.showDirectoryPicker) {
+    throw new Error("This browser cannot edit local folders. Start the RealityAPI server to clear the files.");
+  }
+  const directory = await window.showDirectoryPicker({ mode: "readwrite" });
+  // Check the folder before opening any writable streams, so a wrong selection
+  // cannot create unrelated files or partially clear the intended map.
+  const handles = {};
+  for (const name of ["global_map.json", "occupancy_grid.json", "updated_pos.json"]) {
+    handles[name] = await directory.getFileHandle(name);
+  }
+  const grid = JSON.parse(await (await handles["occupancy_grid.json"].getFile()).text());
+  const emptyFiles = {
+    "global_map.json": [],
+    "occupancy_grid.json": { cell_size: grid.cell_size, cells: [] },
+    "updated_pos.json": [],
+  };
+  for (const [name, content] of Object.entries(emptyFiles)) {
+    const writable = await handles[name].createWritable();
+    await writable.write(JSON.stringify(content));
+    await writable.close();
+  }
+}
+
 // Save or clear the server's scan and map state.
 async function runMapControl(action) {
   const status = document.getElementById("map-control-status");
   const buttons = document.querySelectorAll(".map-controls button");
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    status.textContent = "Server disconnected. Reconnect and try again.";
-    return;
-  }
   if (action === "clear_maps" && !window.confirm("Clear the current scans and maps? Save them first if you want to keep them.")) return;
   buttons.forEach(button => { button.disabled = true; });
   status.textContent = action === "save_maps" ? "Saving…" : "Clearing…";
   try {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      if (action === "save_maps") throw new Error("Start the RealityAPI server to save scans and maps.");
+      status.textContent = "Select the dashboard folder to clear its JSON files.";
+      await clearOfflineFiles();
+      updateLiveScan([]);
+      updateGlobalPoints([]);
+      updateOccupancyGrid({ cell_size: 0.1, cells: [] });
+      status.textContent = "Saved files cleared. If the server is running elsewhere, restart it before mapping.";
+      return;
+    }
     const id = `map-${nextRequestId++}`;
     const response = await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -538,9 +602,8 @@ function updateDevices(devices) {
         <div class="coordinates">X: ${position.x.toFixed(2)} m · Z: ${position.z.toFixed(2)} m</div>
       `;
       logContainer.appendChild(logEntry);
-      // Auto-scroll to bottom (scroll the dashboard parent)
-      const dashboard = document.querySelector('.dashboard');
-      dashboard.scrollTop = dashboard.scrollHeight;
+      // Keep controls fixed while the activity log scrolls.
+      logContainer.scrollTop = logContainer.scrollHeight;
     }
 
     lastPositions[key] = newPos;
@@ -583,3 +646,4 @@ pollDevices();
 animate();
 pollGlobalMap();
 pollOccupancyGrid();
+pollIcpStatus();

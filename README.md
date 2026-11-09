@@ -29,3 +29,5 @@ When in the venv, start the server with `python3 server.py`.
 Serve the `dashboard` folder (e.g. `cd dashboard && python3 -m http.server`) from the same machine as the server and open it in a browser. It polls the server over `ws://<host>:65432` for device states.
 
 Use **Save scans and maps** to copy the current device poses and latest LiDAR scans (`updated_pos.json`), global point map, and occupancy grid into a timestamped folder under `saved_scans/` on the server. **Clear scans and maps** empties the live files and resets the in-memory maps and ICP localizers while keeping connected devices. If a robot is sending scans, a new map begins immediately. Save first if you want to keep the current data.
+
+When the RealityAPI server is disconnected, Clear can also empty the three JSON files directly: choose the project's `dashboard` folder and grant write access when prompted. This requires a browser with the File System Access API, such as Chrome, and a secure context such as localhost. If a server is running elsewhere but disconnected from the dashboard, restart it to discard its in-memory maps as well. Saving still requires the RealityAPI server.

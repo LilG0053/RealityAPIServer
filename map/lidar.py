@@ -8,6 +8,11 @@ from realityapi_pb2 import Lidar, Vector3, RawLidarScan
 # Contour tolerance, in meters, applied to each scan before it is posted.
 LIDAR_EPSILON = 0.05
 
+# LiDAR position relative to base_link, in meters.
+lidar_offset_x = -0.040
+lidar_offset_y = 0.000
+lidar_offset_z = 0.193
+
 def simplify_lidar_2d(
     lidar: Lidar,
     epsilon: float = 0.05,
@@ -77,12 +82,33 @@ def scan_to_world_points(raw_scan: RawLidarScan) -> np.ndarray:
         + raw_scan.transform.rotation.z # adjuts for yaw
     )
 
-    # in ROS coordinates, x, y represents the 2D, and Z represents height so we keep Z the same
-    x = raw_scan.transform.position.x + valid_ranges * np.cos(angles)
-    y = raw_scan.transform.position.y + valid_ranges * np.sin(angles)
+    robot_yaw = raw_scan.transform.rotation.z
 
-    # Every point in this planar scan has the same ROS z coordinate.
-    z = np.full_like(x, raw_scan.transform.position.z)
+    # Rotate the LiDAR's offset along with the robot.
+    offset_world_x = (
+        lidar_offset_x * math.cos(robot_yaw)
+        - lidar_offset_y * math.sin(robot_yaw)
+    )
+    offset_world_y = (
+        lidar_offset_x * math.sin(robot_yaw)
+        + lidar_offset_y * math.cos(robot_yaw)
+    )
+
+    # Find the LiDAR origin in the odometry frame.
+    lidar_world_x = raw_scan.transform.position.x + offset_world_x
+    lidar_world_y = raw_scan.transform.position.y + offset_world_y
+
+    # Place each measured endpoint relative to the LiDAR origin.
+    x = lidar_world_x + valid_ranges * np.cos(angles)
+    y = lidar_world_y + valid_ranges * np.sin(angles)
+    z = np.full_like(x, raw_scan.transform.position.z + lidar_offset_z)
+
+    # # in ROS coordinates, x, y represents the 2D, and Z represents height so we keep Z the same
+    # x = raw_scan.transform.position.x + valid_ranges * np.cos(angles)
+    # y = raw_scan.transform.position.y + valid_ranges * np.sin(angles)
+
+    # # Every point in this planar scan has the same ROS z coordinate.
+    # z = np.full_like(x, raw_scan.transform.position.z)
 
     return np.column_stack((x, y, z))
 

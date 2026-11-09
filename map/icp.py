@@ -84,7 +84,8 @@ def robust_weight(distance, kernel_distance):
     return (scale_squared / (scale_squared + distance ** 2)) ** 2
 
 def icp(reference_points, points, max_iterations=100, distance_threshold=0.3, convergence_translation_threshold=1e-3,
-        convergence_rotation_threshold=1e-4, point_pairs_threshold=10, kernel_distance=.1, verbose=False):
+        convergence_rotation_threshold=1e-4, point_pairs_threshold=10, kernel_distance=.1, verbose=False,
+        return_stop_reason=False):
     """
     An implementation of the Iterative Closest Point algorithm that matches a set of M 2D points to another set
     of N 2D (reference) points.
@@ -108,6 +109,7 @@ def icp(reference_points, points, max_iterations=100, distance_threshold=0.3, co
         raise ValueError('kernel_distance must be finite and positive')
 
     transformation_history = []
+    stop_reason = 'max_iterations'
 
     # creates NearestNeighbors object search tool: given a new point, informs the closet to reference_points
     nbrs = NearestNeighbors(n_neighbors=1, algorithm='kd_tree').fit(reference_points)
@@ -132,6 +134,7 @@ def icp(reference_points, points, max_iterations=100, distance_threshold=0.3, co
         if verbose:
             print('number of pairs found:', len(closest_point_pairs))
         if len(closest_point_pairs) < point_pairs_threshold:
+            stop_reason = 'insufficient_pairs'
             if verbose:
                 print('Very few points close to each other.')
             break
@@ -145,6 +148,7 @@ def icp(reference_points, points, max_iterations=100, distance_threshold=0.3, co
                 print('Rotation:', math.degrees(closest_rot_angle), 'degrees')
                 print('Translation:', closest_translation_x, closest_translation_y)
         if closest_rot_angle is None or closest_translation_x is None or closest_translation_y is None:
+            stop_reason = 'fit_failed'
             if verbose:
                 print('No better solution can be found!')
             break
@@ -167,10 +171,13 @@ def icp(reference_points, points, max_iterations=100, distance_threshold=0.3, co
         if (abs(closest_rot_angle) < convergence_rotation_threshold) \
                 and (abs(closest_translation_x) < convergence_translation_threshold) \
                 and (abs(closest_translation_y) < convergence_translation_threshold):
+            stop_reason = 'converged'
             if verbose:
                 print('Converged!')
             break
 
+    if return_stop_reason:
+        return transformation_history, points, stop_reason
     return transformation_history, points
 
 # check for fitness (inlier ratio), inlier RSME (of those points within range, what is their distance squared)

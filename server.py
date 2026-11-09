@@ -15,7 +15,8 @@ from realityapi_pb2 import Command, DeviceInfo, Lidar, Response, ServerRequest, 
 from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform, convert_point_array
 from map.map import Map
 from map.lidar import LIDAR_EPSILON, simplify_lidar_2d, points_to_lidar
-from map.kiss_icp_2d import OdometryICP2D, pose_matrix
+from map.localization import ScanLocalizer
+from map.scan_pipeline import register_scan
 from map.icp_diagnostics import ICPDiagnostics
 import numpy as np
 
@@ -43,7 +44,7 @@ MONITOR_INTERVAL = 0.10
 server_map = Map()
 
 # unique scan localizer for each device_id
-scan_localizers: dict[str, OdometryICP2D] = {}
+scan_localizers: dict[str, ScanLocalizer] = {}
 icp_diagnostics: ICPDiagnostics | None = None
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
@@ -67,12 +68,10 @@ def translate_lidar(lidar: Lidar, offset=OFFSET) -> Lidar:
 def handle_raw_odom(info: DeviceInfo) -> Transform:
     # DeviceInfo odometry is already in server coordinates; registration uses ROS XY.
     if info.id not in scan_localizers:
-        scan_localizers[info.id] = OdometryICP2D()
+        scan_localizers[info.id] = ScanLocalizer()
 
     localizer = scan_localizers[info.id]
-    ros_odom = convert_transform(info.transform, SERVER_COORDS, TURTLEBOT_COORDS)
-    corrected_ros = localizer.corrected_transform(ros_odom)
-    return convert_transform(corrected_ros, TURTLEBOT_COORDS, SERVER_COORDS)
+    return localizer.corrected_transform(info.transform, (0, 0, 0))
 
 # Handlers for each ServerRequest.data case.
 def post_device_info(info: DeviceInfo, *, pose_is_corrected: bool = False) -> Response:
@@ -114,32 +113,25 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
     if not registered:
         return Response(err_id_not_found={})
 
-    # Registration receives robot-local points and the odometry pose separately.
+    # ScanLocalizer consumes odometry-placed server-coordinate points.
     if raw_scan.id not in scan_localizers:
-        scan_localizers[raw_scan.id] = OdometryICP2D()
+        scan_localizers[raw_scan.id] = ScanLocalizer()
 
     localizer = scan_localizers[raw_scan.id]
-    predicted_pose = (localizer.map_from_odom @ pose_matrix(raw_scan.transform)
-                      if icp_diagnostics is not None else None)
     started = time.perf_counter()
-    result = localizer.register_scan(raw_scan)
+    result, predicted_pose, corrected_robot_transform, reference_count = register_scan(
+        localizer, raw_scan, TURTLEBOT_COORDS, SERVER_COORDS)
     elapsed_ms = (time.perf_counter() - started) * 1000
     if icp_diagnostics is not None:
         try:
             icp_diagnostics.write(raw_scan, result, predicted_pose, elapsed_ms,
-                                  sum(len(bucket) for bucket in localizer.local_map.voxels.values()),
+                                  reference_count,
                                   received_utc=received_utc)
         except OSError as exc:
             print(f'ICP recording stopped: {exc}', flush=True)
             icp_diagnostics.close()
             icp_diagnostics = None
-    corrected_ros = localizer.corrected_transform(raw_scan.transform)
-    corrected_robot_transform = convert_transform(corrected_ros, TURTLEBOT_COORDS, SERVER_COORDS)
-    ros_points = np.column_stack((
-        result.points,
-        np.full(len(result.points), raw_scan.transform.position.z),
-    ))
-    corrected_points = convert_point_array(ros_points, TURTLEBOT_COORDS, SERVER_COORDS)
+    corrected_points = result.points
 
     # Bad matches can be displayed at the predicted pose but must not enter either map.
     if result.accepted:
@@ -192,6 +184,13 @@ def handle_request(req: ServerRequest) -> Response:
 # Dashboard map controls use text frames; robot traffic remains protobuf.
 def handle_map_control(action: str) -> dict:
     dashboard = Path("dashboard")
+    if action == "icp_status":
+        return {"ok": True, "devices": [
+            {"id": device_id, "last_stop_reason": localizer.last_stop_reason,
+             "counts": dict(localizer.convergence_counts)}
+            for device_id, localizer in scan_localizers.items()
+            if isinstance(localizer, ScanLocalizer)
+        ]}
     if action == "save_maps":
         archive_root = Path("saved_scans")
         archive_root.mkdir(exist_ok=True)

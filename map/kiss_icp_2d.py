@@ -13,6 +13,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from realityapi_pb2 import RawLidarScan, Transform, Vector3
+from map.motion_gate import below_motion_threshold
 
 
 @dataclass(frozen=True)
@@ -79,8 +80,14 @@ def scan_to_robot_points(raw_scan: RawLidarScan, max_scan_range: float | None = 
     upper_range = min(raw_scan.range_max, max_scan_range) if max_scan_range is not None else raw_scan.range_max
     valid = np.isfinite(ranges) & (ranges > raw_scan.range_min) & (ranges < upper_range)
     angles = raw_scan.angle_min + beam_indices[valid] * raw_scan.angle_increment + math.pi / 2
+    
     distances = ranges[valid]
-    return np.column_stack((distances * np.cos(angles), distances * np.sin(angles)))
+    
+    # Points relative to base_link, including the LiDAR mounting offset.
+    x = -0.040 + distances * np.cos(angles)
+    y =  0.000 + distances * np.sin(angles)
+    
+    return np.column_stack((x, y))
 
 
 def voxel_downsample(points: np.ndarray, voxel_size: float) -> np.ndarray:
@@ -174,6 +181,8 @@ class OdometryICP2D:
         self.local_map = LocalPointMap(self.config)
         self.threshold = AdaptiveThreshold(self.config)
         self.map_from_odom = np.eye(3)
+        self.last_icp_odom_xy = None
+        self.last_icp_odom_yaw = None
 
     def corrected_transform(self, odom_transform: Transform) -> Transform:
         """Apply the latest accepted map/odom correction to any odometry pose."""
@@ -188,6 +197,10 @@ class OdometryICP2D:
         odom_pose = pose_matrix(raw_scan.transform)
         predicted_pose = self.map_from_odom @ odom_pose
         max_distance = 3 * self.threshold.sigma
+        odom_yaw = float(raw_scan.transform.rotation.z)
+        if below_motion_threshold(odom_pose[:2, 2], odom_yaw, self.last_icp_odom_xy, self.last_icp_odom_yaw):
+            return ICPResult("skipped_motion", predicted_pose, transform_points(local_points, predicted_pose),
+                             0, 0.0, math.inf, max_distance, 0)
         if not len(local_points):
             return ICPResult("empty_scan", predicted_pose, np.empty((0, 2)), 0, 0.0, math.inf, max_distance, 0)
 
@@ -201,6 +214,8 @@ class OdometryICP2D:
         map_points = self.local_map.points()
         if not len(map_points):
             self.local_map.update(merge_points, predicted_pose)
+            self.last_icp_odom_xy = odom_pose[:2, 2].copy()
+            self.last_icp_odom_yaw = odom_yaw
             return ICPResult("first_scan", predicted_pose, transform_points(local_points, predicted_pose),
                              0, 0.0, math.nan, max_distance, 0)
 
@@ -247,5 +262,7 @@ class OdometryICP2D:
         self.map_from_odom = pose @ np.linalg.inv(odom_pose)
         self.threshold.update(predicted_pose, pose)
         self.local_map.update(merge_points, pose)
+        self.last_icp_odom_xy = odom_pose[:2, 2].copy()
+        self.last_icp_odom_yaw = odom_yaw
         return ICPResult("updated", pose, transform_points(local_points, pose),
                          count, ratio, rmse, max_distance, iterations)

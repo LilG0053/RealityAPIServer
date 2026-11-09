@@ -10,16 +10,24 @@ import re
 
 import numpy as np
 
-from map.kiss_icp_2d import pose_matrix
+def pose_matrix(transform):
+    """Convert a ROS planar pose to a homogeneous matrix for reporting."""
+    yaw = float(transform.rotation.z)
+    c, s = math.cos(yaw), math.sin(yaw)
+    return np.array([[c, -s, transform.position.x],
+                     [s, c, transform.position.y], [0.0, 0.0, 1.0]])
 
 
 FIELDS = ['scan', 'received_utc', 'device_id', 'status', 'accepted', 'valid_points',
           'inlier_count', 'inlier_ratio', 'inlier_rmse_m', 'max_correspondence_distance_m',
-          'iterations', 'registration_time_ms', 'correction_translation_m',
+          'iterations', 'stop_reason', 'converged', 'registration_time_ms', 'correction_translation_m',
           'correction_rotation_deg', 'corrected_x_m', 'corrected_y_m', 'corrected_yaw_deg',
           'odom_x_m', 'odom_y_m', 'odom_yaw_deg', 'pose_offset_x_m', 'pose_offset_y_m',
           'pose_offset_distance_m', 'pose_offset_yaw_deg', 'distance_from_first_m', 'heading_from_first_deg',
-          'odom_distance_from_first_m', 'odom_path_length_m', 'corrected_path_length_m', 'local_map_points']
+          'odom_distance_from_first_m', 'odom_path_length_m', 'corrected_path_length_m',
+          'odom_step_m', 'corrected_step_m',
+          'odom_heading_from_first_deg', 'odom_total_rotation_deg', 'corrected_total_rotation_deg',
+          'odom_signed_rotation_deg', 'corrected_signed_rotation_deg', 'reference_points']
 
 
 def finite_or_none(value):
@@ -66,6 +74,7 @@ class ICPDiagnostics:
         self.first_odometry = {}
         self.previous_poses = {}
         self.path_lengths = {}
+        self.rotations = {}
         self.received_scans = 0
         self.unregistered_scans = 0
         self.counts = {}
@@ -107,25 +116,43 @@ class ICPDiagnostics:
         first = self.first_poses.setdefault(scan.id, pose.copy())
         first_odom = self.first_odometry.setdefault(scan.id, odom.copy())
         previous = self.previous_poses.get(scan.id)
+        odom_step_m = corrected_step_m = None
         odom_path, corrected_path = self.path_lengths.get(scan.id, (0.0, 0.0))
+        odom_signed, corrected_signed, odom_total, corrected_total = self.rotations.get(scan.id, (0.0, 0.0, 0.0, 0.0))
         if previous is not None:
             previous_odom, previous_corrected = previous
-            odom_path += float(np.linalg.norm(odom[:2, 2] - previous_odom[:2, 2]))
-            corrected_path += float(np.linalg.norm(pose[:2, 2] - previous_corrected[:2, 2]))
+            odom_step_m = float(np.linalg.norm(odom[:2, 2] - previous_odom[:2, 2]))
+            corrected_step_m = float(np.linalg.norm(pose[:2, 2] - previous_corrected[:2, 2]))
+            odom_path += odom_step_m
+            corrected_path += corrected_step_m
+            previous_odom_angle = math.atan2(previous_odom[1, 0], previous_odom[0, 0])
+            previous_corrected_angle = math.atan2(previous_corrected[1, 0], previous_corrected[0, 0])
+            odom_step = math.atan2(math.sin(odom_angle - previous_odom_angle), math.cos(odom_angle - previous_odom_angle))
+            corrected_step = math.atan2(math.sin(angle - previous_corrected_angle), math.cos(angle - previous_corrected_angle))
+            odom_signed += odom_step
+            corrected_signed += corrected_step
+            odom_total += abs(odom_step)
+            corrected_total += abs(corrected_step)
         self.path_lengths[scan.id] = (odom_path, corrected_path)
+        self.rotations[scan.id] = (odom_signed, corrected_signed, odom_total, corrected_total)
         self.previous_poses[scan.id] = (odom.copy(), pose.copy())
         first_angle = math.atan2(first[1, 0], first[0, 0])
         heading_delta = math.atan2(math.sin(angle - first_angle), math.cos(angle - first_angle))
+        first_odom_angle = math.atan2(first_odom[1, 0], first_odom[0, 0])
+        odom_heading_delta = math.atan2(math.sin(odom_angle - first_odom_angle), math.cos(odom_angle - first_odom_angle))
         count = self.counts.get(scan.id, 0) + 1
         self.counts[scan.id] = count
         row = {
             'scan': count, 'received_utc': stamp, 'device_id': scan.id,
             'status': result.status, 'accepted': result.accepted,
             'valid_points': len(result.points), 'inlier_count': result.inlier_count,
-            'inlier_ratio': result.inlier_ratio if result.status not in ('first_scan', 'empty_scan', 'insufficient_scan') else None,
+            'inlier_ratio': result.inlier_ratio if result.status not in ('first_scan', 'empty_scan', 'insufficient_scan', 'skipped_motion') else None,
             'inlier_rmse_m': finite_or_none(result.inlier_rmse),
             'max_correspondence_distance_m': result.max_correspondence_distance,
             'iterations': result.iterations, 'registration_time_ms': elapsed_ms,
+            'stop_reason': getattr(result, 'stop_reason', None),
+            'converged': (getattr(result, 'stop_reason') == 'converged'
+                          if getattr(result, 'stop_reason', None) not in (None, 'first_scan', 'empty_scan') else None),
             'correction_translation_m': float(np.linalg.norm(displacement)),
             'correction_rotation_deg': math.degrees(delta_angle),
             'corrected_x_m': pose[0, 2], 'corrected_y_m': pose[1, 2],
@@ -137,11 +164,17 @@ class ICPDiagnostics:
             'heading_from_first_deg': math.degrees(heading_delta),
             'odom_distance_from_first_m': float(np.linalg.norm(odom[:2, 2] - first_odom[:2, 2])),
             'odom_path_length_m': odom_path, 'corrected_path_length_m': corrected_path,
-            'local_map_points': local_map_points,
+            'odom_step_m': odom_step_m, 'corrected_step_m': corrected_step_m,
+            'odom_heading_from_first_deg': math.degrees(odom_heading_delta),
+            'odom_total_rotation_deg': math.degrees(odom_total),
+            'corrected_total_rotation_deg': math.degrees(corrected_total),
+            'odom_signed_rotation_deg': math.degrees(odom_signed),
+            'corrected_signed_rotation_deg': math.degrees(corrected_signed),
+            'reference_points': local_map_points,
         }
         self.writer.writerow(row)
         self.csv_file.flush()
-        if count == 1 or count % 10 == 0 or not result.accepted:
+        if count == 1 or count % 10 == 0 or (not result.accepted and result.status != 'skipped_motion'):
             print(f"ICP {scan.id}: #{count} {result.status}, fitness={row['inlier_ratio']}, "
                   f"rmse={row['inlier_rmse_m']}, {elapsed_ms:.1f} ms, "
                   f"travel: odom={odom_path:.3f} m, corrected={corrected_path:.3f} m; "

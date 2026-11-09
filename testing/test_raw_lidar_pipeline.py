@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from google.protobuf.empty_pb2 import Empty
@@ -84,6 +85,22 @@ class RawLidarPipelineTest(unittest.TestCase):
         exported_data = json.loads(Path("dashboard/updated_pos.json").read_text())
         self.assertEqual(exported_data[0]["id"], device_id)
         self.assertGreater(len(exported_data[0]["lidar"]["points"]), 0)
+
+    def test_second_scan_runs_original_icp(self):
+        self.dispatch(ServerRequest(post_device_info=DeviceInfo(
+            id="robot", device_type=DeviceType.TURTLE, transform=Transform())))
+        scan = RawLidarScan(id="robot", ranges=[1.0] * 24, range_min=0.1,
+                            range_max=5.0, angle_increment=math.tau / 24)
+        self.dispatch(ServerRequest(post_raw_lidar_scan=scan))
+        from map.icp import icp
+        scan.transform.position.x = 0.03
+        with patch('map.localization.icp', wraps=icp) as original_icp:
+            response = self.dispatch(ServerRequest(post_raw_lidar_scan=scan))
+        self.assertTrue(response.HasField('ok'))
+        original_icp.assert_called_once()
+        status = server.handle_map_control('icp_status')['devices'][0]
+        self.assertEqual(status['counts'].get('converged'), 1)
+        self.assertEqual(status['last_stop_reason'], 'converged')
 
     def test_save_then_clear_preserves_archive_and_resets_live_state(self):
         device = DeviceInfo(id="robot", device_type=DeviceType.TURTLE,

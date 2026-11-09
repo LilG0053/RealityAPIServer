@@ -118,7 +118,9 @@ body {
 /* Robot status dashboard */
 .dashboard {
   box-sizing: border-box;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   padding: 2rem 1.5rem;
   border-left: 1px solid #3a414c;
   background: #15191f;
@@ -158,12 +160,19 @@ body {
 .map-controls button:disabled { opacity: 0.5; cursor: wait; }
 .map-controls p { margin: 0; color: #d3dce6; font-size: 0.85rem; overflow-wrap: anywhere; }
 
+/* ICP convergence status */
+.icp-status { margin-bottom: 1.25rem; padding: 0.8rem; background: #20262f; border-radius: 0.5rem; }
+.icp-status h2 { margin: 0 0 0.4rem; font-size: 1rem; }
+.icp-status p { margin: 0; color: #d3dce6; font-size: 0.85rem; white-space: pre-line; overflow-wrap: anywhere; }
+
 /* Keyboard accessibility */
 .map-controls button:focus-visible { outline: 3px solid #8bc7ff; outline-offset: 2px; }
 
 #log-container {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
   gap: 0.75rem;
 }
 
@@ -221,7 +230,7 @@ body {
   .dashboard {
     border-top: 1px solid #3a414c;
     border-left: 0;
-
-    overflow-y: auto;
   }
+
+  #log-container { max-height: 24rem; }
 }

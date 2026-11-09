@@ -11,6 +11,11 @@ class ScanLocalizer:
 
     # stores the accumulated correction from the devices odometry
     correction: np.ndarray = field(default_factory=lambda: np.eye(3))
+    last_iterations: int = 0
+    last_stop_reason: str = 'not_started'
+    convergence_counts: dict[str, int] = field(default_factory=dict)
+    last_icp_odom_xy: np.ndarray | None = None
+    last_icp_odom_yaw: float | None = None
 
     def update_correction(self, points: np.ndarray) -> tuple[str, np.ndarray]:
         """
@@ -18,7 +23,9 @@ class ScanLocalizer:
 
         The scan must be in server coordinates, before OFFSET is applied.
         """
+        self.last_iterations = 0
         if len(points) == 0:
+            self.last_stop_reason = 'empty_scan'
             return "empty_scan", points
 
         # Apply the correction accumulated before this scan.
@@ -28,17 +35,22 @@ class ScanLocalizer:
         predicted_scan = predicted_points[:, [0, 2]]
 
         if self.prev_scan is None:
+            self.last_stop_reason = 'first_scan'
             self.prev_scan = predicted_scan
             return "first_scan", predicted_points
 
-        history, aligned_points = icp(
+        history, aligned_points, stop_reason = icp(
             reference_points=self.prev_scan,
             points=predicted_scan,
             max_iterations=100,
             distance_threshold=0.3,
             point_pairs_threshold=10,
             verbose=False,
+            return_stop_reason=True,
         )
+        self.last_iterations = len(history)
+        self.last_stop_reason = stop_reason
+        self.convergence_counts[stop_reason] = self.convergence_counts.get(stop_reason, 0) + 1
 
         if not history:
             # Keep the last corrected scan and correction matrix.

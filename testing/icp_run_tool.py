@@ -1,4 +1,4 @@
-"""Replay directly recorded TurtleBot scans using the current OdometryICP2D code."""
+"""Replay recorded TurtleBot scans using the project's scan-to-scan ICP."""
 
 import argparse
 import base64
@@ -12,7 +12,9 @@ import time
 import numpy as np
 
 from map.icp_diagnostics import ICPDiagnostics
-from map.kiss_icp_2d import OdometryICP2D, pose_matrix
+from map.localization import ScanLocalizer
+from map.scan_pipeline import register_scan
+from server import SERVER_COORDS, TURTLEBOT_COORDS
 from realityapi_pb2 import RawLidarScan
 
 
@@ -22,6 +24,7 @@ def main():
     parser.add_argument('--output-dir', default='testing/icp_runs', help='directory for new replay results')
     parser.add_argument('--device', help='device ID, required for a recording with multiple devices')
     parser.add_argument('--name', help='custom name for the new replay files')
+    parser.add_argument('--point-matches', action='store_true', help='save nearest-point distances for each scan')
     args = parser.parse_args()
     scans = []
     skipped_unregistered = 0
@@ -49,24 +52,42 @@ def main():
         if skipped_unregistered:
             print(f'Skipped {skipped_unregistered} scans from unregistered devices.')
 
-        localizer = OdometryICP2D()
+        localizer = ScanLocalizer()
         recorder = ICPDiagnostics(args.output_dir, name=args.name)
+        matches_file = None
         try:
-            for scan in scans:
-                predicted = localizer.map_from_odom @ pose_matrix(scan.transform)
+            if args.point_matches:
+                matches_path = recorder.csv_path.with_name(recorder.csv_path.stem + '_point_matches.csv')
+                matches_file = matches_path.open('x', newline='', encoding='utf-8')
+                matches_writer = csv.writer(matches_file)
+                matches_writer.writerow(['scan', 'source_index', 'reference_index', 'source_x', 'source_z',
+                                         'reference_x', 'reference_z', 'distance_m', 'inlier'])
+            for scan_number, scan in enumerate(scans, 1):
                 start = time.perf_counter()
-                result = localizer.register_scan(scan)
+                result, predicted, _, reference_count = register_scan(
+                    localizer, scan, TURTLEBOT_COORDS, SERVER_COORDS,
+                    include_point_matches=args.point_matches)
                 elapsed = (time.perf_counter() - start) * 1000
-                recorder.write(scan, result, predicted, elapsed,
-                               sum(len(bucket) for bucket in localizer.local_map.voxels.values()))
+                recorder.write(scan, result, predicted, elapsed, reference_count)
+                if matches_file and result.point_matches is not None:
+                    source, reference, distances, indices = result.point_matches
+                    for index, (point, distance, nearest) in enumerate(zip(source, distances, indices)):
+                        target = reference[nearest]
+                        matches_writer.writerow([scan_number, index, int(nearest), *point, *target,
+                                                 float(distance), bool(distance < 0.3)])
         finally:
+            if matches_file:
+                matches_file.close()
             recorder.close()
+        if args.point_matches:
+            print(f'Nearest-point distances: {matches_path}')
         with recorder.csv_path.open(newline='', encoding='utf-8') as file:
             rows = list(csv.DictReader(file))
         fitted = [float(row['inlier_rmse_m']) for row in rows if row['inlier_rmse_m']]
         times = [float(row['registration_time_ms']) for row in rows]
         print(f'Replayed {len(rows)} scans for {scans[0].id}; '
-              f"rejected: {sum(row['accepted'] == 'False' for row in rows)}")
+              f"skipped for motion: {sum(row['status'] == 'skipped_motion' for row in rows)}; "
+              f"other non-updates: {sum(row['accepted'] == 'False' and row['status'] != 'skipped_motion' for row in rows)}")
         print(f'Median registration time: {statistics.median(times):.2f} ms')
         if fitted:
             print(f'Median inlier RMSE: {statistics.median(fitted):.4f} m')
