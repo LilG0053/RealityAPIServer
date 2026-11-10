@@ -380,6 +380,10 @@ function connect() {
     }
   });
 
+  socket.addEventListener("open", () => {
+    loadTunables();
+  });
+
   socket.addEventListener("close", () => {
     for (const pending of pendingRequests.values()) {
       pending.reject(new Error("connection closed"));
@@ -572,6 +576,81 @@ async function saveRmseHistogram() {
     status.textContent = `Could not complete action: ${error.message}`;
   } finally {
     button.disabled = false;
+  }
+}
+
+function dashboardRequest(fields) {
+  const id = `dash-${nextRequestId++}`;
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingRequests.delete(id);
+      reject(new Error("Server did not respond; restart it and try again"));
+    }, 10000);
+    pendingRequests.set(id, {
+      resolve: value => { clearTimeout(timeout); resolve(value); },
+      reject: error => { clearTimeout(timeout); reject(error); },
+    });
+    socket.send(JSON.stringify({ id, ...fields }));
+  });
+}
+
+function decimalsFor(step) {
+  const text = String(step);
+  const dot = text.indexOf(".");
+  return dot === -1 ? 0 : text.length - dot - 1;
+}
+
+async function loadTunables() {
+  const root = document.getElementById("tunables");
+  if (!root || !socket || socket.readyState !== WebSocket.OPEN) return;
+  try {
+    const response = await dashboardRequest({ action: "fetch_tunables" });
+    if (!response.ok) throw new Error(response.error || "Could not load parameters");
+    renderTunables(response.parameters || []);
+  } catch (error) {
+    root.textContent = error.message;
+  }
+}
+
+function renderTunables(parameters) {
+  const root = document.getElementById("tunables");
+  root.replaceChildren();
+  for (const parameter of parameters) {
+    const digits = decimalsFor(parameter.step);
+    const row = document.createElement("label");
+    row.className = "tunable";
+    const title = document.createElement("span");
+    title.textContent = parameter.label;
+    const value = document.createElement("span");
+    value.className = "tunable-value";
+    const show = number => {
+      value.textContent = `${Number(number).toFixed(digits)} m`;
+    };
+    show(parameter.value);
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = String(parameter.minimum);
+    slider.max = String(parameter.maximum);
+    slider.step = String(parameter.step);
+    slider.value = String(parameter.value);
+    slider.setAttribute("aria-label", parameter.label);
+    slider.addEventListener("input", () => show(slider.value));
+    slider.addEventListener("change", async () => {
+      try {
+        const response = await dashboardRequest({
+          action: "set_tunable",
+          name: parameter.name,
+          value: Number(slider.value),
+        });
+        if (!response.ok) throw new Error(response.error || "Could not update parameter");
+        slider.value = String(response.parameter.value);
+        show(response.parameter.value);
+      } catch (error) {
+        value.textContent = error.message;
+      }
+    });
+    row.append(title, value, slider);
+    root.append(row);
   }
 }
 

@@ -140,6 +140,30 @@ body {
   overflow-wrap: anywhere;
 }
 
+#tunables {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0 0 1.25rem;
+}
+
+.tunable {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 0.75rem;
+  color: #d3dce6;
+  font-size: 0.85rem;
+}
+
+.tunable-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.tunable input[type="range"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: #ff7043;
+}
+
 #log-container {
   display: flex;
   flex-direction: column;

@@ -24,6 +24,7 @@ from map.coordinate import (
 )
 from map.lidar import scan_to_world_points
 from map.map import DASHBOARD_PATH, Map
+from map.tunable import list_tunables, set_tunable
 from map.pointcloud import raw_cloud_to_scan
 from realityapi_pb2 import (
     Command,
@@ -254,16 +255,23 @@ def save_rmse_histogram() -> dict:
 
 def handle_text_control(message: str) -> dict:
     """Dashboard controls that are not part of the protobuf robot protocol."""
+    request_id = None
     try:
         request = json.loads(message)
         if not isinstance(request, dict):
             raise ValueError("Expected an object")
         request_id = request.get("id")
-        if request.get("action") != "save_rmse_histogram":
-            return {"id": request_id, "ok": False, "error": "Unknown dashboard action"}
-        return {"id": request_id, **save_rmse_histogram()}
-    except (ValueError, OSError) as exc:
-        return {"id": None, "ok": False, "error": str(exc)}
+        action = request.get("action")
+        if action == "save_rmse_histogram":
+            return {"id": request_id, **save_rmse_histogram()}
+        if action == "fetch_tunables":
+            return {"id": request_id, "ok": True, "parameters": list_tunables()}
+        if action == "set_tunable":
+            updated = set_tunable(request.get("name"), request.get("value"))
+            return {"id": request_id, "ok": True, "parameter": updated}
+        return {"id": request_id, "ok": False, "error": "Unknown dashboard action"}
+    except (KeyError, TypeError, ValueError, OSError) as exc:
+        return {"id": request_id, "ok": False, "error": str(exc)}
 
 
 async def handler(websocket):

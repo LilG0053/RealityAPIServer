@@ -85,6 +85,7 @@ class ScanLocalizer:
 
     def clear_scan(self) -> None:
         self.accumulated_scan = None
+        self.correction = np.eye(3)
 
     def correct_lidar(self, lidar: Lidar) -> Lidar:
         # Correction lives in the server's X/Z ground plane; Y is up and stays put

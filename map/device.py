@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 from google.protobuf.json_format import MessageToDict, ParseDict
 
 from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
+from map.tunable import TunableParameter
 from realityapi_pb2 import DeviceInfo, DeviceType, Lidar, Transform, Vector3
 
 
@@ -127,7 +128,9 @@ class TransformDevice(Device):
 
 class TurtleBot(TransformDevice):
     DEVICE_TYPE = DeviceType.TURTLE
-    RMSE_LIMIT = 0.2
+    RMSE_LIMIT = TunableParameter(
+        0.2, minimum=0.0, maximum=1.0, step=0.1, label="TurtleBot RMSE limit",
+    )
 
 
 class Dog(TransformDevice):

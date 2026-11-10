@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Robot Room</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=18" />
 
   <script type="importmap">
       {
@@ -33,11 +33,12 @@
       <button id="clear-scan" type="button">Clear accumulated scan</button>
       <button id="save-rmse-histogram" type="button">Save RMSE histogram</button>
       <p id="rmse-status" role="status" aria-live="polite"></p>
+      <div id="tunables" aria-label="Tunable parameters"></div>
       <div id="log-container"></div>
     </aside>
   </main>
 
-  <script type="module" src="main.js?v=17"></script>
+  <script type="module" src="main.js?v=18"></script>
 </body>
 
 </html>
