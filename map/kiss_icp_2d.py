@@ -28,8 +28,8 @@ class ICPConfig:
     min_inlier_ratio: float = 0.35
     max_inlier_rmse: float = 0.20
     max_iterations: int = 30
-    translation_tolerance: float = 1e-4
-    rotation_tolerance: float = 1e-4
+    translation_tolerance: float = 1e-5
+    rotation_tolerance: float = 1e-5
 
     def __post_init__(self) -> None:
         if (self.voxel_size <= 0 or self.local_radius <= 0
@@ -153,12 +153,15 @@ class AdaptiveThreshold:
 def weighted_rigid_fit(source: np.ndarray, target: np.ndarray, weights: np.ndarray) -> np.ndarray | None:
     """Find the 2D rigid transform that minimizes weighted point-pair error."""
     weight_sum = weights.sum()
+    # no usable weighted information
     if weight_sum <= 0:
         return None
+    
     source_center = np.sum(source * weights[:, None], axis=0) / weight_sum
     target_center = np.sum(target * weights[:, None], axis=0) / weight_sum
     centered_source = source - source_center
     centered_target = target - target_center
+
     covariance = (centered_source * weights[:, None]).T @ centered_target
     if np.linalg.svd(covariance, compute_uv=False)[0] < 1e-10:
         return None
@@ -192,11 +195,16 @@ class OdometryICP2D:
             rotation=Vector3(z=float(math.atan2(pose[1, 0], pose[0, 0]))),
         )
 
+    # main function that is called, turns the raw scan in to the result
     def register_scan(self, raw_scan: RawLidarScan) -> ICPResult:
+        # creates 2D array of points relative to robot position
         local_points = scan_to_robot_points(raw_scan, self.config.max_scan_range)
+        # converts robot pose to 3x3 matrix
         odom_pose = pose_matrix(raw_scan.transform)
         predicted_pose = self.map_from_odom @ odom_pose
         max_distance = 3 * self.threshold.sigma
+
+        # check if robot moved, if not do not run ICP
         odom_yaw = float(raw_scan.transform.rotation.z)
         if below_motion_threshold(odom_pose[:2, 2], odom_yaw, self.last_icp_odom_xy, self.last_icp_odom_yaw):
             return ICPResult("skipped_motion", predicted_pose, transform_points(local_points, predicted_pose),
@@ -219,8 +227,11 @@ class OdometryICP2D:
             return ICPResult("first_scan", predicted_pose, transform_points(local_points, predicted_pose),
                              0, 0.0, math.nan, max_distance, 0)
 
+        # search tool to quickly be able to see which point is closet
         tree = cKDTree(map_points)
         pose = predicted_pose.copy()
+
+        # puts the downsampled points into their actual map position
         placed = transform_points(source_points, pose)
         iterations = 0
         for iterations in range(1, self.config.max_iterations + 1):

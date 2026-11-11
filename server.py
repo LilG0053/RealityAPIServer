@@ -104,6 +104,7 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
     received_utc = None
     if icp_diagnostics is not None:
         try:
+            # records the scan
             received_utc = icp_diagnostics.record_scan(raw_scan, registered=registered)
         except OSError as exc:
             print(f'ICP recording stopped: {exc}', flush=True)

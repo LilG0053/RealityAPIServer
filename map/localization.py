@@ -89,11 +89,8 @@ class ScanLocalizer:
         # Column 1, the server's vertical y coordinate, stays unchanged.
         return corrected
 
-    def corrected_transform(
-        self,
-        server_transform: Transform,
-        offset
-    ) -> Transform:
+    # take robot pose in sserver coordinates, applies correction
+    def corrected_transform(self, server_transform: Transform, offset) -> Transform:
         corrected = Transform()
         corrected.CopyFrom(server_transform)
 

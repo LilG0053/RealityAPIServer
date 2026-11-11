@@ -81,7 +81,7 @@ class ICPDiagnostics:
         print(f'ICP recording: {self.recording_path}\nLive ICP metrics: {self.csv_path}', flush=True)
 
     def record_scan(self, scan, registered=True):
-        """Record arrivals even if the server cannot yet process the device."""
+        """Record LiDAR scan arrivals with the scan information to be used for replay"""
         stamp = datetime.now(timezone.utc).isoformat()
         self.recording.write(json.dumps({
             'received_utc': stamp,

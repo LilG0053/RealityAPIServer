@@ -9,6 +9,7 @@ from realityapi_pb2 import Lidar, Vector3, RawLidarScan
 LIDAR_EPSILON = 0.05
 
 # LiDAR position relative to base_link, in meters.
+# Command that found the offset: ros2 run tf2_ros tf2_echo base_link rplidar_link
 lidar_offset_x = -0.040
 lidar_offset_y = 0.000
 lidar_offset_z = 0.193
@@ -59,7 +60,7 @@ def points_to_lidar(points: np.ndarray) -> Lidar:
     )
 
 def scan_to_world_points(raw_scan: RawLidarScan) -> np.ndarray:
-    """Return valid scan endpoints in ROS odometry coordinates, shape (N, 3)."""
+    """Applies robot movement to scan. Returns ROS odometry coordinates, shape (N, 3)."""
 
     # Convert the protobuf range sequence into a NumPy array.
     ranges = np.asarray(raw_scan.ranges, dtype=float)
@@ -102,13 +103,6 @@ def scan_to_world_points(raw_scan: RawLidarScan) -> np.ndarray:
     x = lidar_world_x + valid_ranges * np.cos(angles)
     y = lidar_world_y + valid_ranges * np.sin(angles)
     z = np.full_like(x, raw_scan.transform.position.z + lidar_offset_z)
-
-    # # in ROS coordinates, x, y represents the 2D, and Z represents height so we keep Z the same
-    # x = raw_scan.transform.position.x + valid_ranges * np.cos(angles)
-    # y = raw_scan.transform.position.y + valid_ranges * np.sin(angles)
-
-    # # Every point in this planar scan has the same ROS z coordinate.
-    # z = np.full_like(x, raw_scan.transform.position.z)
 
     return np.column_stack((x, y, z))
 

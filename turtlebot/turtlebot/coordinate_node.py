@@ -2,6 +2,7 @@
 import time
 from uuid import uuid4
 import math
+from collections import deque
 
 import rclpy
 from nav_msgs.msg import Odometry
@@ -11,7 +12,7 @@ from rclpy.qos import qos_profile_sensor_data
 from websockets.sync.client import connect
 
 from init_turtlebot import create_turtlebot
-from realityapi_pb2 import Response, ServerRequest, Vector3, RawLidarScan
+from realityapi_pb2 import Response, ServerRequest, Vector3, RawLidarScan, Transform
 from server import SERVER_COORDS
 
 SERVER_URI = "ws://10.89.56.72:65432"
@@ -19,6 +20,24 @@ SERVER_URI = "ws://10.89.56.72:65432"
 # The server drops a device after 2 seconds of silence.
 HEARTBEAT_INTERVAL = 1.0
 
+def interpolate_pose(before, after, scan_time):
+        t0, pose0 = before
+        t1, pose1 = after
+        fraction = (scan_time - t0) / (t1 - t0)
+
+        x = pose0.position.x + fraction * (pose1.position.x - pose0.position.x)
+        y = pose0.position.y + fraction * (pose1.position.y - pose0.position.y)
+
+        # Take the shortest path across the -π / +π boundary.
+        yaw_change = math.atan2(
+            math.sin(pose1.rotation.z - pose0.rotation.z),
+            math.cos(pose1.rotation.z - pose0.rotation.z),
+        )
+        yaw = pose0.rotation.z + fraction * yaw_change
+        return x, y, yaw
+
+def stamp_seconds(stamp):
+    return stamp.sec + stamp.nanosec * 1e-9
 
 class CoordinateNode(Node):
     def __init__(self):
@@ -44,6 +63,47 @@ class CoordinateNode(Node):
         )
 
         self.create_timer(HEARTBEAT_INTERVAL, self.heartbeat_callback)
+        self.scan_queue = deque()
+        self.odom_queue = deque()
+
+    def send_scan_transform(self, pose: Transform, curOdomTime):
+        if self.odom_queue and curOdomTime <= self.odom_queue[-1][0]:
+            self.get_logger().warning("Ignoring out-of-order odometry")
+            return
+
+        self.odom_queue.append((curOdomTime, pose))
+
+        while self.scan_queue and len(self.odom_queue) >= 2:
+            scan_time, scan = self.scan_queue[0]  # Look first; don't remove it yet.
+
+            if scan_time < self.odom_queue[0][0]:
+                self.scan_queue.popleft()
+                self.get_logger().warning("Dropping scan older than buffered odometry")
+                continue
+
+            if scan_time > self.odom_queue[-1][0]:
+                break  # Need a later odometry measurement; keep the scan queued.
+
+            # Move the oldest odometry forward until the first two samples
+            # surround this scan. Keep both samples for the next queued scan.
+            while len(self.odom_queue) > 2 and self.odom_queue[1][0] < scan_time:
+                self.odom_queue.popleft()
+
+            before = self.odom_queue[0]
+            after = self.odom_queue[1]
+            x, y, yaw = interpolate_pose(before, after, scan_time)
+
+            estimated_pose = Transform(
+                position=Vector3(x=x, y=y, z=before[1].position.z),
+                rotation=Vector3(z=yaw),
+            )
+            self.send_scan(scan, estimated_pose)
+            self.scan_queue.popleft()
+
+        # With no pending scan, only the latest two odometry samples are useful.
+        if not self.scan_queue:
+            while len(self.odom_queue) > 2:
+                self.odom_queue.popleft()
 
     def position_update_callback(self, data: Odometry):
         self.has_odometry = True
@@ -55,6 +115,11 @@ class CoordinateNode(Node):
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         rot_vec = Vector3(x=0.0, y=0.0, z=yaw)
 
+        # HANDLES PROCESSING SCAN WITH ACCURATE ESTIMATED ODOM
+        pose = Transform(position=pos_vec, rotation=rot_vec)
+        curOdomTime = stamp_seconds(data.header.stamp)
+        self.send_scan_transform(pose, curOdomTime)
+
         if pos_vec == self.robot.transform.position and rot_vec == self.robot.transform.rotation:
             return
 
@@ -65,13 +130,18 @@ class CoordinateNode(Node):
     def lidar_update_callback(self, data: LaserScan):
         if not self.has_odometry:
             return
-        
-        self.send_scan(data)
+        scan_timestamp = stamp_seconds(data.header.stamp)
 
-    def send_scan(self, ros_data):
+        if (self.scan_queue and scan_timestamp < self.scan_queue[-1][0]):
+            self.get_logger().warning("Dropping scan that is outdated")
+            return
+
+        self.scan_queue.append((stamp_seconds(data.header.stamp), data))
+
+    def send_scan(self, ros_data, estimated_robot_pos):
         raw_scan = RawLidarScan(
             id = self.robot.id,
-            transform = self.robot.transform,
+            transform = estimated_robot_pos,
             ranges = ros_data.ranges,
             range_min = ros_data.range_min,
             range_max = ros_data.range_max,
