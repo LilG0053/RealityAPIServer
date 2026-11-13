@@ -69,6 +69,30 @@ def point_based_matching(point_pairs):
     return rot_angle, translation_x, translation_y
 
 
+def closest_point_rmse(points, nbrs, distance_threshold):
+    """
+    Root mean square Euclidean distance between closest point pairs.
+
+    A pair is a point and its nearest reference point, kept only when that
+    distance is below distance_threshold, the same rule the ICP loop uses.
+
+    :param points: the points to measure, as a numpy array (M x 2)
+    :param nbrs: a NearestNeighbors model already fit to the reference points
+    :param distance_threshold: the maximum distance for a pair to count
+    :return: the RMSE in the same units as the points, or None when no pair qualifies
+    """
+    if len(points) == 0:
+        return None
+
+    distances, _ = nbrs.kneighbors(points)
+    paired = distances[:, 0]
+    paired = paired[paired < distance_threshold]
+    if paired.size == 0:
+        return None
+
+    return float(np.sqrt(np.mean(np.square(paired))))
+
+
 def icp(reference_points, points, max_iterations=100, distance_threshold=0.3, convergence_translation_threshold=1e-3,
         convergence_rotation_threshold=1e-4, point_pairs_threshold=10, verbose=False):
     """
@@ -86,7 +110,8 @@ def icp(reference_points, points, max_iterations=100, distance_threshold=0.3, co
     :param point_pairs_threshold: the minimum number of point pairs the should exist
     :param verbose: whether to print informative messages about the process (default: False)
     :return: the transformation history as a list of numpy arrays containing the rotation (R) and translation (T)
-             transformation in each iteration in the format [R | T] and the aligned points as a numpy array M x 2
+             transformation in each iteration in the format [R | T], the aligned points as a numpy array M x 2,
+             and the RMSE between the closest point pairs of that aligned set
     """
 
     transformation_history = []
@@ -145,4 +170,6 @@ def icp(reference_points, points, max_iterations=100, distance_threshold=0.3, co
                 print('Converged!')
             break
 
-    return transformation_history, points
+    # Residual of the aligned scan against the same pairs the loop accepted.
+    rmse = closest_point_rmse(points, nbrs, distance_threshold)
+    return transformation_history, points, rmse

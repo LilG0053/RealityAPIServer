@@ -110,7 +110,8 @@ message ServerRequest {
     google.protobuf.Empty fetch_lidar_data = 9;
     RawLidarScan post_raw_lidar_scan = 10;
     google.protobuf.Empty clear_accumulated_scan = 11; 
-    RawPointCloud post_raw_point_cloud = 12;     
+    RawPointCloud post_raw_point_cloud = 12;  
+    float set_dog_rmse_limit = 13;   
   }
 }
 

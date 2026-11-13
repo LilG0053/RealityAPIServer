@@ -531,6 +531,61 @@ document.getElementById("clear-scan")?.addEventListener("click", () => {
   clearAccumulatedScan();
 });
 
+// Slider for the dog's scan RMSE cutoff. Scans whose closest-point RMSE is above
+// it are not merged into the map. Far left turns the check off.
+const RMSE_SLIDER_MAX = 0.5;
+const RMSE_SLIDER_DEFAULT = 0.1;
+const rmsePanel = document.createElement("div");
+Object.assign(rmsePanel.style, {
+  position: "absolute",
+  top: "64px",
+  right: "12px",
+  zIndex: "10",
+  padding: "10px 14px",
+  font: "14px system-ui, sans-serif",
+  color: "#fff",
+  background: "#0f1115",
+  borderRadius: "10px"
+});
+const rmseLabel = document.createElement("div");
+const rmseSlider = document.createElement("input");
+rmseSlider.type = "range";
+rmseSlider.min = "0";
+rmseSlider.max = String(RMSE_SLIDER_MAX);
+rmseSlider.step = "0.005";
+rmseSlider.value = String(RMSE_SLIDER_DEFAULT);
+rmseSlider.style.width = "200px";
+rmsePanel.append(rmseLabel, rmseSlider);
+if (getComputedStyle(sceneContainer).position === "static") {
+  sceneContainer.style.position = "relative";
+}
+sceneContainer.appendChild(rmsePanel);
+
+function rmseText(value) {
+  return value > 0 ? `Dog RMSE limit: ${value.toFixed(3)} m` : "Dog RMSE limit: off";
+}
+rmseLabel.textContent = rmseText(RMSE_SLIDER_DEFAULT);
+
+let rmseTimer = null;
+rmseSlider.addEventListener("input", () => {
+  const value = Number(rmseSlider.value);
+  rmseLabel.textContent = rmseText(value);
+  // Wait for the slider to settle so the server is not sent every tick.
+  clearTimeout(rmseTimer);
+  rmseTimer = setTimeout(async () => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    try {
+      // 0 means "off"; the server treats limit <= 0 as no cutoff.
+      const response = await request({ case: "setDogRmseLimit", value });
+      if (response.data.case !== "ok") {
+        console.warn("RMSE limit was not accepted; server replied:", response.data.case);
+      }
+    } catch (error) {
+      console.error("Error setting RMSE limit:", error);
+    }
+  }, 150);
+});
+
 connect();
 pollDevices();
 pollMap();

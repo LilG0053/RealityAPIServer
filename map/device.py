@@ -1,5 +1,6 @@
 """Devices tracked by the server map."""
 
+import math
 from dataclasses import InitVar, dataclass, field
 from time import time
 from typing import Any, ClassVar
@@ -22,6 +23,10 @@ def _message_dict(message) -> dict[str, Any]:
 
 @dataclass
 class Device:
+    # Scans whose closest-point RMSE exceeds this are not merged. Subclasses
+    # that want a real cutoff override it; infinity accepts every finite RMSE.
+    RMSE_LIMIT: ClassVar[float] = math.inf
+
     id: str
     device_type: int
     timestamp: float
@@ -122,6 +127,7 @@ class TransformDevice(Device):
 
 class TurtleBot(TransformDevice):
     DEVICE_TYPE = DeviceType.TURTLE
+    RMSE_LIMIT = 0.2
 
 
 class Dog(TransformDevice):

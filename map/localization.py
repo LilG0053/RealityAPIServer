@@ -20,12 +20,16 @@ class ScanLocalizer:
     accumulated_scan: np.ndarray | None = None
     # Homogeneous transformation matrix
     correction: np.ndarray = field(default_factory=lambda: np.eye(3))
-    def update(self, lidar: Lidar) -> bool:
+    # Closest-point RMSE of the most recent scan after alignment; None when that
+    # scan was not compared (first scan, empty scan, or too few matching points).
+    last_rmse: float | None = None
+    def update(self, lidar: Lidar, rmse_limit: float = math.inf) -> bool:
         """
         Wraps around icp for 2D, returning bool value if successful.
         The delta is the transform that aligns this scan onto the accumulated map.
         False means there was no usable delta (first scan, empty scan, or too few matches).
         """
+        self.last_rmse = None
         if not lidar.points:
             return False
         # Only get X and Z columns
@@ -36,11 +40,15 @@ class ScanLocalizer:
             self.accumulated_scan = scan
             return False
         
-        transformation_history, aligned = icp(self.accumulated_scan, scan)
+        transformation_history, aligned, rmse = icp(self.accumulated_scan, scan)
+        self.last_rmse = rmse
 
         if not transformation_history:
             return False
 
+        # A poor match is not trusted: keep the old correction and the old map.
+        if rmse is None or rmse > rmse_limit:
+            return False
 
         # Chain icp's per-iteration [R | T] steps into one transform
         total = np.eye(3)
@@ -72,6 +80,7 @@ class ScanLocalizer:
 
     def clear_scan(self) -> None:
         self.accumulated_scan = None
+        self.last_rmse = None
 
     def correct_lidar(self, lidar: Lidar) -> Lidar:
         # Correction lives in the server's X/Z ground plane; Y is up and stays put
@@ -92,4 +101,3 @@ class ScanLocalizer:
             position=Vector3(x=float(x), y=p.y, z=float(z)),
             rotation=Vector3(x=r.x, y=r.y + yaw, z=r.z),
         )
-

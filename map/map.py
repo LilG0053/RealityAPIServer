@@ -1,8 +1,10 @@
 import json
+import math
 import os
+from collections import deque
 from time import time
 from map.device import Device, device_from_info, device_from_dict
-from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform, Vector3
+from realityapi_pb2 import AllDeviceInfo, DeviceInfo, DeviceType, Lidar, Response, Transform, Vector3
 import json, os
 from map.localization import ScanLocalizer
 from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
@@ -12,6 +14,13 @@ DASHBOARD_PATH = "dashboard/updated_pos.json"
 
 EXPORT_INTERVAL = 1.0
 
+# Starting RMSE cutoff for the dog (metres). The dashboard slider changes it at
+# runtime. A scan whose closest-point RMSE is above the cutoff is not merged, so
+# it cannot move the correction. TurtleBot keeps TurtleBot.RMSE_LIMIT.
+DOG_RMSE_LIMIT = 0.10
+# Per-device RMSE history used to print stats when the limit changes.
+RECENT_RMSE_COUNT = 200
+
 class Map:
     def __init__(self) -> None:
         self._devices: dict[str, Device] = {}
@@ -19,6 +28,9 @@ class Map:
         self._last_export = 0.0
         self._localizers: dict[str, ScanLocalizer] = {}
         self._last_map_size = -1
+        # Runtime cutoffs by device type; they win over the class RMSE_LIMIT.
+        self._rmse_overrides: dict[int, float] = {DeviceType.DOG: DOG_RMSE_LIMIT}
+        self._recent_rmse: dict[str, deque] = {}
 
     def add_device(self, device: Device) -> None:
         self._devices[device.id] = device
@@ -69,7 +81,11 @@ class Map:
             return Response(err_id_not_found={})
 
         localizer = self._localizers.setdefault(device_id, ScanLocalizer())
-        localizer.update(lidar)
+        localizer.update(lidar, rmse_limit=self.rmse_limit_for(device_id))
+        if localizer.last_rmse is not None:
+            self._recent_rmse.setdefault(
+                device_id, deque(maxlen=RECENT_RMSE_COUNT)
+            ).append(localizer.last_rmse)
         return self.handle_device_info(DeviceInfo(
             id=device_id,
             transform=transform,
@@ -138,6 +154,39 @@ class Map:
         # Re-export so the dashboard stops drawing a device that timed out.
         if dropped:
             self.export_to_json()
+
+    def rmse_limit_for(self, device_id: str) -> float:
+        """The runtime cutoff for the device's type, else the device class default."""
+        device = self._devices[device_id]
+        return self._rmse_overrides.get(device.device_type, device.RMSE_LIMIT)
+
+    def set_rmse_limit(self, device_type: int, limit: float) -> Response:
+        """Change the cutoff for one device type. limit <= 0 or inf turns it off."""
+        if not math.isfinite(limit) or limit <= 0:
+            limit = math.inf
+        self._rmse_overrides[device_type] = limit
+
+        # Show how the new cutoff would have treated the latest scans, so the
+        # slider can be tuned against numbers rather than by eye.
+        samples = sorted(
+            r
+            for device_id, values in self._recent_rmse.items()
+            if device_id in self._devices and self._devices[device_id].device_type == device_type
+            for r in values
+        )
+        name = DeviceType.Name(device_type)
+        if samples:
+            median = samples[len(samples) // 2]
+            p90 = samples[int(len(samples) * 0.9)]
+            rejected = sum(r > limit for r in samples) / len(samples)
+            print(
+                f"[rmse] {name} limit={limit:.3f} m | last {len(samples)} scans: "
+                f"median={median:.3f} p90={p90:.3f} max={samples[-1]:.3f} | "
+                f"{rejected:.0%} would be rejected"
+            )
+        else:
+            print(f"[rmse] {name} limit={limit:.3f} m (no scans recorded yet)")
+        return Response(ok={})
 
     def clear_accumulated_scan(self) -> Response:
         for localizer in self._localizers.values():
