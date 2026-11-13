@@ -1,4 +1,5 @@
 # FOR TESTING W/ KEYBOARD: ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true
+# FOR POSE RESET: ros2 service call /reset_pose irobot_create_msgs/srv/ResetPose "{}"
 import time
 from uuid import uuid4
 import math

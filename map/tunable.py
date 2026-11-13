@@ -13,7 +13,16 @@ class TunableParameter:
 
     _registry: list["TunableParameter"] = []
 
-    def __init__(self, default: float, *, minimum: float, maximum: float, step: float, label: str):
+    def __init__(
+        self,
+        default: float,
+        *,
+        minimum: float,
+        maximum: float,
+        step: float,
+        label: str,
+        unit: str = "",
+    ):
         if not math.isfinite(step) or step <= 0:
             raise ValueError("step must be a positive finite number")
         if not math.isfinite(default):
@@ -22,6 +31,7 @@ class TunableParameter:
         self.maximum = float(maximum)
         self.step = float(step)
         self.label = label
+        self.unit = unit
         self.name = ""
         self.value = self._clamp(float(default))
 
@@ -59,6 +69,7 @@ class TunableParameter:
             "minimum": self.minimum,
             "maximum": self.maximum,
             "step": self.step,
+            "unit": self.unit,
         }
 
 

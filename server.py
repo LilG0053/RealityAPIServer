@@ -22,10 +22,11 @@ from map.coordinate import (
     convert_lidar,
     convert_transform,
 )
+from map.room import DISPLAY_OFFSET
 from map.lidar import scan_to_world_points
 from map.map import DASHBOARD_PATH, Map
 from map.tunable import list_tunables, set_tunable
-from map.pointcloud import raw_cloud_to_scan
+from map.pointcloud import DOG_SCAN_RANGE_MAX, raw_cloud_to_scan
 from realityapi_pb2 import (
     Command,
     DeviceInfo,
@@ -42,8 +43,8 @@ from realityapi_pb2 import (
 HOST = "0.0.0.0"
 PORT = 65432
 
-# Offset added to every incoming position vector. Adjust to your task's spec.
-OFFSET = (0.1, 0.1, 2.0)
+# Offset added to every incoming position vector so it lands on the drawn room.
+OFFSET = DISPLAY_OFFSET
 
 # A device is dropped from the map once it has been quiet this long (seconds).
 TIMEOUT = 2.0
@@ -162,6 +163,7 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
         raw_scan.id,
         translate_transform(transform),
         translate_lidar(convert_lidar(lidar, TURTLEBOT_COORDS, SERVER_COORDS)),
+        r_max=raw_scan.range_max,
     )
 
 #This method is specifically for the dog, whose raw LIDAR data is in three dimensions.
@@ -183,6 +185,7 @@ def handle_raw_point_cloud(raw: RawPointCloud) -> Response:
         raw.id,
         transform,
         place_dog_lidar(lidar),
+        r_max=DOG_SCAN_RANGE_MAX,
     )
 
 
@@ -303,6 +306,8 @@ async def monitor(device_map: Map):
 
 async def main():
     server_map.load_from_json(DASHBOARD_PATH)
+    # Fresh process: wipe any colors left from a previous server run.
+    server_map.occupancy.export(reset=True)
     monitor_task = asyncio.create_task(monitor(server_map))
     try:
         async with serve(handler, HOST, PORT, compression=None) as server:

@@ -129,7 +129,7 @@ class TransformDevice(Device):
 class TurtleBot(TransformDevice):
     DEVICE_TYPE = DeviceType.TURTLE
     RMSE_LIMIT = TunableParameter(
-        0.2, minimum=0.0, maximum=1.0, step=0.1, label="TurtleBot RMSE limit",
+        0.2, minimum=0.0, maximum=1.0, step=0.1, label="TurtleBot RMSE limit", unit="m",
     )
 
 

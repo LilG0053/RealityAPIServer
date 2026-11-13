@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Robot Room</title>
-  <link rel="stylesheet" href="style.css?v=18" />
+  <link rel="stylesheet" href="style.css?v=26" />
 
   <script type="importmap">
       {
@@ -25,6 +25,15 @@
       <p class="instructions">Drag to rotate · Right-drag to pan · Scroll to zoom</p>
       <p class="axis-key"><span class="x-axis">X</span> width · <span class="y-axis">Y</span> height · <span
           class="z-axis">Z</span> depth</p>
+      <div class="map-legend" aria-label="Map layer colors">
+        <span><i class="legend-swatch robot-location"></i>Robot location</span>
+        <span><i class="legend-swatch live-scan"></i>Live scan</span>
+        <span><i class="legend-swatch accumulated-map"></i>Accumulated map</span>
+        <span><i class="legend-swatch free-cell"></i>Unoccupied, stronger toward 0</span>
+        <span><i class="legend-swatch occupied-cell"></i>Occupied, stronger toward 1</span>
+        <span><i class="legend-swatch unknown-cell"></i>Unknown (0.5)</span>
+        <span id="occupancy-status" role="status">Waiting for occupancy grid</span>
+      </div>
       <div id="scene-container"></div>
     </section>
 
@@ -38,7 +47,7 @@
     </aside>
   </main>
 
-  <script type="module" src="main.js?v=18"></script>
+  <script type="module" src="main.js?v=26"></script>
 </body>
 
 </html>

@@ -166,15 +166,9 @@ scene.add(roomOutline);
 // Store 3D markers by device ID
 const robotMarkers = {};
 
-// Generate consistent color from string
-function stringToColor(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
-  return "#" + "00000".substring(0, 6 - c.length) + c;
-}
+// Magenta stands apart from free green, occupied orange, scan coral, and map cyan.
+const ROBOT_COLOR = 0xe040fb;
+const ROBOT_COLOR_CSS = "#e040fb";
 
 // Flat chevron lying in the marker's XZ plane, pointing along local +X
 function createChevron(material) {
@@ -195,8 +189,7 @@ function createChevron(material) {
 // Helper function to create or update robot marker
 function updateRobotMarker(key, device) {
   const position = device.transform.position;
-  const rotation = device.transform.rotation
-  const color = stringToColor(device.id);
+  const rotation = device.transform.rotation;
 
   if (robotMarkers[key]) {
     // Update existing marker position
@@ -206,7 +199,7 @@ function updateRobotMarker(key, device) {
   } else {
     // Create new marker
     const material = new THREE.MeshBasicMaterial({
-      color: parseInt(color.replace('#', '0x')),
+      color: ROBOT_COLOR,
       side: THREE.DoubleSide
     });
     const marker = new THREE.Mesh(new THREE.SphereGeometry(0.2, 32, 32), material);
@@ -220,9 +213,8 @@ function updateRobotMarker(key, device) {
 
 // LiDAR scan markers
 // One instanced mesh draws all the dots without creating a separate mesh per point.
-// Bigger dots, drawn on top of the room and the accumulated map, so the live scan
-// is not lost against them from the default camera distance.
-const lidarGeometry = new THREE.SphereGeometry(0.1, 8, 6);
+// The dots stay smaller than a grid cell so the occupancy color under them shows.
+const lidarGeometry = new THREE.SphereGeometry(0.02, 8, 6);
 const lidarMaterial = new THREE.MeshBasicMaterial({ color: 0xff7043, depthTest: false, transparent: true });
 const lidarDot = new THREE.Object3D();
 let lidarMarkers = null;
@@ -288,7 +280,7 @@ function updateLidarLine(devices) {
 // Accumulated localization map
 // The server's ICP map, drawn as small dots on the floor under the live scan.
 const MAP_POINT_HEIGHT = 0.03;
-const mapGeometry = new THREE.SphereGeometry(0.05, 6, 4);
+const mapGeometry = new THREE.SphereGeometry(0.015, 6, 4);
 const mapMaterial = new THREE.MeshBasicMaterial({ color: 0x4fc3f7 });
 const mapDot = new THREE.Object3D();
 let mapMarkers = null;
@@ -322,6 +314,129 @@ function updateMapMarkers(points) {
   mapMarkers.count = points.length;
   mapMarkers.instanceMatrix.needsUpdate = true;
   mapMarkers.computeBoundingSphere();
+}
+
+// Occupancy grid. The room cell lattice is built once in the browser from
+// roomCorners. occupancy_grid.json carries deltas: only cells updated since
+// the previous export. reset=true wipes colors back to unknown (0.5).
+const occupancyGeometry = new THREE.PlaneGeometry(1, 1);
+const occupancyMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+const occupancyMarker = new THREE.Object3D();
+const freeColor = new THREE.Color(0x2fbf7a);
+const occupiedColor = new THREE.Color(0xf0a030);
+const unknownColor = new THREE.Color(0x55606e);
+const cellColor = new THREE.Color();
+let occupancyMesh = null;
+let occupancyIndexByKey = new Map();
+let occupancyLayoutKey = "";
+
+function pointInRoomPolygon(x, z, corners) {
+  let inside = false;
+  let prev = corners[corners.length - 1];
+  for (const corner of corners) {
+    if ((corner.z > z) !== (prev.z > z)) {
+      const crossingX = ((prev.x - corner.x) * (z - corner.z)) / (prev.z - corner.z) + corner.x;
+      if (x < crossingX) inside = !inside;
+    }
+    prev = corner;
+  }
+  return inside;
+}
+
+// 0.5 is flat gray. Below that, green strengthens toward 0. Above it, orange
+// strengthens toward 1.
+function colorForProbability(probability) {
+  const p = Math.min(1, Math.max(0, probability));
+  if (p < 0.5) {
+    return cellColor.copy(unknownColor).lerp(freeColor, (0.5 - p) / 0.5);
+  }
+  if (p > 0.5) {
+    return cellColor.copy(unknownColor).lerp(occupiedColor, (p - 0.5) / 0.5);
+  }
+  return cellColor.copy(unknownColor);
+}
+
+function ensureOccupancyLattice(cellSize, originX, originZ) {
+  const key = `${cellSize}:${originX}:${originZ}`;
+  if (occupancyMesh && occupancyLayoutKey === key) return;
+
+  if (occupancyMesh) {
+    scene.remove(occupancyMesh);
+    occupancyMesh.dispose();
+  }
+  occupancyLayoutKey = key;
+  occupancyIndexByKey = new Map();
+
+  const serverCorners = roomCorners.map((c) => ({ x: c.x - originX, z: c.z - originZ }));
+  const xs = serverCorners.map((c) => c.x);
+  const zs = serverCorners.map((c) => c.z);
+  const iMin = Math.floor(Math.min(...xs) / cellSize);
+  const iMax = Math.floor(Math.max(...xs) / cellSize);
+  const jMin = Math.floor(Math.min(...zs) / cellSize);
+  const jMax = Math.floor(Math.max(...zs) / cellSize);
+
+  const coords = [];
+  for (let i = iMin; i <= iMax; i += 1) {
+    for (let j = jMin; j <= jMax; j += 1) {
+      const samples = [
+        [(i + 0.5) * cellSize, (j + 0.5) * cellSize],
+        [i * cellSize, j * cellSize],
+        [(i + 1) * cellSize, j * cellSize],
+        [i * cellSize, (j + 1) * cellSize],
+        [(i + 1) * cellSize, (j + 1) * cellSize],
+      ];
+      if (samples.some(([sx, sz]) => pointInRoomPolygon(sx, sz, serverCorners))) {
+        coords.push([i, j]);
+      }
+    }
+  }
+
+  occupancyMesh = new THREE.InstancedMesh(occupancyGeometry, occupancyMaterial, coords.length);
+  occupancyMarker.rotation.set(-Math.PI / 2, 0, 0);
+  occupancyMarker.scale.set(cellSize * 0.96, cellSize * 0.96, 1);
+
+  coords.forEach(([cx, cz], index) => {
+    occupancyIndexByKey.set(`${cx},${cz}`, index);
+    occupancyMarker.position.set(
+      (cx + 0.5) * cellSize + originX,
+      0.015,
+      (cz + 0.5) * cellSize + originZ
+    );
+    occupancyMarker.updateMatrix();
+    occupancyMesh.setMatrixAt(index, occupancyMarker.matrix);
+    occupancyMesh.setColorAt(index, unknownColor);
+  });
+
+  occupancyMesh.count = coords.length;
+  occupancyMesh.instanceMatrix.needsUpdate = true;
+  if (occupancyMesh.instanceColor) occupancyMesh.instanceColor.needsUpdate = true;
+  if (coords.length) occupancyMesh.computeBoundingSphere();
+  scene.add(occupancyMesh);
+}
+
+function updateOccupancyGrid(grid) {
+  if (!Number.isFinite(grid.cell_size) || grid.cell_size <= 0 || !Array.isArray(grid.cells)) return;
+  const originX = Number.isFinite(grid.origin_x) ? grid.origin_x : 0;
+  const originZ = Number.isFinite(grid.origin_z) ? grid.origin_z : 0;
+  ensureOccupancyLattice(grid.cell_size, originX, originZ);
+  if (!occupancyMesh) return;
+
+  // Full wipe after OccupancyGrid.clear on the server.
+  if (grid.reset) {
+    for (let index = 0; index < occupancyMesh.count; index += 1) {
+      occupancyMesh.setColorAt(index, unknownColor);
+    }
+  }
+
+  // Apply this file's delta on top of colors already on the lattice.
+  for (const cell of grid.cells) {
+    const index = occupancyIndexByKey.get(`${cell.x},${cell.z}`);
+    if (index === undefined) continue;
+    if (!Number.isFinite(cell.p)) continue;
+    occupancyMesh.setColorAt(index, colorForProbability(cell.p));
+  }
+
+  if (occupancyMesh.instanceColor) occupancyMesh.instanceColor.needsUpdate = true;
 }
 
 // Rendering and window behavior
@@ -433,10 +548,9 @@ function updateDevices(devices) {
       const logEntry = document.createElement("div");
       logEntry.className = "log-entry";
       const status = lastPositions[key] ? "moved" : "connected";
-      const color = stringToColor(device.id);
       logEntry.innerHTML = `
-        <span class="name" style="color: ${color}">${device.id}</span>
-        <span class="status" style="color: ${color}">${DeviceType[device.deviceType]} ${status}</span>
+        <span class="name" style="color: ${ROBOT_COLOR_CSS}">${device.id}</span>
+        <span class="status" style="color: ${ROBOT_COLOR_CSS}">${DeviceType[device.deviceType]} ${status}</span>
         <div class="coordinates">X: ${position.x.toFixed(2)} m · Z: ${position.z.toFixed(2)} m</div>
       `;
       logContainer.appendChild(logEntry);
@@ -495,6 +609,28 @@ async function pollMap() {
   }
 }
 
+// Pending cell deltas are flushed about once a second, on the same cadence as the pose export.
+async function pollOccupancyGrid() {
+  while (true) {
+    try {
+      const response = await fetch("./occupancy_grid.json", { cache: "no-store" });
+      const status = document.getElementById("occupancy-status");
+      if (response.ok) {
+        updateOccupancyGrid(await response.json());
+        if (status) status.textContent = "Occupancy grid loaded";
+      } else {
+        if (status) status.textContent = "Waiting for occupancy grid";
+        if (response.status !== 404) console.error("Could not load occupancy grid:", response.status);
+      }
+    } catch (error) {
+      const status = document.getElementById("occupancy-status");
+      if (status) status.textContent = "Occupancy grid unavailable";
+      console.error("Error loading occupancy grid:", error);
+    }
+    await sleep(1000);
+  }
+}
+
 async function clearAccumulatedScan() {
   const button = document.getElementById("clear-scan");
   if (!button || !socket || socket.readyState !== WebSocket.OPEN) return;
@@ -506,6 +642,12 @@ async function clearAccumulatedScan() {
     if (response.data.case === "ok") {
       console.log("Clear accumulated scan: server accepted");
       updateMapMarkers([]);
+      try {
+        const gridResponse = await fetch("./occupancy_grid.json", { cache: "no-store" });
+        if (gridResponse.ok) updateOccupancyGrid(await gridResponse.json());
+      } catch (error) {
+        console.error("Error reloading occupancy grid:", error);
+      }
     } else {
       console.warn("Clear accumulated scan was not accepted; server replied:", response.data.case);
     }
@@ -623,8 +765,9 @@ function renderTunables(parameters) {
     title.textContent = parameter.label;
     const value = document.createElement("span");
     value.className = "tunable-value";
+    const suffix = parameter.unit ? ` ${parameter.unit}` : "";
     const show = number => {
-      value.textContent = `${Number(number).toFixed(digits)} m`;
+      value.textContent = `${Number(number).toFixed(digits)}${suffix}`;
     };
     show(parameter.value);
     const slider = document.createElement("input");
@@ -657,4 +800,5 @@ function renderTunables(parameters) {
 connect();
 pollDevices();
 pollMap();
+pollOccupancyGrid();
 animate();
