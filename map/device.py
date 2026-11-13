@@ -11,6 +11,7 @@ from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_t
 from map.tunable import TunableParameter
 from realityapi_pb2 import DeviceInfo, DeviceType, Lidar, Transform, Vector3
 
+RMSE_LIMIT = 0.2
 
 def zero_transform() -> Transform:
     return Transform(position=Vector3(), rotation=Vector3())
@@ -170,7 +171,7 @@ class TurtleBot(TransformDevice):
             return True
         dyaw = max(abs(current[2] - previous[2]), abs(current[3] - previous[3]))
         return dyaw > self._STATIONARY_YAW_RAD
-
+    
 
 class Dog(TransformDevice):
     DEVICE_TYPE = DeviceType.DOG

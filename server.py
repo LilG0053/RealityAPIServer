@@ -27,6 +27,7 @@ from map.lidar import scan_to_world_points
 from map.map import DASHBOARD_PATH, Map
 from map.tunable import list_tunables, set_tunable
 from map.pointcloud import raw_cloud_to_scan
+from map.pointcloud import RingAccumulator
 from realityapi_pb2 import (
     Command,
     DeviceInfo,
@@ -64,6 +65,9 @@ DOG_START_YAW = math.pi
 SENDER_COORDS = {DeviceType.Value("DOG"): DOG_COORDS}
 
 server_map = Map()
+
+# One ring accumulator per dog, so each ring is built from that dog's last few clouds.
+ring_accumulators: dict[str, RingAccumulator] = {}
 
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
@@ -151,6 +155,10 @@ def clear_accumulated_scan(_: Empty) -> Response:
     return server_map.clear_accumulated_scan()
 
 
+def set_dog_rmse_limit(limit: float) -> Response:
+    return server_map.set_rmse_limit(DeviceType.Value("DOG"), limit)
+
+
 def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
     if not server_map.exists(raw_scan.id):
         return Response(err_id_not_found={})
@@ -174,7 +182,7 @@ def handle_raw_point_cloud(raw: RawPointCloud) -> Response:
     # Flatten the 3D cloud to a ring, then convert it and the pose to server
     # axes. Map.handle_lidar_scan runs the localizer, so this skips
     # post_device_info (which would convert the pose a second time).
-    scan = raw_cloud_to_scan(raw)
+    scan = raw_cloud_to_scan(raw, ring_accumulators.setdefault(raw.id, RingAccumulator()))
     lidar = convert_lidar(scan, DOG_COORDS, SERVER_COORDS)
     transform = place_dog_transform(convert_transform(raw.transform, DOG_COORDS, SERVER_COORDS))
     if not lidar.points:
@@ -207,6 +215,7 @@ HANDLERS = {
     "post_raw_lidar_scan": handle_raw_lidar_scan,
     "post_raw_point_cloud": handle_raw_point_cloud,
     "clear_accumulated_scan": clear_accumulated_scan,
+    "set_dog_rmse_limit": set_dog_rmse_limit,
 }
 
 

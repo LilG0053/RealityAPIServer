@@ -1,12 +1,16 @@
 import json
+import math
 import os
+from collections import deque
 from time import time
 
 import numpy as np
 
+from map.cloud_map_3d import CloudMap
 from map.device import Device, TurtleBot, device_from_info, device_from_dict
-from map.occupancy import OccupancyGrid
-from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform, Vector3
+from map.occupancy import OccupancyGrid  # <- use the exact import line main has for OccupancyGrid
+from realityapi_pb2 import AllDeviceInfo, DeviceInfo, DeviceType, Lidar, Response, Transform, Vector3
+import json, os
 from map.localization import ScanLocalizer
 from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
 
@@ -17,6 +21,16 @@ EXPORT_INTERVAL = 1.0
 
 # Histogram samples kept in arrival order. Older values are dropped past this.
 SCAN_RMSE_LIMIT = 2000
+# Starting RMSE cutoff for the dog (metres). The dashboard slider changes it at
+# runtime. A scan whose closest-point RMSE is above the cutoff is not merged, so
+# it cannot move the correction. TurtleBot keeps TurtleBot.RMSE_LIMIT.
+DOG_RMSE_LIMIT = 0.10
+# Per-device RMSE history used to print stats when the limit changes.
+RECENT_RMSE_COUNT = 200
+
+# The most map points sent to the dashboard in one reply. A bigger 3D map is
+# thinned with an even stride so the whole room stays covered.
+MAX_MAP_POINTS_SENT = 30000
 
 class Map:
     def __init__(self) -> None:
@@ -28,6 +42,14 @@ class Map:
         # Finite closest-point RMSE of each scan after the first, oldest first.
         self.scan_rmses: list[float] = []
         self.occupancy = OccupancyGrid()
+        # Runtime cutoffs by device type; they win over the class RMSE_LIMIT.
+        self._rmse_overrides: dict[int, float] = {DeviceType.DOG: DOG_RMSE_LIMIT}
+        self._recent_rmse: dict[str, deque] = {}
+        # 3D maps (the dog), kept apart from the 2D localizers above. A device only
+        # has one if it sends point clouds. The Vector3 form of each is cached by
+        # version so an unchanged map is not rebuilt on every dashboard poll.
+        self._cloud_maps: dict[str, CloudMap] = {}
+        self._cloud_points_cache: dict[str, tuple[int, list[Vector3]]] = {}
 
     def add_device(self, device: Device) -> None:
         self._devices[device.id] = device
@@ -78,6 +100,8 @@ class Map:
         device_id: str,
         transform: Transform,
         lidar: Lidar,
+        cloud: np.ndarray | None = None,
+        evidence: np.ndarray | None = None,
     ) -> Response:
         # A scan can update an existing device but cannot create one by itself.
         if not self.exists(device_id):
@@ -94,6 +118,9 @@ class Map:
         accepted = localizer.update(lidar, rmse_limit=self.rmse_limit_for(device_id))
         if localizer.last_rmse is not None:
             self.record_scan_rmse(localizer.last_rmse)
+            self._recent_rmse.setdefault(
+                device_id, deque(maxlen=RECENT_RMSE_COUNT)
+            ).append(localizer.last_rmse)
         corrected = localizer.correct_lidar(lidar)
         # The first scan is stored with no RMSE. Later scans enter only when
         # update() accepts them. A rejected scan stays at the predicted pose
@@ -103,6 +130,13 @@ class Map:
             pose = localizer.correct_transform(transform)
             points = np.array([[point.x, point.y, point.z] for point in corrected.points])
             self.occupancy.update_dashboard(pose, points)
+        # The optional 3D cloud (N x 3, server axes) shares this scan's correction,
+        # so it is only added when the scan itself was kept.
+        if cloud is not None and kept:
+            p = transform.position
+            self._cloud_maps.setdefault(device_id, CloudMap()).add(
+                cloud, localizer.correction, np.array([p.x, p.y, p.z], dtype=float), evidence
+            )
         return self.handle_device_info(DeviceInfo(
             id=device_id,
             transform=transform,
@@ -173,8 +207,9 @@ class Map:
             self.export_to_json()
 
     def rmse_limit_for(self, device_id: str) -> float:
-        """The device class decides which scan RMSE is too large to merge."""
-        return self._devices[device_id].RMSE_LIMIT
+        """The runtime cutoff for the device's type, else the device class default."""
+        device = self._devices[device_id]
+        return self._rmse_overrides.get(device.device_type, device.RMSE_LIMIT)
 
     def record_scan_rmse(self, rmse: float) -> None:
         """Keep at most SCAN_RMSE_LIMIT samples, dropping the oldest first."""
@@ -183,9 +218,39 @@ class Map:
         if overflow > 0:
             del self.scan_rmses[:overflow]
 
+    def set_rmse_limit(self, device_type: int, limit: float) -> Response:
+        """Change the cutoff for one device type. limit <= 0 or inf turns it off."""
+        if not math.isfinite(limit) or limit <= 0:
+            limit = math.inf
+        self._rmse_overrides[device_type] = limit
+
+        # Show how the new cutoff would have treated the latest scans, so the
+        # slider can be tuned against numbers rather than by eye.
+        samples = sorted(
+            r
+            for device_id, values in self._recent_rmse.items()
+            if device_id in self._devices and self._devices[device_id].device_type == device_type
+            for r in values
+        )
+        name = DeviceType.Name(device_type)
+        if samples:
+            median = samples[len(samples) // 2]
+            p90 = samples[int(len(samples) * 0.9)]
+            rejected = sum(r > limit for r in samples) / len(samples)
+            print(
+                f"[rmse] {name} limit={limit:.3f} m | last {len(samples)} scans: "
+                f"median={median:.3f} p90={p90:.3f} max={samples[-1]:.3f} | "
+                f"{rejected:.0%} would be rejected"
+            )
+        else:
+            print(f"[rmse] {name} limit={limit:.3f} m (no scans recorded yet)")
+        return Response(ok={})
+
     def clear_accumulated_scan(self) -> Response:
         for localizer in self._localizers.values():
             localizer.clear_scan()
+        for cloud_map in self._cloud_maps.values():
+            cloud_map.clear()
         self.scan_rmses.clear()
         self.occupancy.clear()
         for device in self._devices.values():
@@ -194,12 +259,25 @@ class Map:
 
         return Response(ok={})
 
+    def _cloud_map_points(self, device_id: str, cloud_map: CloudMap) -> list[Vector3]:
+        cached = self._cloud_points_cache.get(device_id)
+        if cached is None or cached[0] != cloud_map.version:
+            cloud = cloud_map.points
+            if len(cloud) > MAX_MAP_POINTS_SENT:
+                cloud = cloud[:: -(-len(cloud) // MAX_MAP_POINTS_SENT)]  # ceil division
+            points = [Vector3(x=float(x), y=float(y), z=float(z)) for x, y, z in cloud]
+            cached = self._cloud_points_cache[device_id] = (cloud_map.version, points)
+        return cached[1]
+
     def get_lidar_data(self) -> Response:
-        # Every localizer's accumulated map. Those points only track the X/Z
-        # ground plane, so they are sent at height 0.
+        # Every device's accumulated map. A device with a 3D map (the dog) sends it
+        # with real heights; the others send their flat 2D map at height 0, as before.
         points = []
-        for localizer in self._localizers.values():
-            if localizer.accumulated_scan is not None:
+        for device_id, localizer in self._localizers.items():
+            cloud_map = self._cloud_maps.get(device_id)
+            if cloud_map is not None and cloud_map.points is not None:
+                points.extend(self._cloud_map_points(device_id, cloud_map))
+            elif localizer.accumulated_scan is not None:
                 points.extend(
                     Vector3(x=float(x), y=0.0, z=float(z))
                     for x, z in localizer.accumulated_scan
