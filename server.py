@@ -19,6 +19,9 @@ from map.localization import ScanLocalizer
 from map.scan_pipeline import register_scan
 from map.icp_diagnostics import ICPDiagnostics
 import numpy as np
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
 
 SERVER_COORDS = CoordinateSystem(
     x=Direction.SOUTH,
