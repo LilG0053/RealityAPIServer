@@ -11,34 +11,18 @@ const sceneContainer = document.getElementById("scene-container");
 const WALL_HEIGHT = 3;
 const WALL_THICKNESS = 0.15;
 
-// Room corners (in meters)
-// (0, 0) is the corner furthest from the door.
-const roomCorners = [
-  { x: 0, z: 0 },
-  { x: 0, z: 15.45 },
-  { x: 5.16, z: 15.45 },
-  { x: 5.16, z: 12.26 },
-  { x: 9.07, z: 12.26 },
-  { x: 9.07, z: 0 }
-];
-
-// Concrete pillars (in meters), as axis-aligned rectangles on the floor.
-// Both are 36" (0.914 m) along X by 29" (0.737 m) along Z, with their
-// left face 9'5" (2.870 m) from the x = 0 wall.
-const INCH = 0.0254;
-const PILLAR_WIDTH = 36 * INCH;
-const PILLAR_DEPTH = 29 * INCH;
-const PILLAR_LEFT = (9 * 12 + 5) * INCH;
-const pillars = [
-  // Bottom face 7'8" from the z = 0 wall.
-  { minX: PILLAR_LEFT, minZ: (7 * 12 + 8) * INCH },
-  // Top face 10'6" from the z = 15.45 wall.
-  { minX: PILLAR_LEFT, minZ: 15.45 - (10 * 12 + 6) * INCH - PILLAR_DEPTH }
-].map(({ minX, minZ }) => ({
-  minX,
-  minZ,
-  maxX: minX + PILLAR_WIDTH,
-  maxZ: minZ + PILLAR_DEPTH
+// Room blockout (in meters), shared with the server's localization.
+// blockout.json holds the room outline and solid obstacles (the pillars) as
+// closed polygons of [x, z] corners. (0, 0) is the corner furthest from the door.
+const toPoint = ([x, z]) => ({ x, z });
+const blockout = await fetch("blockout.json", { cache: "no-store" }).then((response) => {
+  if (!response.ok) throw new Error(`blockout.json: HTTP ${response.status}`);
+  return response.json();
+});
+const roomCorners = blockout.room.map(toPoint);
+const obstacles = (blockout.obstacles ?? []).map((obstacle) => ({
+  name: obstacle.name,
+  corners: obstacle.polygon.map(toPoint)
 }));
 
 // Scene, camera, and renderer
@@ -104,7 +88,13 @@ const floor = new THREE.Mesh(
   new THREE.ShapeGeometry(floorShape),
   new THREE.MeshBasicMaterial({
     color: 0x68717d,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    // Wall and pillar bottoms sit exactly on y = 0. Push the floor slightly
+    // back in the depth buffer so those coplanar faces win instead of
+    // z-fighting with it.
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1
   })
 );
 floor.rotation.x = Math.PI / 2;
@@ -142,37 +132,68 @@ createMapLabel("X", "#ff5555", [2.3, 0.15, 0]);
 createMapLabel("Y", "#65dc65", [0, 2.3, 0]);
 createMapLabel("Z", "#6fa8ff", [0, 0.15, 2.3]);
 
+// Polygon outline -> THREE.Path/Shape in the floor's (x, z) shape coordinates.
+function tracePath(path, corners) {
+  path.moveTo(corners[0].x, corners[0].z);
+  for (const corner of corners.slice(1)) {
+    path.lineTo(corner.x, corner.z);
+  }
+  path.closePath();
+  return path;
+}
+
+// Move every edge of a closed polygon outward by `distance`, keeping square
+// (mitred) corners. Works for either winding direction.
+function offsetPolygonOutward(corners, distance) {
+  let signedArea = 0;
+  for (let i = 0; i < corners.length; i += 1) {
+    const a = corners[i];
+    const b = corners[(i + 1) % corners.length];
+    signedArea += a.x * b.z - b.x * a.z;
+  }
+  const outward = signedArea > 0 ? 1 : -1;
+
+  const edgeNormal = (a, b) => {
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const length = Math.hypot(dx, dz);
+    return { x: (outward * dz) / length, z: (-outward * dx) / length };
+  };
+
+  return corners.map((corner, i) => {
+    const prev = corners[(i - 1 + corners.length) % corners.length];
+    const next = corners[(i + 1) % corners.length];
+    const n1 = edgeNormal(prev, corner);
+    const n2 = edgeNormal(corner, next);
+    // Mitre: the point `distance` away from both offset edge lines.
+    const scale = distance / (1 + n1.x * n2.x + n1.z * n2.z);
+    return { x: corner.x + (n1.x + n2.x) * scale, z: corner.z + (n1.z + n2.z) * scale };
+  });
+}
+
 // Room walls
-function createWallBetween(start, end) {
-  const dx = end.x - start.x;
-  const dz = end.z - start.z;
-  const length = Math.hypot(dx, dz);
+// One extruded ring: the room outline grown outward by WALL_THICKNESS, with
+// the room itself as the hole. The inner face sits exactly on the measured
+// outline (what the LiDAR sees), corners are filled, and there is a single
+// top face, so neighbouring walls cannot overlap and z-fight.
+const wallShape = tracePath(new THREE.Shape(), offsetPolygonOutward(roomCorners, WALL_THICKNESS));
+wallShape.holes.push(tracePath(new THREE.Path(), roomCorners));
 
-  const wall = new THREE.Mesh(
-    new THREE.BoxGeometry(length, WALL_HEIGHT, WALL_THICKNESS),
-    new THREE.MeshStandardMaterial({
-      color: 0xe8e8e8,
-      roughness: 0.8,
-      transparent: true,
-      opacity: 0.65,
-      side: THREE.DoubleSide
-    })
-  );
-
-  wall.position.set(
-    (start.x + end.x) / 2,
-    WALL_HEIGHT / 2,
-    (start.z + end.z) / 2
-  );
-  wall.rotation.y = Math.atan2(-dz, dx);
-  scene.add(wall);
-}
-
-for (let index = 0; index < roomCorners.length; index += 1) {
-  const start = roomCorners[index];
-  const end = roomCorners[(index + 1) % roomCorners.length];
-  createWallBetween(start, end);
-}
+const walls = new THREE.Mesh(
+  new THREE.ExtrudeGeometry(wallShape, { depth: WALL_HEIGHT, bevelEnabled: false }),
+  new THREE.MeshStandardMaterial({
+    color: 0xe8e8e8,
+    roughness: 0.8,
+    transparent: true,
+    opacity: 0.65,
+    side: THREE.DoubleSide
+  })
+);
+// Same orientation as the floor and obstacles: shape (x, y) -> world (x, z),
+// extrusion depth -> world -Y, so raise it by WALL_HEIGHT to stand on the floor.
+walls.rotation.x = Math.PI / 2;
+walls.position.y = WALL_HEIGHT;
+scene.add(walls);
 
 const roomOutline = new THREE.LineLoop(
   new THREE.BufferGeometry().setFromPoints(
@@ -182,35 +203,33 @@ const roomOutline = new THREE.LineLoop(
 );
 scene.add(roomOutline);
 
-// Pillars
-const pillarMaterial = new THREE.MeshStandardMaterial({
+// Obstacles (pillars)
+// Each polygon is extruded from the floor to WALL_HEIGHT.
+const obstacleMaterial = new THREE.MeshStandardMaterial({
   color: 0xb0b4ba,
   roughness: 0.9,
   transparent: true,
   opacity: 0.8
 });
 
-for (const pillar of pillars) {
-  const width = pillar.maxX - pillar.minX;
-  const depth = pillar.maxZ - pillar.minZ;
+for (const obstacle of obstacles) {
+  const shape = tracePath(new THREE.Shape(), obstacle.corners);
+
+  // Same orientation as the walls: rotating +90 degrees about X maps shape
+  // (x, y) onto world (x, z), and the extrusion depth onto world -Y, so the
+  // mesh is raised by WALL_HEIGHT to stand on the floor.
   const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(width, WALL_HEIGHT, depth),
-    pillarMaterial
+    new THREE.ExtrudeGeometry(shape, { depth: WALL_HEIGHT, bevelEnabled: false }),
+    obstacleMaterial
   );
-  mesh.position.set(
-    (pillar.minX + pillar.maxX) / 2,
-    WALL_HEIGHT / 2,
-    (pillar.minZ + pillar.maxZ) / 2
-  );
+  mesh.rotation.x = Math.PI / 2;
+  mesh.position.y = WALL_HEIGHT;
   scene.add(mesh);
 
   const outline = new THREE.LineLoop(
-    new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(pillar.minX, 0.02, pillar.minZ),
-      new THREE.Vector3(pillar.minX, 0.02, pillar.maxZ),
-      new THREE.Vector3(pillar.maxX, 0.02, pillar.maxZ),
-      new THREE.Vector3(pillar.maxX, 0.02, pillar.minZ)
-    ]),
+    new THREE.BufferGeometry().setFromPoints(
+      obstacle.corners.map((corner) => new THREE.Vector3(corner.x, 0.02, corner.z))
+    ),
     new THREE.LineBasicMaterial({ color: 0xffffff })
   );
   scene.add(outline);
