@@ -70,7 +70,6 @@ def simplified_contour(points: np.ndarray, epsilon: float = LIDAR_EPSILON) -> np
     curve = np.ascontiguousarray(points, dtype=np.float32).reshape(-1, 1, 2)
     return cv2.approxPolyDP(curve, epsilon, True)
 
-
 def inside_contour(points: np.ndarray, contour: np.ndarray) -> np.ndarray:
     """True for points strictly inside the contour."""
     if len(points) == 0 or len(contour) < 3:
@@ -126,4 +125,3 @@ def scan_to_world_points(raw_scan: RawLidarScan) -> Lidar:
                 )
             )
     return Lidar(points=points)
-

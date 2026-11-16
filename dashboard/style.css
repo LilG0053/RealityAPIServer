@@ -159,6 +159,7 @@ body {
 }
 
 #clear-scan,
+#download-scan,
 #save-rmse-histogram {
   display: block;
   width: 100%;
@@ -179,11 +180,13 @@ body {
 }
 
 #clear-scan:hover,
+#download-scan:hover,
 #save-rmse-histogram:hover {
   background: #354255;
 }
 
 #clear-scan:disabled,
+#download-scan:disabled,
 #save-rmse-histogram:disabled {
   opacity: 0.6;
   cursor: default;
