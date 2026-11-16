@@ -8,6 +8,12 @@ from realityapi_pb2 import Lidar, Vector3, RawLidarScan
 # Contour tolerance, in meters, applied to each scan before it is posted.
 LIDAR_EPSILON = 0.05
 
+# LiDAR position relative to base_link, in meters.
+# Command that found the offset: ros2 run tf2_ros tf2_echo base_link rplidar_link
+lidar_offset_x = -0.040
+lidar_offset_y = 0.000
+lidar_offset_z = 0.193
+
 def simplify_lidar_2d(
     lidar: Lidar,
     epsilon: float = 0.05,
@@ -76,6 +82,7 @@ def inside_contour(points: np.ndarray, contour: np.ndarray) -> np.ndarray:
     return inside
 
 
+# done using ROS2 coordinates
 def scan_to_world_points(raw_scan: RawLidarScan) -> Lidar:
     # Convert each LiDAR range reading into a point in the robot's world-fixed odom frame.
     #
@@ -93,14 +100,29 @@ def scan_to_world_points(raw_scan: RawLidarScan) -> Lidar:
     #      Transforms from the rotating `base_link` frame into the world-fixed `odom`
     #      frame by adding the robot's current yaw relative to its starting orientation.
     points = []
+
+    # Calculate LiDAR's offset based on robot rotation
+    robot_yaw = raw_scan.transform.rotation.z
+
+    offset_world_x = (
+        lidar_offset_x * math.cos(robot_yaw)
+        - lidar_offset_y * math.sin(robot_yaw)
+    )
+    offset_world_y = (
+        lidar_offset_x * math.sin(robot_yaw)
+        + lidar_offset_y * math.cos(robot_yaw)
+    )
+
     for i, r in enumerate(raw_scan.ranges):
         if raw_scan.range_min < r < raw_scan.range_max:
             theta = (i * raw_scan.angle_increment) + raw_scan.angle_min + (math.pi / 2) + raw_scan.transform.rotation.z
+
+            # point = robot position + calibration for sensor offset + rotated LiDAR ray
             points.append(
                 Vector3(
-                    x=raw_scan.transform.position.x + (r * math.cos(theta)),
-                    y=raw_scan.transform.position.y + (r * math.sin(theta)),
-                    z=raw_scan.transform.position.z,
+                    x=raw_scan.transform.position.x + offset_world_x + (r * math.cos(theta)),
+                    y=raw_scan.transform.position.y + offset_world_y + (r * math.sin(theta)),
+                    z=raw_scan.transform.position.z + lidar_offset_z,
                 )
             )
     return Lidar(points=points)
