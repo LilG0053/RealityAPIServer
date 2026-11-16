@@ -110,10 +110,13 @@ class CoordinateNode(Node):
 
             self.get_logger().info(
                 f"Scan pose difference: "
-                f"dx={dx * 100:.2f} cm, dy={dy * 100:.2f} cm, "
-                f"distance={distance * 100:.2f} cm, "
-                f"yaw={math.degrees(yaw_difference):.2f} deg, "
-                f"odom_bracket={(after[0] - before[0]) * 1000:.1f} ms"
+                f"dx={dx * 1000:.4f} mm, "
+                f"dy={dy * 1000:.4f} mm, "
+                f"distance={distance * 1000:.4f} mm, "
+                f"yaw={math.degrees(yaw_difference):.5f} deg, "
+                f"before_scan={(scan_time - before[0]) * 1000:.2f} ms, "
+                f"after_scan={(after[0] - scan_time) * 1000:.2f} ms, "
+                f"queued_scans={len(self.scan_queue)}"
             )
 
             self.send_scan(scan, estimated_pose)
