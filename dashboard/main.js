@@ -22,6 +22,25 @@ const roomCorners = [
   { x: 9.07, z: 0 }
 ];
 
+// Concrete pillars (in meters), as axis-aligned rectangles on the floor.
+// Both are 36" (0.914 m) along X by 29" (0.737 m) along Z, with their
+// left face 9'5" (2.870 m) from the x = 0 wall.
+const INCH = 0.0254;
+const PILLAR_WIDTH = 36 * INCH;
+const PILLAR_DEPTH = 29 * INCH;
+const PILLAR_LEFT = (9 * 12 + 5) * INCH;
+const pillars = [
+  // Bottom face 7'8" from the z = 0 wall.
+  { minX: PILLAR_LEFT, minZ: (7 * 12 + 8) * INCH },
+  // Top face 10'6" from the z = 15.45 wall.
+  { minX: PILLAR_LEFT, minZ: 15.45 - (10 * 12 + 6) * INCH - PILLAR_DEPTH }
+].map(({ minX, minZ }) => ({
+  minX,
+  minZ,
+  maxX: minX + PILLAR_WIDTH,
+  maxZ: minZ + PILLAR_DEPTH
+}));
+
 // Scene, camera, and renderer
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x20232a);
@@ -162,6 +181,40 @@ const roomOutline = new THREE.LineLoop(
   new THREE.LineBasicMaterial({ color: 0xffffff })
 );
 scene.add(roomOutline);
+
+// Pillars
+const pillarMaterial = new THREE.MeshStandardMaterial({
+  color: 0xb0b4ba,
+  roughness: 0.9,
+  transparent: true,
+  opacity: 0.8
+});
+
+for (const pillar of pillars) {
+  const width = pillar.maxX - pillar.minX;
+  const depth = pillar.maxZ - pillar.minZ;
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(width, WALL_HEIGHT, depth),
+    pillarMaterial
+  );
+  mesh.position.set(
+    (pillar.minX + pillar.maxX) / 2,
+    WALL_HEIGHT / 2,
+    (pillar.minZ + pillar.maxZ) / 2
+  );
+  scene.add(mesh);
+
+  const outline = new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(pillar.minX, 0.02, pillar.minZ),
+      new THREE.Vector3(pillar.minX, 0.02, pillar.maxZ),
+      new THREE.Vector3(pillar.maxX, 0.02, pillar.maxZ),
+      new THREE.Vector3(pillar.maxX, 0.02, pillar.minZ)
+    ]),
+    new THREE.LineBasicMaterial({ color: 0xffffff })
+  );
+  scene.add(outline);
+}
 
 // Store 3D markers by device ID
 const robotMarkers = {};
