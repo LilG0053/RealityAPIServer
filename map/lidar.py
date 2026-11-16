@@ -118,7 +118,7 @@ def scan_to_world_points(raw_scan: RawLidarScan) -> Lidar:
             # point = robot position + calibration for sensor offset + rotated LiDAR ray
             points.append(
                 Vector3(
-                    x=raw_scan.transform.position.x + offset_world_x + (r * math.cos(theta)) + offset,
+                    x=raw_scan.transform.position.x + offset_world_x + (r * math.cos(theta)),
                     y=raw_scan.transform.position.y + offset_world_y + (r * math.sin(theta)),
                     z=raw_scan.transform.position.z + lidar_offset_z,
                 )
