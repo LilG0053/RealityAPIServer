@@ -74,7 +74,7 @@ class CoordinateNode(Node):
         self.odom_queue.append((curOdomTime, pose))
 
         while self.scan_queue and len(self.odom_queue) >= 2:
-            scan_time, scan = self.scan_queue[0]  # Look first; don't remove it yet.
+            scan_time, scan, old_pose = self.scan_queue[0]  # Look first; don't remove it yet.
 
             if scan_time < self.odom_queue[0][0]:
                 self.scan_queue.popleft()
@@ -97,6 +97,25 @@ class CoordinateNode(Node):
                 position=Vector3(x=x, y=y, z=before[1].position.z),
                 rotation=Vector3(z=yaw),
             )
+
+            # logs testing message
+            dx = estimated_pose.position.x - old_pose.position.x
+            dy = estimated_pose.position.y - old_pose.position.y
+            distance = math.hypot(dx, dy)
+
+            yaw_difference = math.atan2(
+                math.sin(estimated_pose.rotation.z - old_pose.rotation.z),
+                math.cos(estimated_pose.rotation.z - old_pose.rotation.z),
+            )
+
+            self.get_logger().info(
+                f"Scan pose difference: "
+                f"dx={dx * 100:.2f} cm, dy={dy * 100:.2f} cm, "
+                f"distance={distance * 100:.2f} cm, "
+                f"yaw={math.degrees(yaw_difference):.2f} deg, "
+                f"odom_bracket={(after[0] - before[0]) * 1000:.1f} ms"
+            )
+
             self.send_scan(scan, estimated_pose)
             self.scan_queue.popleft()
 
@@ -136,7 +155,11 @@ class CoordinateNode(Node):
             self.get_logger().warning("Dropping scan that is outdated")
             return
 
-        self.scan_queue.append((stamp_seconds(data.header.stamp), data))
+        # recording the old pose to see how much of a difference
+        old_pose = Transform()
+        old_pose.CopyFrom(self.robot.transform)
+
+        self.scan_queue.append((stamp_seconds(data.header.stamp), data, old_pose))
 
     def send_scan(self, ros_data, estimated_robot_pos):
         raw_scan = RawLidarScan(
