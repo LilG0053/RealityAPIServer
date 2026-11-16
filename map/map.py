@@ -1,9 +1,12 @@
 import json
 import os
 from time import time
-from map.device import Device, device_from_info, device_from_dict
+
+import numpy as np
+
+from map.device import Device, TurtleBot, device_from_info, device_from_dict
+from map.occupancy import OccupancyGrid
 from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform, Vector3
-import json, os
 from map.localization import ScanLocalizer
 from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
 
@@ -12,6 +15,9 @@ DASHBOARD_PATH = "dashboard/updated_pos.json"
 
 EXPORT_INTERVAL = 1.0
 
+# Histogram samples kept in arrival order. Older values are dropped past this.
+SCAN_RMSE_LIMIT = 2000
+
 class Map:
     def __init__(self) -> None:
         self._devices: dict[str, Device] = {}
@@ -19,6 +25,9 @@ class Map:
         self._last_export = 0.0
         self._localizers: dict[str, ScanLocalizer] = {}
         self._last_map_size = -1
+        # Finite closest-point RMSE of each scan after the first, oldest first.
+        self.scan_rmses: list[float] = []
+        self.occupancy = OccupancyGrid()
 
     def add_device(self, device: Device) -> None:
         self._devices[device.id] = device
@@ -43,6 +52,7 @@ class Map:
     def _export_if_due(self) -> None:
         if time() - self._last_export >= self.export_interval:
             self.export_to_json()
+            self.occupancy.export_pending_updates()
 
     def load_from_json(self, filepath: str = DASHBOARD_PATH) -> None:
         try:
@@ -63,17 +73,40 @@ class Map:
         except Exception as error:
             print(f"Error loading from JSON: {error}")
 
-    def handle_lidar_scan(self, device_id: str, transform: Transform, lidar: Lidar) -> Response:
+    def handle_lidar_scan(
+        self,
+        device_id: str,
+        transform: Transform,
+        lidar: Lidar,
+    ) -> Response:
         # A scan can update an existing device but cannot create one by itself.
         if not self.exists(device_id):
             return Response(err_id_not_found={})
 
+        device = self._devices[device_id]
+        # TurtleBot only keeps the first N scans while parked; past that, pose
+        # still updates but ICP / occupancy / live lidar are left alone.
+        if isinstance(device, TurtleBot) and not device.allow_lidar_scan(transform):
+            return self.handle_device_info(DeviceInfo(id=device_id, transform=transform))
+
         localizer = self._localizers.setdefault(device_id, ScanLocalizer())
-        localizer.update(lidar)
+        had_map = localizer.accumulated_scan is not None
+        accepted = localizer.update(lidar, rmse_limit=self.rmse_limit_for(device_id))
+        if localizer.last_rmse is not None:
+            self.record_scan_rmse(localizer.last_rmse)
+        corrected = localizer.correct_lidar(lidar)
+        # The first scan is stored with no RMSE. Later scans enter only when
+        # update() accepts them. A rejected scan stays at the predicted pose
+        # and must not change the grid.
+        kept = accepted or (not had_map and localizer.accumulated_scan is not None)
+        if kept and corrected.points:
+            pose = localizer.correct_transform(transform)
+            points = np.array([[point.x, point.y, point.z] for point in corrected.points])
+            self.occupancy.update_dashboard(pose, points)
         return self.handle_device_info(DeviceInfo(
             id=device_id,
             transform=transform,
-            lidar=simplify_lidar_2d(localizer.correct_lidar(lidar), epsilon=LIDAR_EPSILON),
+            lidar=simplify_lidar_2d(corrected, epsilon=LIDAR_EPSILON),
         ))
     
     def handle_device_info(self, device_info: DeviceInfo) -> Response:
@@ -139,10 +172,26 @@ class Map:
         if dropped:
             self.export_to_json()
 
+    def rmse_limit_for(self, device_id: str) -> float:
+        """The device class decides which scan RMSE is too large to merge."""
+        return self._devices[device_id].RMSE_LIMIT
+
+    def record_scan_rmse(self, rmse: float) -> None:
+        """Keep at most SCAN_RMSE_LIMIT samples, dropping the oldest first."""
+        self.scan_rmses.append(rmse)
+        overflow = len(self.scan_rmses) - SCAN_RMSE_LIMIT
+        if overflow > 0:
+            del self.scan_rmses[:overflow]
+
     def clear_accumulated_scan(self) -> Response:
         for localizer in self._localizers.values():
             localizer.clear_scan()
-            
+        self.scan_rmses.clear()
+        self.occupancy.clear()
+        for device in self._devices.values():
+            if isinstance(device, TurtleBot):
+                device.reset_stationary_scans()
+
         return Response(ok={})
 
     def get_lidar_data(self) -> Response:

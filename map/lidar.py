@@ -80,6 +80,7 @@ def inside_contour(points: np.ndarray, contour: np.ndarray) -> np.ndarray:
         inside[index] = cv2.pointPolygonTest(contour, (float(x), float(y)), False) > 0
     return inside
 
+
 # done using ROS2 coordinates
 def scan_to_world_points(raw_scan: RawLidarScan) -> Lidar:
     # Convert each LiDAR range reading into a point in the robot's world-fixed odom frame.
@@ -110,11 +111,11 @@ def scan_to_world_points(raw_scan: RawLidarScan) -> Lidar:
         lidar_offset_x * math.sin(robot_yaw)
         + lidar_offset_y * math.cos(robot_yaw)
     )
-    
+
     for i, r in enumerate(raw_scan.ranges):
         if raw_scan.range_min < r < raw_scan.range_max:
             theta = (i * raw_scan.angle_increment) + raw_scan.angle_min + (math.pi / 2) + raw_scan.transform.rotation.z
-            
+
             # point = robot position + calibration for sensor offset + rotated LiDAR ray
             points.append(
                 Vector3(
@@ -124,4 +125,3 @@ def scan_to_world_points(raw_scan: RawLidarScan) -> Lidar:
                 )
             )
     return Lidar(points=points)
-

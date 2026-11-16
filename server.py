@@ -3,8 +3,13 @@
 """Reality API websocket server."""
 
 import asyncio
+import json
 import math
+import subprocess
+import sys
 import traceback
+from datetime import datetime
+from pathlib import Path
 
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
@@ -17,8 +22,10 @@ from map.coordinate import (
     convert_lidar,
     convert_transform,
 )
+from map.room import DISPLAY_OFFSET
 from map.lidar import scan_to_world_points
 from map.map import DASHBOARD_PATH, Map
+from map.tunable import list_tunables, set_tunable
 from map.pointcloud import raw_cloud_to_scan
 from realityapi_pb2 import (
     Command,
@@ -36,8 +43,8 @@ from realityapi_pb2 import (
 HOST = "0.0.0.0"
 PORT = 65432
 
-# Offset added to every incoming position vector. Adjust to your task's spec.
-OFFSET = (0.1, 0.1, 2.0)
+# Offset added to every incoming position vector so it lands on the drawn room.
+OFFSET = DISPLAY_OFFSET
 
 # A device is dropped from the map once it has been quiet this long (seconds).
 TIMEOUT = 2.0
@@ -224,10 +231,54 @@ def handle_request(req: ServerRequest) -> Response:
     return ret
 
 
+def save_rmse_histogram() -> dict:
+    """Write the collected scan RMSEs and run the histogram script."""
+    if not server_map.scan_rmses:
+        return {"ok": False, "error": "No scan RMSEs yet. Match a few scans first."}
+    directory = Path("saved_scans") / "rmse-histograms"
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    values_path = directory / f"{stem}.json"
+    image_path = directory / f"{stem}.png"
+    values_path.write_text(json.dumps(server_map.scan_rmses))
+    script = Path(__file__).resolve().parent / "testing" / "rmse_histogram.py"
+    completed = subprocess.run(
+        [sys.executable, str(script), str(values_path), "-o", str(image_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip() or "Histogram script failed"
+        return {"ok": False, "error": detail}
+    return {"ok": True, "path": str(image_path), "count": len(server_map.scan_rmses)}
+
+
+def handle_text_control(message: str) -> dict:
+    """Dashboard controls that are not part of the protobuf robot protocol."""
+    request_id = None
+    try:
+        request = json.loads(message)
+        if not isinstance(request, dict):
+            raise ValueError("Expected an object")
+        request_id = request.get("id")
+        action = request.get("action")
+        if action == "save_rmse_histogram":
+            return {"id": request_id, **save_rmse_histogram()}
+        if action == "fetch_tunables":
+            return {"id": request_id, "ok": True, "parameters": list_tunables()}
+        if action == "set_tunable":
+            updated = set_tunable(request.get("name"), request.get("value"))
+            return {"id": request_id, "ok": True, "parameter": updated}
+        return {"id": request_id, "ok": False, "error": "Unknown dashboard action"}
+    except (KeyError, TypeError, ValueError, OSError) as exc:
+        return {"id": request_id, "ok": False, "error": str(exc)}
+
+
 async def handler(websocket):
     async for message in websocket:
         if isinstance(message, str):
-            print("[!] ignoring text frame (expected binary protobuf)")
+            await websocket.send(json.dumps(handle_text_control(message)))
             continue
 
         req = ServerRequest()
@@ -253,6 +304,8 @@ async def monitor(device_map: Map):
 
 async def main():
     server_map.load_from_json(DASHBOARD_PATH)
+    # Fresh process: wipe any colors left from a previous server run.
+    server_map.occupancy.export(reset=True)
     monitor_task = asyncio.create_task(monitor(server_map))
     try:
         async with serve(handler, HOST, PORT, compression=None) as server:

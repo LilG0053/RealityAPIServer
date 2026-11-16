@@ -78,6 +78,63 @@ body {
   color: #6fa8ff;
 }
 
+/* Map layer legend */
+.map-legend {
+  position: absolute;
+  z-index: 1;
+  top: 7rem;
+  left: 1rem;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.45rem;
+  background: rgb(0 0 0 / 75%);
+  color: #fff;
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.45rem;
+  border: 1px solid rgb(255 255 255 / 50%);
+  vertical-align: -0.1rem;
+}
+
+.robot-location {
+  background: #e040fb;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+.live-scan {
+  background: #ff7043;
+}
+
+.accumulated-map {
+  background: #4fc3f7;
+}
+
+.free-cell {
+  background: linear-gradient(to right, #55606e, #2fbf7a);
+}
+
+.occupied-cell {
+  background: linear-gradient(to right, #55606e, #f0a030);
+}
+
+.unknown-cell {
+  background: #55606e;
+}
+
+#occupancy-status {
+  max-width: 13rem;
+  margin-top: 0.25rem;
+  color: #d3dce6;
+}
+
 /* Robot status dashboard */
 .dashboard {
   box-sizing: border-box;
@@ -102,10 +159,11 @@ body {
 }
 
 #clear-scan,
-#download-scan {
+#download-scan,
+#save-rmse-histogram {
   display: block;
   width: 100%;
-  margin: 0 0 1.25rem;
+  margin: 0 0 0.75rem;
   padding: 0.7rem 1rem;
   border: 0;
   border-radius: 0.5rem;
@@ -117,15 +175,53 @@ body {
   cursor: pointer;
 }
 
+#save-rmse-histogram {
+  margin-bottom: 0.5rem;
+}
+
 #clear-scan:hover,
-#download-scan:hover {
+#download-scan:hover,
+#save-rmse-histogram:hover {
   background: #354255;
 }
 
 #clear-scan:disabled,
-#download-scan:disabled {
+#download-scan:disabled,
+#save-rmse-histogram:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+#rmse-status {
+  min-height: 1.2rem;
+  margin: 0 0 1.25rem;
+  color: #d3dce6;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+#tunables {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0 0 1.25rem;
+}
+
+.tunable {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 0.75rem;
+  color: #d3dce6;
+  font-size: 0.85rem;
+}
+
+.tunable-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.tunable input[type="range"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: #ff7043;
 }
 
 #log-container {
