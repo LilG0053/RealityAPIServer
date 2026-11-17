@@ -131,6 +131,45 @@ class TurtleBot(TransformDevice):
     RMSE_LIMIT = TunableParameter(
         0.2, minimum=0.0, maximum=1.0, step=0.1, label="TurtleBot RMSE limit", unit="m",
     )
+    # While parked, only this many lidar posts update ICP / occupancy / live scan.
+    stationary_scan_limit: ClassVar[int] = 5
+    _STATIONARY_TRANSLATION_M: ClassVar[float] = 0.05
+    _STATIONARY_YAW_RAD: ClassVar[float] = math.radians(5.0)
+
+    def __post_init__(self, initial_heading: Direction = Direction.NORTH) -> None:
+        super().__post_init__(initial_heading)
+        self.reset_stationary_scans()
+
+    def reset_stationary_scans(self) -> None:
+        """Clear the parked-scan budget (e.g. after clear accumulated scan)."""
+        self.stationary_scans = 0
+        self._station_pose: tuple[float, float, float, float] | None = None
+
+    def allow_lidar_scan(self, transform: Transform) -> bool:
+        """True for the first stationary_scan_limit scans at the current pose."""
+        pose = (
+            transform.position.x,
+            transform.position.z,
+            transform.rotation.y,
+            transform.rotation.z,
+        )
+        if self._station_pose is None or self._station_pose_moved(self._station_pose, pose):
+            self._station_pose = pose
+            self.stationary_scans = 1
+            return True
+
+        self.stationary_scans += 1
+        return self.stationary_scans <= self.stationary_scan_limit
+
+    def _station_pose_moved(
+        self,
+        previous: tuple[float, float, float, float],
+        current: tuple[float, float, float, float],
+    ) -> bool:
+        if math.hypot(current[0] - previous[0], current[1] - previous[1]) > self._STATIONARY_TRANSLATION_M:
+            return True
+        dyaw = max(abs(current[2] - previous[2]), abs(current[3] - previous[3]))
+        return dyaw > self._STATIONARY_YAW_RAD
 
 
 class Dog(TransformDevice):

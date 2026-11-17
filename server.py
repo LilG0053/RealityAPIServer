@@ -26,7 +26,7 @@ from map.room import DISPLAY_OFFSET
 from map.lidar import scan_to_world_points
 from map.map import DASHBOARD_PATH, Map
 from map.tunable import list_tunables, set_tunable
-from map.pointcloud import DOG_SCAN_RANGE_MAX, raw_cloud_to_scan
+from map.pointcloud import raw_cloud_to_scan
 from realityapi_pb2 import (
     Command,
     DeviceInfo,
@@ -163,7 +163,6 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
         raw_scan.id,
         translate_transform(transform),
         translate_lidar(convert_lidar(lidar, TURTLEBOT_COORDS, SERVER_COORDS)),
-        r_max=raw_scan.range_max,
     )
 
 #This method is specifically for the dog, whose raw LIDAR data is in three dimensions.
@@ -185,7 +184,6 @@ def handle_raw_point_cloud(raw: RawPointCloud) -> Response:
         raw.id,
         transform,
         place_dog_lidar(lidar),
-        r_max=DOG_SCAN_RANGE_MAX,
     )
 
 

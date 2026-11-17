@@ -4,7 +4,7 @@ from time import time
 
 import numpy as np
 
-from map.device import Device, device_from_info, device_from_dict
+from map.device import Device, TurtleBot, device_from_info, device_from_dict
 from map.occupancy import OccupancyGrid
 from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform, Vector3
 from map.localization import ScanLocalizer
@@ -78,11 +78,16 @@ class Map:
         device_id: str,
         transform: Transform,
         lidar: Lidar,
-        r_max: float | None = None,
     ) -> Response:
         # A scan can update an existing device but cannot create one by itself.
         if not self.exists(device_id):
             return Response(err_id_not_found={})
+
+        device = self._devices[device_id]
+        # TurtleBot only keeps the first N scans while parked; past that, pose
+        # still updates but ICP / occupancy / live lidar are left alone.
+        if isinstance(device, TurtleBot) and not device.allow_lidar_scan(transform):
+            return self.handle_device_info(DeviceInfo(id=device_id, transform=transform))
 
         localizer = self._localizers.setdefault(device_id, ScanLocalizer())
         had_map = localizer.accumulated_scan is not None
@@ -97,7 +102,7 @@ class Map:
         if kept and corrected.points:
             pose = localizer.correct_transform(transform)
             points = np.array([[point.x, point.y, point.z] for point in corrected.points])
-            self.occupancy.update_dashboard(pose, points, r_max=r_max)
+            self.occupancy.update_dashboard(pose, points)
         return self.handle_device_info(DeviceInfo(
             id=device_id,
             transform=transform,
@@ -183,6 +188,9 @@ class Map:
             localizer.clear_scan()
         self.scan_rmses.clear()
         self.occupancy.clear()
+        for device in self._devices.values():
+            if isinstance(device, TurtleBot):
+                device.reset_stationary_scans()
 
         return Response(ok={})
 

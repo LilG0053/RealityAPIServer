@@ -1,0 +1,6 @@
+# Dependencies for server.py and map/
+websockets
+protobuf>=7.35.1  # realityapi_pb2.py was generated with protobuf 7.35.1
+numpy
+opencv-python
+scikit-learn

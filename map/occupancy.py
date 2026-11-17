@@ -4,6 +4,11 @@ The cell lattice covers the whole room and stays fixed. Every cell starts at
 probability 0.5. Cells a ray crosses are free evidence; the cell a ray ends in
 is occupied evidence.
 
+Scan strength is scaled by how close the ray feature is to the cell center:
+occupied uses the hit-to-center distance, free uses the line-to-center distance.
+A feature through the center keeps full scan log-odds; toward the cell edge the
+update fades to zero.
+
 Exports are deltas: only cells touched since the last write. clear() exports
 an empty list with reset=true so the dashboard can wipe its colors.
 """
@@ -26,7 +31,6 @@ OCCUPANCY_PATH = "dashboard/occupancy_grid.json"
 INITIAL_PROBABILITY = 0.5
 FREE_SCAN_PROBABILITY = 0.2
 OCCUPIED_SCAN_PROBABILITY = 0.8
-DEFAULT_MAX_RANGE = 12.0
 LOG_ODDS_BOUNDS = (-3.5, 3.5)
 # Stored p is rounded to this many decimals. Skip exp when |ΔL| cannot change it:
 # max |dp/dL| = 0.25 at p=0.5, so |ΔL| < 0.005 / 0.25 = 0.02.
@@ -54,20 +58,57 @@ def p_from_log_odds(value: float) -> float:
     return probability_from_log_odds(clamp_log_odds(value))
 
 
-def range_weight(distance: float, max_range: float) -> float:
-    """How strongly this measurement counts: 1 at the robot, 0.5 at max_range."""
-    return 1.0 - (distance / (max_range * 2.0))
+def center_weight(offset: float, cell_size: float, b: float | None = None) -> float:
+    """How strongly a ray feature counts, from cell-center distance.
+
+    1 when the hit or line passes through the cell center; 0 at a cell corner
+    (half-diagonal away). ``b`` controls the fade curve; b=1 is linear in the
+    normalized offset (default tunable is 0.5).
+    """
+    if cell_size <= 0.0:
+        return 0.0
+    if b is None:
+        b = OccupancyGrid.CENTER_WEIGHT_B
+    # Unit-cell form passes through (0, 1) and (sqrt(0.5), 0); scale offset by
+    # cell_size so the zero stays at this cell's half-diagonal.
+    t = math.sqrt(2.0) * offset / cell_size
+    if t <= 0.0:
+        return 1.0
+    if t >= 1.0:
+        return 0.0
+    return (1.0 - t**b) ** (1.0 / b)
+
+
+def point_to_segment_distance(
+    point_x: float,
+    point_z: float,
+    start_x: float,
+    start_z: float,
+    end_x: float,
+    end_z: float,
+) -> float:
+    """Shortest distance from a point to a line segment in the XZ plane."""
+    delta_x = end_x - start_x
+    delta_z = end_z - start_z
+    length_sq = delta_x * delta_x + delta_z * delta_z
+    if length_sq == 0.0:
+        return math.hypot(point_x - start_x, point_z - start_z)
+    t = ((point_x - start_x) * delta_x + (point_z - start_z) * delta_z) / length_sq
+    t = max(0.0, min(1.0, t))
+    closest_x = start_x + t * delta_x
+    closest_z = start_z + t * delta_z
+    return math.hypot(point_x - closest_x, point_z - closest_z)
 
 
 FREE_SCAN_ODDS = log_odds(FREE_SCAN_PROBABILITY)
 OCCUPIED_SCAN_ODDS = log_odds(OCCUPIED_SCAN_PROBABILITY)
 
 
-def keep_nearest(ranges: dict[CellIndex, float], cell: CellIndex, distance: float) -> None:
-    """Keep the shortest distance seen for this cell in the current scan."""
-    previous = ranges.get(cell)
-    if previous is None or distance < previous:
-        ranges[cell] = distance
+def keep_nearest(offsets: dict[CellIndex, float], cell: CellIndex, offset: float) -> None:
+    """Keep the smallest center-offset seen for this cell in the current scan."""
+    previous = offsets.get(cell)
+    if previous is None or offset < previous:
+        offsets[cell] = offset
 
 
 @dataclass
@@ -81,12 +122,12 @@ class GridCell:
         self.l_initial = log_odds(self.p_initial)
         self.l_occupied = self.l_initial
 
-    def update(self, l_scan: float, distance: float, max_range: float, gamma: float) -> bool:
+    def update(self, l_scan: float, weight: float, gamma: float) -> bool:
         """Update log-odds; recompute p only when |ΔL| can change two-decimal probability.
 
+        weight scales how much of l_scan is applied (1 at cell center, 0 at the edge).
         Returns True when p_occupied changed (caller may queue an export).
         """
-        weight = range_weight(distance, max_range)
         updated = clamp_log_odds(
             self.l_initial
             + weight * (l_scan - self.l_initial)
@@ -126,10 +167,12 @@ class OccupancyGrid:
     GAMMA = TunableParameter(
         0.95, minimum=0.0, maximum=1.0, step=0.01, label="Occupancy gamma",
     )
+    CENTER_WEIGHT_B = TunableParameter(
+        0.5, minimum=0.01, maximum=4.0, step=0.01, label="Occupancy center-weight b",
+    )
 
-    def __init__(self, path: str = OCCUPANCY_PATH, r_max: float = DEFAULT_MAX_RANGE) -> None:
+    def __init__(self, path: str = OCCUPANCY_PATH) -> None:
         self.path = path
-        self.r_max = r_max
         self.cell_size = 0.10
         self.room_corners = server_room_corners()
         self.room_cells = cells_covering_room(self.room_corners, self.cell_size)
@@ -139,35 +182,23 @@ class OccupancyGrid:
     def world_to_cell(self, x: float, z: float) -> CellIndex:
         return (math.floor(x / self.cell_size), math.floor(z / self.cell_size))
 
+    def cell_center(self, cell: CellIndex) -> tuple[float, float]:
+        return ((cell[0] + 0.5) * self.cell_size, (cell[1] + 0.5) * self.cell_size)
+
     @staticmethod
-    def cast_ray(
-        start: CellIndex,
-        end: CellIndex,
-        hit_range: float,
-    ) -> dict[CellIndex, float]:
-        """Bresenham walk from start to end with a range on each cell.
-
-        Spreads the true Euclidean hit distance evenly across grid steps:
-
-            distance_i = hit_range * i / n_steps
-
-        Start is 0; end is hit_range. Returns {cell: distance} for the whole ray.
-        """
+    def cast_ray(start: CellIndex, end: CellIndex) -> list[CellIndex]:
+        """Bresenham cells from start to end, including both ends."""
         x, z = start
         end_x, end_z = end
         delta_x = abs(end_x - x)
         delta_z = abs(end_z - z)
-        step_count = max(delta_x, delta_z)
-        distance_per_step = hit_range / step_count if step_count else 0.0
-
         step_x = 1 if x < end_x else -1
         step_z = 1 if z < end_z else -1
         error = delta_x - delta_z
 
-        distances: dict[CellIndex, float] = {}
-        step = 0
+        cells: list[CellIndex] = []
         while True:
-            distances[(x, z)] = step * distance_per_step if step_count else hit_range
+            cells.append((x, z))
             if x == end_x and z == end_z:
                 break
 
@@ -178,71 +209,71 @@ class OccupancyGrid:
             if doubled_error < delta_x:
                 error += delta_x
                 z += step_z
-            step += 1
 
-        return distances
+        return cells
 
     def _apply_evidence(
         self,
-        distances: dict[CellIndex, float],
+        offsets: dict[CellIndex, float],
         l_scan: float,
-        max_range: float,
         gamma: float,
     ) -> None:
-        """Given a map of cells to their respective distances from the robot, update the cells' states.
-        
-        The log odds are precomputed based on whether these cells are occupied or free.
-        """
-        for cell, distance in distances.items():
+        """Update cells using center-offset weights for this scan's evidence."""
+        for cell, offset in offsets.items():
             if cell not in self.room_cells:
                 continue
-            if self.cells[cell].update(l_scan, distance, max_range, gamma):
+            weight = center_weight(offset, self.cell_size)
+            if weight <= 0.0:
+                continue
+            if self.cells[cell].update(l_scan, weight, gamma):
                 self._pending_export_cells.add(cell)
 
     def update(
         self,
         robot_pos: Transform,
         corrected_points: np.ndarray,
-        r_max: float | None = None,
     ) -> None:
         """Incorporate server-frame LiDAR hits into the room grid.
 
-        Each hit: one Euclidean range, then cast_ray. Across rays the nearest
-        distance wins. Ray endpoints are occupied; earlier cells are free.
+        Each hit walks Bresenham to its cell. Free cells store the distance from
+        the continuous ray to the cell center; the hit cell stores the distance
+        from the hit to the cell center. Across rays the nearest offset wins.
         Occupied overrides free. Out-of-room cells are skipped.
         """
-        max_range = (
-            r_max if r_max is not None and math.isfinite(r_max) and r_max > 0.0 else self.r_max
-        )
         gamma = self.GAMMA
         robot_x = robot_pos.position.x
         robot_z = robot_pos.position.z
         robot_cell = self.world_to_cell(robot_x, robot_z)
 
-        free_distances: dict[CellIndex, float] = {}
-        occupied_distances: dict[CellIndex, float] = {}
+        free_offsets: dict[CellIndex, float] = {}
+        occupied_offsets: dict[CellIndex, float] = {}
 
         for hit_x, _hit_y, hit_z in corrected_points:
             hit_x = float(hit_x)
             hit_z = float(hit_z)
             hit_cell = self.world_to_cell(hit_x, hit_z)
-            hit_range = math.hypot(hit_x - robot_x, hit_z - robot_z)
 
-            for cell, distance in self.cast_ray(robot_cell, hit_cell, hit_range).items():
-                target = occupied_distances if cell == hit_cell else free_distances
-                keep_nearest(target, cell, distance)
+            for cell in self.cast_ray(robot_cell, hit_cell):
+                center_x, center_z = self.cell_center(cell)
+                if cell == hit_cell:
+                    offset = math.hypot(hit_x - center_x, hit_z - center_z)
+                    keep_nearest(occupied_offsets, cell, offset)
+                else:
+                    offset = point_to_segment_distance(
+                        center_x, center_z, robot_x, robot_z, hit_x, hit_z,
+                    )
+                    keep_nearest(free_offsets, cell, offset)
 
-        for cell in occupied_distances:
-            free_distances.pop(cell, None)
+        for cell in occupied_offsets:
+            free_offsets.pop(cell, None)
 
-        self._apply_evidence(free_distances, FREE_SCAN_ODDS, max_range, gamma)
-        self._apply_evidence(occupied_distances, OCCUPIED_SCAN_ODDS, max_range, gamma)
+        self._apply_evidence(free_offsets, FREE_SCAN_ODDS, gamma)
+        self._apply_evidence(occupied_offsets, OCCUPIED_SCAN_ODDS, gamma)
 
     def update_dashboard(
         self,
         robot_pos: Transform,
         corrected_points: np.ndarray,
-        r_max: float | None = None,
     ) -> None:
         """Shift dashboard-frame pose/cloud into the server frame, then update."""
         origin_x, origin_z = DISPLAY_OFFSET[0], DISPLAY_OFFSET[2]
@@ -257,7 +288,7 @@ class OccupancyGrid:
         points = np.array(corrected_points, dtype=float, copy=True)
         points[:, 0] -= origin_x
         points[:, 2] -= origin_z
-        self.update(server_pose, points, r_max=r_max)
+        self.update(server_pose, points)
 
     def export(self, filepath: str | None = None, *, reset: bool = False) -> None:
         """Write pending cell updates (or an empty reset) and clear the pending set."""
