@@ -41,6 +41,9 @@ _BYTES_PER_POINT = 12  # three little-endian float32
 DOG_CLOUD_RANGE_MAX = 8.0   # horizontal range kept (meters)
 DOG_CLOUD_Z_MIN = -0.5      # just below the floor (floor is about 0.3 m under the pose)
 DOG_CLOUD_Z_MAX = 2.0       # about 2 m above the dog
+DOG_CLOUD_RANGE_MIN = 0.5   # skip the dog's own body and legs, or they smear a trail along its path
+DOG_EVIDENCE_RANGE_MAX = 15.0  # free-space evidence (see raw_cloud_to_evidence) reaches farther
+DOG_EVIDENCE_MAX_POINTS = 30000
 DOG_CLOUD_VOXEL = 0.08      # one point kept per 8 cm cell
 DOG_CLOUD_MAX_POINTS = 20000
 
@@ -229,4 +232,26 @@ def raw_cloud_to_points(raw: RawPointCloud) -> np.ndarray:
     origin = np.array([p.x, p.y, p.z], dtype=np.float64)
     if not np.isfinite(origin).all():
         raise ValueError("point cloud transform has a non-finite position")
-    return cloud_to_points(decode_xyz(raw.xyz), origin)
+    return cloud_to_points(decode_xyz(raw.xyz), origin, range_min=DOG_CLOUD_RANGE_MIN)
+
+
+def raw_cloud_to_evidence(raw: RawPointCloud) -> np.ndarray:
+    """The whole cloud, uncropped in height, for the 3D map's free-space check.
+
+    The map only keeps points up to DOG_CLOUD_Z_MAX above the dog, but the lidar
+    also sees the ceiling and far walls through where an old point used to be.
+    That is exactly the evidence needed to erase the old point, so it must not be
+    cropped away. Only the dog's own body is dropped. Returns (M, 3) in the world frame.
+    """
+    p = raw.transform.position
+    origin = np.array([p.x, p.y, p.z], dtype=np.float64)
+    if not np.isfinite(origin).all():
+        raise ValueError("point cloud transform has a non-finite position")
+    points = decode_xyz(raw.xyz)
+    points = points[np.isfinite(points).all(axis=1)]
+    rel = points - origin
+    dist = np.linalg.norm(rel, axis=1)
+    points = points[(dist >= DOG_CLOUD_RANGE_MIN) & (dist <= DOG_EVIDENCE_RANGE_MAX)]
+    if len(points) > DOG_EVIDENCE_MAX_POINTS:
+        points = points[:: -(-len(points) // DOG_EVIDENCE_MAX_POINTS)]  # ceil division
+    return points

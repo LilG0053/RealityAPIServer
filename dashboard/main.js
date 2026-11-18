@@ -307,7 +307,8 @@ function updateMapMarkers(points) {
   if (!mapMarkers) return;
 
   points.forEach((point, index) => {
-    mapDot.position.set(point.x, MAP_POINT_HEIGHT, point.z);
+    // y is the point's height: 0 for the flat 2D maps, real heights for the dog's 3D map.
+    mapDot.position.set(point.x, point.y + MAP_POINT_HEIGHT, point.z);
     mapDot.updateMatrix();
     mapMarkers.setMatrixAt(index, mapDot.matrix);
   });

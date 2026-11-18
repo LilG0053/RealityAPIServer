@@ -22,6 +22,10 @@ class ScanLocalizer:
     correction: np.ndarray = field(default_factory=lambda: np.eye(3))
     # Closest-point RMSE of the scan most recently compared with the map.
     last_rmse: float | None = None
+    # True when the latest scan was trusted: the first scan, or one that passed
+    # the RMSE check and was merged. Other maps built from the same scan (the
+    # dog's 3D map) use it to decide whether to take that scan too.
+    last_accepted: bool = False
     def update(self, lidar: Lidar, rmse_limit: float = math.inf) -> bool:
         """
         Wraps around icp for 2D, returning bool value if successful.
@@ -30,6 +34,7 @@ class ScanLocalizer:
         matches, or a closest-point RMSE above rmse_limit).
         """
         self.last_rmse = None
+        self.last_accepted = False
         if not lidar.points:
             return False
         # Only get X and Z columns
@@ -38,6 +43,7 @@ class ScanLocalizer:
         scan = scan @ self.correction[:2, :2].T + self.correction[:2, 2]
         if self.accumulated_scan is None:
             self.accumulated_scan = scan
+            self.last_accepted = True
             return False
         
         transformation_history, aligned, rmse = icp(self.accumulated_scan, scan)
@@ -71,6 +77,7 @@ class ScanLocalizer:
         merged = np.vstack((self.accumulated_scan, aligned))
         _, keep = np.unique(np.floor(merged / VOXEL_SIZE).astype(int), axis=0, return_index=True)
         self.accumulated_scan = merged[keep]
+        self.last_accepted = True
         return True
 
     def _drop_enclosed(self, accumulated: np.ndarray, scan: np.ndarray) -> np.ndarray:
@@ -87,6 +94,7 @@ class ScanLocalizer:
         self.accumulated_scan = None
         self.correction = np.eye(3)
         self.last_rmse = None
+        self.last_accepted = False
 
     def correct_lidar(self, lidar: Lidar) -> Lidar:
         # Correction lives in the server's X/Z ground plane; Y is up and stays put

@@ -11,6 +11,8 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
+
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
 from websockets.asyncio.server import serve
@@ -21,13 +23,13 @@ from map.coordinate import (
     TURTLEBOT_COORDS,
     convert_lidar,
     convert_transform,
+    get_transform_matrix,
 )
 from map.room import DISPLAY_OFFSET
 from map.lidar import scan_to_world_points
 from map.map import DASHBOARD_PATH, Map
 from map.tunable import list_tunables, set_tunable
-from map.pointcloud import raw_cloud_to_scan
-from map.pointcloud import RingAccumulator
+from map.pointcloud import RingAccumulator, raw_cloud_to_evidence, raw_cloud_to_points, raw_cloud_to_scan
 from realityapi_pb2 import (
     Command,
     DeviceInfo,
@@ -111,6 +113,21 @@ def place_dog_transform(transform: Transform) -> Transform:
     )
 
 
+# Dog axes -> server axes as one matrix, so a whole 3D cloud converts in one step.
+DOG_TO_SERVER = get_transform_matrix(DOG_COORDS, SERVER_COORDS).astype(float)
+
+
+def place_dog_points(points: np.ndarray) -> np.ndarray:
+    """Same conversion and placement as the Vector3 helpers above, for an (N, 3) array."""
+    p = points @ DOG_TO_SERVER.T
+    c, s = math.cos(DOG_START_YAW), math.sin(DOG_START_YAW)
+    return np.column_stack((
+        c * p[:, 0] - s * p[:, 2] + DOG_START_POSITION[0],
+        p[:, 1] + OFFSET[1],
+        s * p[:, 0] + c * p[:, 2] + DOG_START_POSITION[1],
+    ))
+
+
 def place_dog_lidar(lidar: Lidar) -> Lidar:
     return Lidar(points=[place_dog_vec3(point) for point in lidar.points])
 
@@ -188,10 +205,16 @@ def handle_raw_point_cloud(raw: RawPointCloud) -> Response:
     if not lidar.points:
         # Nothing in range: update the pose but keep the last scan on the map.
         return server_map.handle_device_info(DeviceInfo(id=raw.id, transform=transform))
+    # The same cloud, kept in 3D (cropped and thinned), goes to the 3D map.
+    cloud = place_dog_points(raw_cloud_to_points(raw))
+    # The uncropped cloud, only used to find old points this scan sees through.
+    evidence = place_dog_points(raw_cloud_to_evidence(raw))
     return server_map.handle_lidar_scan(
         raw.id,
         transform,
         place_dog_lidar(lidar),
+        cloud=cloud,
+        evidence=evidence,
     )
 
 

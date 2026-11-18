@@ -11,6 +11,7 @@ from map.device import Device, TurtleBot, device_from_info, device_from_dict
 from map.occupancy import OccupancyGrid  # <- use the exact import line main has for OccupancyGrid
 from realityapi_pb2 import AllDeviceInfo, DeviceInfo, DeviceType, Lidar, Response, Transform, Vector3
 import json, os
+from map.cloud_map import CloudMap
 from map.localization import ScanLocalizer
 from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
 
