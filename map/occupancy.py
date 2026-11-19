@@ -35,6 +35,12 @@ OCCUPIED_SCAN_PROBABILITY = 0.8
 LOG_ODDS_BOUNDS = (-3.5, 3.5)
 # Stored p is rounded to this many decimals.
 PROBABILITY_DECIMALS = 2
+# Skip the sigmoid (exp) that refreshes p_occupied until cumulative log-odds has
+# moved enough that a two-decimal probability *could* change.
+# At p=0.5, |dp/dL| peaks at 0.25, so |ΔL| < 0.005 / 0.25 = 0.02 cannot change
+# a value rounded to 0.01. This threshold is compared to L since the last p
+# refresh — not to the size of the latest single update.
+LOG_ODDS_P_REFRESH_THRESHOLD = 0.02
 
 CellIndex = tuple[int, int]
 
@@ -118,15 +124,27 @@ class GridCell:
 
     def __post_init__(self) -> None:
         self.p_initial = self.p_occupied
+        # Prior log-odds for this cell (from p_initial). Fixed for the cell's life.
         self.l_initial = log_odds(self.p_initial)
+        # Current belief in log-odds. Updated on every scan that hits this cell.
         self.l_occupied = self.l_initial
+        # Log-odds value the last time we ran the expensive L→p conversion and
+        # possibly changed p_occupied. Used only by the skip-exp optimization
+        # below — not part of the Bayesian update itself.
+        self.l_at_last_p_refresh = self.l_occupied
 
     def update(self, l_scan: float, weight: float, gamma: float) -> bool:
-        """Update log-odds and refresh rounded p from the new total L.
+        """Update log-odds; refresh rounded p only when cumulative L moved enough.
 
         weight scales how much of l_scan is applied (1 at cell center, 0 at the edge).
-        p is derived from the cumulative l_occupied, not the size of this step, so
-        many small updates still change the displayed color when they add up.
+
+        Always writes the new total into l_occupied. The displayed probability
+        p_occupied is rounded to PROBABILITY_DECIMALS, so converting L→p (a
+        sigmoid / exp) is skipped until |l_occupied - l_at_last_p_refresh| reaches
+        LOG_ODDS_P_REFRESH_THRESHOLD. Comparing against l_at_last_p_refresh — not
+        against the previous step's ΔL — means many tiny updates still refresh p
+        once their combined drift is large enough.
+
         Returns True when p_occupied changed (caller may queue an export).
         """
         self.l_occupied = clamp_log_odds(
@@ -134,7 +152,18 @@ class GridCell:
             + weight * (l_scan - self.l_initial)
             + gamma * (self.l_occupied - self.l_initial)
         )
+
+        # Optimization: skip exp until cumulative L since the last p refresh
+        # could change a two-decimal probability.
+        cumulative_delta_l = self.l_occupied - self.l_at_last_p_refresh
+        if abs(cumulative_delta_l) < LOG_ODDS_P_REFRESH_THRESHOLD:
+            return False
+
         new_probability = probability_from_log_odds(self.l_occupied)
+        # Advance the refresh anchor even when rounded p is unchanged, so the
+        # next checks measure drift from this L rather than re-running exp every
+        # scan after the threshold was crossed once.
+        self.l_at_last_p_refresh = self.l_occupied
         if new_probability == self.p_occupied:
             return False
         self.p_occupied = new_probability

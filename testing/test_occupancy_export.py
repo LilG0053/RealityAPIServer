@@ -137,12 +137,14 @@ class OccupancyExportTest(unittest.TestCase):
         self.assertEqual(cell.p_occupied, p_from_log_odds(expected_second))
         self.assertAlmostEqual(cell.l_occupied, expected_second, places=6)
 
-        # Many tiny steps still refresh p from the cumulative log-odds.
+        # Many tiny steps still refresh p once cumulative L past the last
+        # p-refresh anchor crosses LOG_ODDS_P_REFRESH_THRESHOLD.
         cell = GridCell(x=0, z=0, p_occupied=0.5)
         for _ in range(40):
             cell.update(OCCUPIED_SCAN_ODDS, weight=0.05, gamma=1.0)
         self.assertGreater(cell.p_occupied, 0.5)
         self.assertEqual(cell.p_occupied, p_from_log_odds(cell.l_occupied))
+        self.assertAlmostEqual(cell.l_at_last_p_refresh, cell.l_occupied, places=6)
 
         original = OccupancyGrid.GAMMA
         try:
