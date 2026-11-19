@@ -391,9 +391,6 @@ export declare type ServerRequest = Message<"realityapi.ServerRequest"> & {
     case: "postRawPointCloud";
   } | {
     /**
-     * Dashboard slider: closest-point RMSE cutoff (metres) for the dog's scans.
-     * 0 turns the check off.
-     *
      * @generated from field: float set_dog_rmse_limit = 13;
      */
     value: number;
