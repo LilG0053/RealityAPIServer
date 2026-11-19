@@ -9,8 +9,9 @@ occupied uses the hit-to-center distance, free uses the line-to-center distance.
 A feature through the center keeps full scan log-odds; toward the cell edge the
 update fades to zero.
 
-Exports are deltas: only cells touched since the last write. clear() exports
-an empty list with reset=true so the dashboard can wipe its colors.
+Exports list every cell touched since the last clear, with current p. That way
+a missed poll still catches up on the next file. clear() writes an empty list
+with reset=true so the dashboard can wipe its colors.
 """
 
 from __future__ import annotations
@@ -32,10 +33,8 @@ INITIAL_PROBABILITY = 0.5
 FREE_SCAN_PROBABILITY = 0.2
 OCCUPIED_SCAN_PROBABILITY = 0.8
 LOG_ODDS_BOUNDS = (-3.5, 3.5)
-# Stored p is rounded to this many decimals. Skip exp when |ΔL| cannot change it:
-# max |dp/dL| = 0.25 at p=0.5, so |ΔL| < 0.005 / 0.25 = 0.02.
+# Stored p is rounded to this many decimals.
 PROBABILITY_DECIMALS = 2
-LOG_ODDS_UPDATE_THRESHOLD = 0.02
 
 CellIndex = tuple[int, int]
 
@@ -123,21 +122,18 @@ class GridCell:
         self.l_occupied = self.l_initial
 
     def update(self, l_scan: float, weight: float, gamma: float) -> bool:
-        """Update log-odds; recompute p only when |ΔL| can change two-decimal probability.
+        """Update log-odds and refresh rounded p from the new total L.
 
         weight scales how much of l_scan is applied (1 at cell center, 0 at the edge).
+        p is derived from the cumulative l_occupied, not the size of this step, so
+        many small updates still change the displayed color when they add up.
         Returns True when p_occupied changed (caller may queue an export).
         """
-        updated = clamp_log_odds(
+        self.l_occupied = clamp_log_odds(
             self.l_initial
             + weight * (l_scan - self.l_initial)
             + gamma * (self.l_occupied - self.l_initial)
         )
-        delta_l = updated - self.l_occupied
-        self.l_occupied = updated
-        if abs(delta_l) < LOG_ODDS_UPDATE_THRESHOLD:
-            return False
-
         new_probability = probability_from_log_odds(self.l_occupied)
         if new_probability == self.p_occupied:
             return False
@@ -177,6 +173,9 @@ class OccupancyGrid:
         self.room_corners = server_room_corners()
         self.room_cells = cells_covering_room(self.room_corners, self.cell_size)
         self.cells: dict[CellIndex, GridCell] = _CellMap(self.room_cells)
+        # Cells whose p changed since the last clear; rewritten on every export.
+        self._touched_cells: set[CellIndex] = set()
+        # Subset of _touched_cells that changed since the last successful write.
         self._pending_export_cells: set[CellIndex] = set()
 
     def world_to_cell(self, x: float, z: float) -> CellIndex:
@@ -226,6 +225,7 @@ class OccupancyGrid:
             if weight <= 0.0:
                 continue
             if self.cells[cell].update(l_scan, weight, gamma):
+                self._touched_cells.add(cell)
                 self._pending_export_cells.add(cell)
 
     def update(
@@ -291,8 +291,12 @@ class OccupancyGrid:
         self.update(server_pose, points)
 
     def export(self, filepath: str | None = None, *, reset: bool = False) -> None:
-        """Write pending cell updates (or an empty reset) and clear the pending set."""
-        cells = [] if reset else [self.cells[cell].as_export() for cell in self._pending_export_cells]
+        """Write touched cells (or an empty reset) and clear the pending-write set.
+
+        Each non-reset write includes every cell touched since clear(), so a
+        dashboard poll that skipped an intermediate file still gets current colors.
+        """
+        cells = [] if reset else [self.cells[cell].as_export() for cell in self._touched_cells]
         payload = {
             "frame": "server",
             "cell_size": self.cell_size,
@@ -318,5 +322,6 @@ class OccupancyGrid:
     def clear(self) -> None:
         """Drop observed cells and tell the dashboard to wipe its colors."""
         self.cells.clear()
+        self._touched_cells.clear()
         self._pending_export_cells.clear()
         self.export(reset=True)

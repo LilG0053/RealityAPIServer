@@ -317,8 +317,8 @@ function updateMapMarkers(points) {
 }
 
 // Occupancy grid. The room cell lattice is built once in the browser from
-// roomCorners. occupancy_grid.json carries deltas: only cells updated since
-// the previous export. reset=true wipes colors back to unknown (0.5).
+// roomCorners. occupancy_grid.json lists every cell touched since the last
+// clear (current p). reset=true wipes colors back to unknown (0.5).
 const occupancyGeometry = new THREE.PlaneGeometry(1, 1);
 const occupancyMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
 const occupancyMarker = new THREE.Object3D();
@@ -428,7 +428,7 @@ function updateOccupancyGrid(grid) {
     }
   }
 
-  // Apply this file's delta on top of colors already on the lattice.
+  // Apply this file's cells on top of colors already on the lattice.
   for (const cell of grid.cells) {
     const index = occupancyIndexByKey.get(`${cell.x},${cell.z}`);
     if (index === undefined) continue;

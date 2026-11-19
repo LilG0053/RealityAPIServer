@@ -68,18 +68,24 @@ class OccupancyExportTest(unittest.TestCase):
             self.assertNotIn((0, 0), cells)
             self.assertNotIn((1000, 1000), cells)
 
-            # Pending set was cleared; a second export with no new updates is empty.
+            # Pending set was cleared; a second export still rewrites touched cells
+            # so a slow dashboard poll does not miss earlier colors.
+            first_cells = set(cells)
             self.assertEqual(grid._pending_export_cells, set())
             grid.export(str(path))
-            empty = json.loads(path.read_text())
-            self.assertEqual(empty["cells"], [])
-            self.assertFalse(empty["reset"])
+            rewritten = json.loads(path.read_text())
+            self.assertEqual(
+                {(cell["x"], cell["z"]) for cell in rewritten["cells"]},
+                first_cells,
+            )
+            self.assertFalse(rewritten["reset"])
 
-            # A later scan only exports cells touched since the previous export.
+            # A later scan keeps earlier cells in the file and adds any new ones.
             grid.update(origin, np.array([[2.05, 0.0, 6.55]]))
             grid.export(str(path))
             second = json.loads(path.read_text())
             second_cells = {(cell["x"], cell["z"]) for cell in second["cells"]}
+            self.assertTrue(first_cells.issubset(second_cells))
             self.assertIn((20, 65), second_cells)
             self.assertTrue(second_cells.issubset(grid.room_cells))
 
@@ -90,6 +96,7 @@ class OccupancyExportTest(unittest.TestCase):
         self.assertEqual(cleared["cells"], [])
         self.assertTrue(cleared["reset"])
         self.assertEqual(grid._pending_export_cells, set())
+        self.assertEqual(grid._touched_cells, set())
 
     def test_center_weight_and_tunable_gamma_follow_update_equation(self):
         names = {parameter["name"] for parameter in list_tunables()}
@@ -129,6 +136,13 @@ class OccupancyExportTest(unittest.TestCase):
         expected_second = 0.5 * expected_first
         self.assertEqual(cell.p_occupied, p_from_log_odds(expected_second))
         self.assertAlmostEqual(cell.l_occupied, expected_second, places=6)
+
+        # Many tiny steps still refresh p from the cumulative log-odds.
+        cell = GridCell(x=0, z=0, p_occupied=0.5)
+        for _ in range(40):
+            cell.update(OCCUPIED_SCAN_ODDS, weight=0.05, gamma=1.0)
+        self.assertGreater(cell.p_occupied, 0.5)
+        self.assertEqual(cell.p_occupied, p_from_log_odds(cell.l_occupied))
 
         original = OccupancyGrid.GAMMA
         try:
