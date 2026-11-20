@@ -4,13 +4,22 @@ package realityapi;
 
 import "google/protobuf/empty.proto";
 
+message Vector2 {
+    float x = 1;
+    float y = 2;
+}
+
+message Polygon2 {
+    repeated Vector2 vertices = 1;
+}
+
 message Vector3 {
   float x = 1;
   float y = 2;
   float z = 3;
 }
 
-message Transform {
+message Transform3 {
   Vector3 position = 1;
   Vector3 rotation = 2;
 }
@@ -21,7 +30,7 @@ message Lidar {
 
 message RawLidarScan {
   string id = 1;
-  Transform transform = 2; // snapshot of the robot pose when the scan was read
+  Transform3 transform = 2; // snapshot of the robot pose when the scan was read
 
   repeated float ranges = 3; // raw LaserScan distances
   float range_min = 4;
@@ -35,11 +44,36 @@ message RawPointCloud {
   string id = 1;
   // Pose of the robot when the cloud was read, in the SENDER's own axes
   // (ROS x/y/z for the dog). The server uses its position as the crop centre.
-  Transform transform = 2;
+  Transform3 transform = 2;
 
   // Packed little-endian float32 x, y, z triples: 12 bytes per point, in the
   // same frame and axes as `transform`.
   bytes xyz = 3;
+}
+
+// room bounds (2d)
+message RoomBounds {
+    Vector2 origin = 1;
+    Polygon2 room = 2;
+    repeated Polygon2 obstacles = 3;
+}
+
+// occupancy grid cell (2d), indexed in the server frame
+message OccupancyCell {
+    int32 x = 1;
+    int32 z = 2;
+    float p = 3; // probability the cell is occupied
+}
+
+// occupancy grid (2d)
+message OccupancyGrid {
+    float cell_size = 1;
+    Vector2 origin = 2; // where server (0, 0) is drawn, like RoomBounds.origin
+    // send this back in fetch_occupancy_grid to get only the cells changed since
+    uint64 revision = 3;
+    // wipe every cell back to unknown (0.5) before applying cells
+    bool reset = 4;
+    repeated OccupancyCell cells = 5;
 }
 
 enum DeviceType {
@@ -58,7 +92,7 @@ message DeviceInfo {
   DeviceType device_type = 2;
   float timestamp = 3;
 
-  optional Transform transform = 4;
+  optional Transform3 transform = 4;
   optional Lidar lidar = 5;
 }
 
@@ -86,6 +120,8 @@ message Response {
     AllDeviceInfo all_device_info = 20;
     DeviceInfo device_info = 21;
     Lidar lidar_data = 22;
+    RoomBounds room_bounds = 23;
+    OccupancyGrid occupancy_grid = 24;
   }
 }
 
@@ -94,7 +130,7 @@ message Command {
   string target_id = 1;
 
   // multiple demands can be packaged into one command
-  optional Transform transform = 2;
+  optional Transform3 transform = 2;
 }
 
 message ServerRequest {
@@ -109,8 +145,10 @@ message ServerRequest {
     Command send_command = 8;
     google.protobuf.Empty fetch_lidar_data = 9;
     RawLidarScan post_raw_lidar_scan = 10;
-    google.protobuf.Empty clear_accumulated_scan = 11; 
-    RawPointCloud post_raw_point_cloud = 12;     
+    google.protobuf.Empty clear_accumulated_scan = 11;
+    RawPointCloud post_raw_point_cloud = 12;
+    google.protobuf.Empty fetch_room_bounds = 13;
+    uint64 fetch_occupancy_grid = 14; // revision already applied; 0 for everything
   }
 }
 

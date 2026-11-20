@@ -15,7 +15,7 @@ sys.path.insert(0, str(ROOT))
 
 import server
 from map.map import Map
-from realityapi_pb2 import DeviceInfo, DeviceType, RawLidarScan, ServerRequest, Transform, Vector3
+from realityapi_pb2 import DeviceInfo, DeviceType, RawLidarScan, ServerRequest, Transform3, Vector3
 
 
 class RawLidarPipelineTest(unittest.TestCase):
@@ -47,7 +47,7 @@ class RawLidarPipelineTest(unittest.TestCase):
         registration = DeviceInfo(
             id=device_id,
             device_type=DeviceType.TURTLE,
-            transform=Transform(),
+            transform=Transform3(),
         )
         registration_response = self.dispatch(
             ServerRequest(post_device_info=registration)
@@ -56,7 +56,7 @@ class RawLidarPipelineTest(unittest.TestCase):
 
         scan = RawLidarScan(
             id=device_id,
-            transform=Transform(
+            transform=Transform3(
                 position=Vector3(x=1.0, y=2.0, z=0.0),
                 rotation=Vector3(z=0.0),
             ),

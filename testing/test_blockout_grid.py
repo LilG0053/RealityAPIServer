@@ -20,7 +20,7 @@ from map.blockout import (
 )
 from map.room import server_room_corners
 
-BLOCKOUT = str(ROOT / "dashboard" / "blockout.json")
+BLOCKOUT = str(ROOT / "assets" / "blockout.json")
 
 
 def points_along_walls(polygons, step=0.02):

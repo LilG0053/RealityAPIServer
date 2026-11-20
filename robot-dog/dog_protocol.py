@@ -16,7 +16,7 @@ from realityapi_pb2 import (
     DeviceType,
     RawPointCloud,
     ServerRequest,
-    Transform,
+    Transform3,
     Vector3,
 )
 
@@ -68,7 +68,7 @@ def pose_request(message: Any) -> ServerRequest:
     p = message.pose.position
     position = Vector3(x=_finite(p.x, "x"), y=_finite(p.y, "y"), z=_finite(p.z, "z"))
     rotation = Vector3(z=_yaw(message.pose.orientation))
-    return _device_request(transform=Transform(position=position, rotation=rotation))
+    return _device_request(transform=Transform3(position=position, rotation=rotation))
 
 
 def _point_field(message: Any, name: str) -> Any:
@@ -136,7 +136,7 @@ def cloud_request(message: Any, pose: tuple[float, float, float, float]) -> Serv
         req_uuid=str(uuid4()),
         post_raw_point_cloud=RawPointCloud(
             id=DEVICE_ID,
-            transform=Transform(position=Vector3(x=ox, y=oy, z=oz), rotation=Vector3(z=yaw)),
+            transform=Transform3(position=Vector3(x=ox, y=oy, z=oz), rotation=Vector3(z=yaw)),
             xyz=xyz.astype("<f4").tobytes(),
         ),
     )

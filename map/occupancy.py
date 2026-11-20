@@ -9,24 +9,24 @@ occupied uses the hit-to-center distance, free uses the line-to-center distance.
 A feature through the center keeps full scan log-odds; toward the cell edge the
 update fades to zero.
 
-Exports are deltas: only cells touched since the last write. clear() exports
-an empty list with reset=true so the dashboard can wipe its colors.
+Dashboards fetch the grid over the websocket. Every cell change gets a new
+revision number; a dashboard sends back the revision it has applied and gets
+only the cells changed since. After clear(), or when the dashboard's revision
+is from an earlier server run, the reply has reset=true and every observed cell.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 import math
-import os
+import time
 
 import numpy as np
 
 from map.room import DISPLAY_OFFSET, cells_covering_room, server_room_corners
 from map.tunable import TunableParameter
-from realityapi_pb2 import Transform, Vector3
-
-OCCUPANCY_PATH = "dashboard/occupancy_grid.json"
+from realityapi_pb2 import OccupancyCell, Transform3, Vector2, Vector3
+from realityapi_pb2 import OccupancyGrid as OccupancyGridMessage
 
 INITIAL_PROBABILITY = 0.5
 FREE_SCAN_PROBABILITY = 0.2
@@ -126,7 +126,7 @@ class GridCell:
         """Update log-odds; recompute p only when |ΔL| can change two-decimal probability.
 
         weight scales how much of l_scan is applied (1 at cell center, 0 at the edge).
-        Returns True when p_occupied changed (caller may queue an export).
+        Returns True when p_occupied changed (the grid then gives it a new revision).
         """
         updated = clamp_log_odds(
             self.l_initial
@@ -144,8 +144,8 @@ class GridCell:
         self.p_occupied = new_probability
         return True
 
-    def as_export(self) -> dict:
-        return {"x": self.x, "z": self.z, "p": self.p_occupied}
+    def as_message(self) -> OccupancyCell:
+        return OccupancyCell(x=self.x, z=self.z, p=self.p_occupied)
 
 
 class _CellMap(dict[CellIndex, GridCell]):
@@ -171,13 +171,16 @@ class OccupancyGrid:
         0.5, minimum=0.01, maximum=4.0, step=0.01, label="Occupancy center-weight b",
     )
 
-    def __init__(self, path: str = OCCUPANCY_PATH) -> None:
-        self.path = path
+    def __init__(self) -> None:
         self.cell_size = 0.10
         self.room_corners = server_room_corners()
         self.room_cells = cells_covering_room(self.room_corners, self.cell_size)
         self.cells: dict[CellIndex, GridCell] = _CellMap(self.room_cells)
-        self._pending_export_cells: set[CellIndex] = set()
+        # Revisions start at the wall clock so every revision from this run is
+        # newer than any a dashboard kept from an earlier run.
+        self.revision = time.time_ns()
+        self._reset_revision = self.revision
+        self._cell_revisions: dict[CellIndex, int] = {}
 
     def world_to_cell(self, x: float, z: float) -> CellIndex:
         return (math.floor(x / self.cell_size), math.floor(z / self.cell_size))
@@ -226,11 +229,12 @@ class OccupancyGrid:
             if weight <= 0.0:
                 continue
             if self.cells[cell].update(l_scan, weight, gamma):
-                self._pending_export_cells.add(cell)
+                self.revision += 1
+                self._cell_revisions[cell] = self.revision
 
     def update(
         self,
-        robot_pos: Transform,
+        robot_pos: Transform3,
         corrected_points: np.ndarray,
     ) -> None:
         """Incorporate server-frame LiDAR hits into the room grid.
@@ -272,12 +276,12 @@ class OccupancyGrid:
 
     def update_dashboard(
         self,
-        robot_pos: Transform,
+        robot_pos: Transform3,
         corrected_points: np.ndarray,
     ) -> None:
         """Shift dashboard-frame pose/cloud into the server frame, then update."""
         origin_x, origin_z = DISPLAY_OFFSET[0], DISPLAY_OFFSET[2]
-        server_pose = Transform(
+        server_pose = Transform3(
             position=Vector3(
                 x=robot_pos.position.x - origin_x,
                 y=robot_pos.position.y,
@@ -290,33 +294,31 @@ class OccupancyGrid:
         points[:, 2] -= origin_z
         self.update(server_pose, points)
 
-    def export(self, filepath: str | None = None, *, reset: bool = False) -> None:
-        """Write pending cell updates (or an empty reset) and clear the pending set."""
-        cells = [] if reset else [self.cells[cell].as_export() for cell in self._pending_export_cells]
-        payload = {
-            "frame": "server",
-            "cell_size": self.cell_size,
-            "origin_x": DISPLAY_OFFSET[0],
-            "origin_z": DISPLAY_OFFSET[2],
-            "reset": reset,
-            "cells": cells,
-        }
-        destination = filepath if filepath is not None else self.path
-        temporary_path = destination + ".tmp"
-        try:
-            with open(temporary_path, "w") as file:
-                file.write(json.dumps(payload))
-            os.replace(temporary_path, destination)
-            self._pending_export_cells.clear()
-        except OSError as error:
-            print(f"[!] could not write {destination}: {error}")
+    def snapshot(self, since: int = 0) -> OccupancyGridMessage:
+        """Cells changed after revision `since`, or every observed cell with reset=True.
 
-    def export_pending_updates(self) -> None:
-        if self._pending_export_cells:
-            self.export()
+        A dashboard that applied revision R sends R back. It needs a reset when
+        R is from before the last clear(), or from a different server run.
+        """
+        reset = since < self._reset_revision or since > self.revision
+        # Every cell that changed since clear() has a revision; the rest are
+        # still at the prior. (Reading self.cells can create prior cells.)
+        cells = [
+            self.cells[index].as_message()
+            for index, revision in self._cell_revisions.items()
+            if reset or revision > since
+        ]
+        return OccupancyGridMessage(
+            cell_size=self.cell_size,
+            origin=Vector2(x=DISPLAY_OFFSET[0], y=DISPLAY_OFFSET[2]),
+            revision=self.revision,
+            reset=reset,
+            cells=cells,
+        )
 
     def clear(self) -> None:
-        """Drop observed cells and tell the dashboard to wipe its colors."""
+        """Drop observed cells; dashboards get reset=True on their next fetch."""
         self.cells.clear()
-        self._pending_export_cells.clear()
-        self.export(reset=True)
+        self._cell_revisions.clear()
+        self.revision += 1
+        self._reset_revision = self.revision

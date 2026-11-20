@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
 
 from map.coordinate import Direction
 from map.device import TurtleBot
-from realityapi_pb2 import DeviceType, Transform, Vector3, Lidar
+from realityapi_pb2 import DeviceType, Transform3, Vector3, Lidar
 
 
 def create_turtlebot(
@@ -22,7 +22,7 @@ def create_turtlebot(
         id=custom_id or socket.gethostname(),
         device_type=DeviceType.TURTLE,
         timestamp=time(),
-        transform=Transform(
+        transform=Transform3(
             position=Vector3(x=0.0, y=0.0, z=0.0),
             rotation=Vector3(x=0.0, y=0.0, z=0.0),
         ),

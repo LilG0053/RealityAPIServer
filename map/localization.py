@@ -1,4 +1,4 @@
-from realityapi_pb2 import Lidar, Transform, Vector3
+from realityapi_pb2 import Lidar, Transform3, Vector3
 import math
 from dataclasses import dataclass, field
 from map.icp import icp
@@ -96,13 +96,13 @@ class ScanLocalizer:
             for c, p in zip(corrected, lidar.points)
         ])
 
-    def correct_transform(self, transform: Transform) -> Transform:
+    def correct_transform(self, transform: Transform3) -> Transform3:
         p = transform.position
         x, z = apply(self.correction, np.array([[p.x, p.z]]))[0]
         yaw = math.atan2(self.correction[1, 0], self.correction[0, 0])
         r = transform.rotation
         # Yaw is a rotation about the server's UP axis, which is rotation.y
-        return Transform(
+        return Transform3(
             position=Vector3(x=float(x), y=p.y, z=float(z)),
             rotation=Vector3(x=r.x, y=r.y + yaw, z=r.z),
         )
