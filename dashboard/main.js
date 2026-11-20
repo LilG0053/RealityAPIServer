@@ -18,6 +18,16 @@ const OBSTACLE_HEIGHT = WALL_HEIGHT;
 // (0, 0) is the corner furthest from the door. Empty until the server answers.
 let roomCorners = [];
 
+// Which device type's occupancy grid the dashboard shows (the room is shared).
+// Set from the "Occupancy grid for" picker, or ?device=TURTLE (any DeviceType
+// name) in the URL.
+const OCCUPANCY_DEVICE_TYPES = Object.keys(DeviceType)
+  .filter((name) => Number.isNaN(Number(name)) && name !== "NONE");
+let occupancyDeviceType = (() => {
+  const named = new URLSearchParams(location.search).get("device")?.toUpperCase();
+  return OCCUPANCY_DEVICE_TYPES.includes(named) ? DeviceType[named] : DeviceType.TURTLE;
+})();
+
 // Scene, camera, and renderer
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x20232a);
@@ -147,7 +157,12 @@ function toGroundPoints(polygon) {
   return (polygon?.vertices ?? []).map((vertex) => ({ x: vertex.x, z: vertex.y }));
 }
 
+// Where server (0, 0) is drawn. Poses, scans, and the accumulated map arrive in
+// server coordinates and are shifted by this before drawing.
+let serverOrigin = { x: 0, z: 0 };
+
 function buildRoom(bounds) {
+  serverOrigin = { x: bounds.origin?.x ?? 0, z: bounds.origin?.y ?? 0 };
   const corners = toGroundPoints(bounds.room);
   const obstacles = bounds.obstacles.map(toGroundPoints).filter((points) => points.length >= 3);
   const key = JSON.stringify([corners, obstacles]);
@@ -216,6 +231,46 @@ function buildRoom(bounds) {
 
   // The occupancy lattice covers the room, so rebuild it for the new outline.
   occupancyLayoutKey = "";
+
+  // Draw the room now instead of on the next animation frame, so it shows
+  // before any occupancy grid work that arrives right behind it.
+  renderer.render(scene, camera);
+}
+
+// Height the TurtleBot's 2D scan is drawn at (its lidar is ~0.19 m up).
+const LIDAR2_HEIGHT = 0.19;
+
+// A device's drawn position and marker rotation. TurtleBots send Transform2
+// (Vector2.y is Z, rotation is the heading from +X toward +Z); the dog sends
+// Transform3 (heading is rotation.y). Null if the device has no pose.
+function devicePose(device) {
+  if (device.transform2?.position) {
+    const p = device.transform2.position;
+    return {
+      x: p.x + serverOrigin.x,
+      z: p.y + serverOrigin.z,
+      rotation: { x: 0, y: device.transform2.rotation, z: 0 },
+    };
+  }
+  if (device.transform3?.position) {
+    const p = device.transform3.position;
+    const r = device.transform3.rotation ?? { x: 0, y: 0, z: 0 };
+    return { x: p.x + serverOrigin.x, z: p.z + serverOrigin.z, rotation: { x: r.x, y: r.y, z: r.z } };
+  }
+  return null;
+}
+
+// A device's live scan as drawn {x, y, z} points: Lidar2 for TurtleBots
+// (drawn at LIDAR2_HEIGHT), Lidar3 for the dog.
+function deviceScanPoints(device) {
+  if (device.lidar2?.points?.length) {
+    return device.lidar2.points.map((p) => ({
+      x: p.x + serverOrigin.x, y: LIDAR2_HEIGHT, z: p.y + serverOrigin.z,
+    }));
+  }
+  return (device.lidar3?.points ?? []).map((p) => ({
+    x: p.x + serverOrigin.x, y: p.y, z: p.z + serverOrigin.z,
+  }));
 }
 
 // Store 3D markers by device ID
@@ -242,9 +297,9 @@ function createChevron(material) {
 }
 
 // Helper function to create or update robot marker
-function updateRobotMarker(key, device) {
-  const position = device.transform.position;
-  const rotation = device.transform.rotation;
+function updateRobotMarker(key, pose) {
+  const position = pose;
+  const rotation = pose.rotation;
 
   if (robotMarkers[key]) {
     // Update existing marker position
@@ -276,9 +331,7 @@ let lidarMarkers = null;
 let lidarCapacity = 0;
 
 function updateLidarMarkers(devices) {
-  const points = devices.flatMap(device => device.lidar?.points ?? []);
-
-  console.log("LiDAR point count:", points.length, "First point:", points[0]);
+  const points = devices.flatMap(deviceScanPoints);
 
   if (points.length > lidarCapacity) {
     if (lidarMarkers) {
@@ -320,7 +373,7 @@ scene.add(lidarLine);
 function updateLidarLine(devices) {
   const coordinates = [];
   devices.forEach(device => {
-    const points = device.lidar?.points ?? [];
+    const points = deviceScanPoints(device);
     for (let index = 0; index + 1 < points.length; index += 1) {
       const start = points[index];
       const end = points[index + 1];
@@ -341,13 +394,7 @@ const mapDot = new THREE.Object3D();
 let mapMarkers = null;
 let mapCapacity = 0;
 
-let lastMapCount = -1;
-
 function updateMapMarkers(points) {
-  if (points.length !== lastMapCount) {
-    lastMapCount = points.length;
-    console.log("Accumulated map points:", points.length);
-  }
   if (points.length > mapCapacity) {
     if (mapMarkers) {
       scene.remove(mapMarkers);
@@ -361,8 +408,9 @@ function updateMapMarkers(points) {
 
   if (!mapMarkers) return;
 
+  // Lidar2 points in server coordinates: Vector2.y is Z.
   points.forEach((point, index) => {
-    mapDot.position.set(point.x, MAP_POINT_HEIGHT, point.z);
+    mapDot.position.set(point.x + serverOrigin.x, MAP_POINT_HEIGHT, point.y + serverOrigin.z);
     mapDot.updateMatrix();
     mapMarkers.setMatrixAt(index, mapDot.matrix);
   });
@@ -385,6 +433,18 @@ let occupancyMesh = null;
 let occupancyIndexByKey = new Map();
 let occupancyLayoutKey = "";
 let occupancyRevision = 0n;
+
+// Remove the occupancy lattice; the next grid fetched starts from scratch.
+function clearOccupancyLattice() {
+  if (occupancyMesh) {
+    scene.remove(occupancyMesh);
+    occupancyMesh.dispose();
+    occupancyMesh = null;
+  }
+  occupancyIndexByKey = new Map();
+  occupancyLayoutKey = "";
+  occupancyRevision = 0n;
+}
 
 function pointInRoomPolygon(x, z, corners) {
   let inside = false;
@@ -425,7 +485,12 @@ function ensureOccupancyLattice(cellSize, originX, originZ) {
   occupancyLayoutKey = key;
   occupancyIndexByKey = new Map();
 
-  const serverCorners = roomCorners.map((c) => ({ x: c.x - originX, z: c.z - originZ }));
+  // The server's room cells (map/room.py cells_covering_room) use its corners
+  // stored as 32-bit floats, so round the same way to get the same cells.
+  const serverCorners = roomCorners.map((c) => ({
+    x: Math.fround(c.x - originX),
+    z: Math.fround(c.z - originZ),
+  }));
   const xs = serverCorners.map((c) => c.x);
   const zs = serverCorners.map((c) => c.z);
   const iMin = Math.floor(Math.min(...xs) / cellSize);
@@ -477,10 +542,10 @@ function ensureOccupancyLattice(cellSize, originX, originZ) {
 // (no room yet, or a fresh lattice that a delta cannot fill in).
 function updateOccupancyGrid(grid) {
   if (!(grid.cellSize > 0)) return false;
-  // origin is on the X/Z ground plane: Vector2.y is Z.
-  const originX = grid.origin?.x ?? 0;
-  const originZ = grid.origin?.y ?? 0;
-  const rebuilt = ensureOccupancyLattice(grid.cellSize, originX, originZ);
+  // cellSize arrives as a 32-bit float; the server's is the decimal value (0.1).
+  const cellSize = Number(grid.cellSize.toPrecision(6));
+  // The grid is in server coordinates, drawn shifted by the room's origin.
+  const rebuilt = ensureOccupancyLattice(cellSize, serverOrigin.x, serverOrigin.z);
   if (!occupancyMesh) return false;
   if (rebuilt && !grid.reset) return false;
 
@@ -599,26 +664,52 @@ async function fetchRoomBounds() {
   }
 }
 
+// Show another device type's occupancy grid.
+function setOccupancyDeviceType(deviceType) {
+  occupancyDeviceType = deviceType;
+  const url = new URL(location.href);
+  url.searchParams.set("device", DeviceType[deviceType]);
+  history.replaceState(null, "", url);
+  // The next poll fetches the new type's grid from scratch.
+  clearOccupancyLattice();
+}
+
+const occupancyDevicePicker = document.getElementById("occupancy-device-type");
+occupancyDevicePicker?.addEventListener("change", () => setOccupancyDeviceType(Number(occupancyDevicePicker.value)));
+let occupancyPickerKey = "";
+
+// List the device types that are connected now, plus the one being shown.
+function updateOccupancyPicker(devices) {
+  if (!occupancyDevicePicker) return;
+  const types = new Set(devices.map((device) => device.deviceType).filter((type) => type !== DeviceType.NONE));
+  types.add(occupancyDeviceType);
+  const sorted = [...types].sort((a, b) => a - b);
+  const key = sorted.join(",");
+  if (key === occupancyPickerKey) return;
+  occupancyPickerKey = key;
+  occupancyDevicePicker.replaceChildren(
+    ...sorted.map((type) => new Option(DeviceType[type], String(type), false, type === occupancyDeviceType))
+  );
+}
+updateOccupancyPicker([]);
+
 // Track device positions
 let lastPositions = {};
 
 function updateDevices(devices) {
   const currentKeys = new Set();
   devices.forEach(device => {
-    // Only devices that report a transform have a place on the map.
-    if (!device.transform?.position) return;
+    // Only devices that report a pose have a place on the map.
+    const position = devicePose(device);
+    if (!position) return;
 
     const key = `${device.id}-${device.deviceType}`;
     currentKeys.add(key);
 
-    const position = device.transform.position;
     const newPos = { x: position.x, z: position.z };
 
-    const rotation = device.transform.rotation;
-    const newrot = { x: rotation.x, y: rotation.y, z: rotation.z };
-
     // Update 3D marker
-    updateRobotMarker(key, device);
+    updateRobotMarker(key, position);
 
     // Check if position changed or device is new
     if (!lastPositions[key] ||
@@ -663,6 +754,7 @@ async function pollDevices() {
         if (response.data.case === "allDeviceInfo") {
           updateDevices(response.data.value.devices);
           updateLidarMarkers(response.data.value.devices);
+          updateOccupancyPicker(response.data.value.devices);
         }
       } catch (error) {
         console.error("Error fetching devices:", error);
@@ -689,13 +781,24 @@ async function pollMap() {
   }
 }
 
-// Pending cell deltas are flushed about once a second, on the same cadence as the pose export.
 // Ask the server for occupancy cells changed since the revision applied here.
 async function fetchOccupancyGrid() {
   const status = document.getElementById("occupancy-status");
-  const response = await request({ case: "fetchOccupancyGrid", value: occupancyRevision });
+  // The lattice is built from the room outline, so there is nothing to apply
+  // cells to yet. The room itself never waits for the grid.
+  if (roomCorners.length < 3) {
+    if (status) status.textContent = "Waiting for room layout";
+    return;
+  }
+  const deviceType = occupancyDeviceType;
+  const response = await request({
+    case: "fetchOccupancyGrid",
+    value: { deviceType, sinceRevision: occupancyRevision },
+  });
+  if (deviceType !== occupancyDeviceType) return;  // the picker moved on meanwhile
   if (response.data.case !== "occupancyGrid") {
-    console.warn("Occupancy grid request was not accepted; server replied:", response.data.case);
+    clearOccupancyLattice();
+    if (status) status.textContent = `No occupancy grid for ${DeviceType[deviceType]}`;
     return;
   }
   const grid = response.data.value;
@@ -734,7 +837,6 @@ async function downloadPointCloud() {
   }
 
   button.disabled = true;
-  console.log("Preparing accumulated scan for download.");
   try {
     const response = await request({ case: "fetchLidarData", value: {} });
     if (response.data.case !== "lidarData") {
@@ -742,8 +844,11 @@ async function downloadPointCloud() {
       return;
     }
 
-    // Copy plain coordinates so protobuf message metadata stays out of the file.
-    const points = response.data.value.points.map(({ x, y, z }) => ({ x, y, z }));
+    // Copy plain drawn coordinates so protobuf message metadata stays out of
+    // the file. Lidar2 points are server X/Z (Vector2.y is Z) on the floor.
+    const points = response.data.value.points.map(({ x, y }) => ({
+      x: x + serverOrigin.x, y: 0, z: y + serverOrigin.z,
+    }));
     const blob = new Blob([JSON.stringify(points)], { type: "application/json" });
     const blobUrl = URL.createObjectURL(blob);
 
@@ -754,7 +859,6 @@ async function downloadPointCloud() {
     link.click();
     link.remove();
     URL.revokeObjectURL(blobUrl);
-    console.log("Downloaded", points.length, "points.");
   } catch (error) {
     console.error("Error downloading point cloud:", error);
   } finally {
@@ -767,11 +871,9 @@ async function clearAccumulatedScan() {
   if (!button || !socket || socket.readyState !== WebSocket.OPEN) return;
 
   button.disabled = true;
-  console.log("Clear accumulated scan: button clicked, sending request");
   try {
     const response = await request({ case: "clearAccumulatedScan", value: {} });
     if (response.data.case === "ok") {
-      console.log("Clear accumulated scan: server accepted");
       updateMapMarkers([]);
       try {
         await fetchOccupancyGrid();
@@ -786,30 +888,6 @@ async function clearAccumulatedScan() {
   } finally {
     button.disabled = false;
   }
-}
-
-if (!document.getElementById("clear-scan")) {
-  const clearButton = document.createElement("button");
-  clearButton.id = "clear-scan";
-  clearButton.type = "button";
-  clearButton.textContent = "Clear accumulated scan";
-  Object.assign(clearButton.style, {
-    position: "absolute",
-    top: "12px",
-    right: "12px",
-    zIndex: "10",
-    padding: "12px 16px",
-    font: "16px system-ui, sans-serif",
-    color: "#fff",
-    background: "#0f1115",
-    border: "none",
-    borderRadius: "10px",
-    cursor: "pointer"
-  });
-  if (getComputedStyle(sceneContainer).position === "static") {
-    sceneContainer.style.position = "relative";
-  }
-  sceneContainer.appendChild(clearButton);
 }
 
 document.getElementById("clear-scan")?.addEventListener("click", () => {
@@ -833,19 +911,8 @@ async function saveRmseHistogram() {
   }
   button.disabled = true;
   status.textContent = "Building histogram…";
-  const id = `rmse-${nextRequestId++}`;
   try {
-    const response = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        pendingRequests.delete(id);
-        reject(new Error("Server did not respond; restart it and try again"));
-      }, 10000);
-      pendingRequests.set(id, {
-        resolve: value => { clearTimeout(timeout); resolve(value); },
-        reject: error => { clearTimeout(timeout); reject(error); },
-      });
-      socket.send(JSON.stringify({ id, action: "save_rmse_histogram" }));
-    });
+    const response = await dashboardRequest({ action: "save_rmse_histogram" });
     if (!response.ok) throw new Error(response.error || "Server could not save the histogram");
     status.textContent = `Saved histogram of ${response.count} scans to ${response.path}`;
   } catch (error) {

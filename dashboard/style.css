@@ -192,6 +192,24 @@ body {
   cursor: default;
 }
 
+.occupancy-device-type {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0 0 0.75rem;
+  color: #d3dce6;
+  font-size: 0.85rem;
+}
+
+#occupancy-device-type {
+  padding: 0.55rem 0.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: #2a3442;
+  color: #f5f7fa;
+  font: inherit;
+  font-size: 0.95rem;
+}
+
 #rmse-status {
   min-height: 1.2rem;
   margin: 0 0 1.25rem;

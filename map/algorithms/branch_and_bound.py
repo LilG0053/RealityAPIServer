@@ -1,5 +1,8 @@
 import numpy as np
-from map.blockout import WallGrid
+
+from map.algorithms.wallgridinterface import WallGridInterface
+from realityapi_pb2 import Transform2, Vector2
+
 # Used to localize robot against the room
 
 def precompute_max_grids(grid: np.ndarray, levels: int) -> list[np.ndarray]:
@@ -13,15 +16,23 @@ def precompute_max_grids(grid: np.ndarray, levels: int) -> list[np.ndarray]:
     return stack
 
 class BranchAndBound:
-    def __init__(self, wall_grid: WallGrid, levels: int = 7):
+    def __init__(self, wall_grid: WallGridInterface, levels: int = 7):
         self.wall_grid = wall_grid
 
         # Required padding for out of range scans to not destroy measurements
         P = 300
         self.pad = P
-        self.stack = precompute_max_grids(np.pad(wall_grid.likelihood, P, constant_values=0.0), levels)        
+        self.stack = precompute_max_grids(np.pad(wall_grid.likelihood, P, constant_values=0.0), levels)
 
-    def search(self, scan_rel, center, xy_window, theta_window, min_score):
+    def search(
+        self, scan_rel: np.ndarray, center: Transform2, xy_window: float, theta_window: float, min_score: float
+    ) -> tuple[Transform2, float] | None:
+        """Best pose within xy_window (m) and theta_window (rad) of center, and its score.
+
+        scan_rel is the (N, 2) scan in the robot's own frame. Poses use the
+        grid's frame: Vector2.y carries z, rotation is the heading. None when
+        nothing scores above min_score.
+        """
         # Thin the scan for dupes
         res = self.wall_grid.resolution
         _, keep = np.unique(np.floor(scan_rel/self.wall_grid.resolution).astype(int), axis=0, return_index=True)
@@ -31,19 +42,19 @@ class BranchAndBound:
 
         d_theta = np.arccos(1 - res**2 / (2 * d_max**2))
         n = int(np.ceil(theta_window / d_theta))
-        thetas = center[2] + np.arange(-n, n + 1) * d_theta
+        thetas = center.rotation + np.arange(-n, n + 1) * d_theta
         offsets = []
         for t in thetas:
             sin_t, cos_t = np.sin(t), np.cos(t)
             # rotation array here
             rotated = scan_clean @ np.array([[cos_t, -sin_t], [sin_t, cos_t]]).T
-            # Convert from scan to grid cell and save 
+            # Convert from scan to grid cell and save
             offsets.append(np.round(rotated / res).astype(int)) # Offsets[0] uses thetas[0], offsets[1] w thetas[1] , etc
 
 
         origin = self.wall_grid.origin
-        cx = int(np.floor((center[0] - origin[0]) / res))   # center's cell
-        cz = int(np.floor((center[1] - origin[1]) / res))
+        cx = int(np.floor((center.position.x - origin[0]) / res))   # center's cell
+        cz = int(np.floor((center.position.y - origin[1]) / res))
         wx = int(np.ceil(xy_window / res))
         x_lo, x_hi = cx - wx, cx + wx                         # inclusive bounds on robot cell
         z_lo, z_hi = cz - wx, cz + wx
@@ -93,7 +104,8 @@ class BranchAndBound:
         a, x0, z0 = best
         x = origin[0] + (x0 + 0.5) * res
         z = origin[1] + (z0 + 0.5) * res
-        return x, z, thetas[a], best_score
+        pose = Transform2(position=Vector2(x=float(x), y=float(z)), rotation=float(thetas[a]))
+        return pose, float(best_score)
 
 
 
@@ -103,12 +115,3 @@ class BranchAndBound:
     def score(self, h, offsets, x0, z0):
         idx = offsets + (x0 + self.pad, z0 + self.pad)
         return self.stack[h][idx[:, 0], idx[:, 1]].mean()
-
-
-
-
-
-
-
-
-    
