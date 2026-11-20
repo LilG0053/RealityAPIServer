@@ -1,6 +1,8 @@
 """The occupancy grid is the whole room, fixed in the server frame."""
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -17,15 +19,19 @@ from map.occupancy import (
     p_from_log_odds,
     point_to_segment_distance,
 )
-from map.room import DISPLAY_OFFSET, point_in_polygon, server_room_corners
+from map.room import BLOCKOUT_PATH, Room, point_in_polygon
 from map.tunable import list_tunables, set_tunable
-from realityapi_pb2 import Transform3, Vector3
+from realityapi_pb2 import Transform2, Vector2
+
+ROOM = Room.from_json(BLOCKOUT_PATH)
+# Robot at (2, 5) in the server frame; Transform2's Vector2.y is Z.
+ORIGIN = Transform2(position=Vector2(x=2.0, y=5.0))
 
 
 class OccupancyExportTest(unittest.TestCase):
     def test_grid_covers_the_room_and_exports_only_pending_cells(self):
-        grid = OccupancyGrid()
-        corners = server_room_corners()
+        grid = OccupancyGrid(ROOM)
+        corners = ROOM.corners
         self.assertGreater(len(grid.room_cells), 10000)
 
         for cell_x, cell_z in grid.room_cells:
@@ -40,9 +46,8 @@ class OccupancyExportTest(unittest.TestCase):
             self.assertTrue(any(point_in_polygon(x, z, corners) for x, z in samples))
 
         # A hit at the center of cell (20, 65), and one far outside the room.
-        origin = Transform3(position=Vector3(x=2.0, z=5.0))
         self.assertEqual(grid.cells[(0, 0)].p_occupied, 0.5)
-        grid.update(origin, np.array([[2.05, 0.0, 6.55], [100.0, 0.0, 100.0]]))
+        grid.update(ORIGIN, np.array([[2.05, 6.55], [100.0, 100.0]]))
         self.assertLess(grid.cells[(20, 50)].p_occupied, 0.5)
         self.assertGreater(grid.cells[(20, 65)].p_occupied, 0.5)
         self.assertNotIn((1000, 1000), grid.cells)
@@ -51,8 +56,6 @@ class OccupancyExportTest(unittest.TestCase):
         first = grid.snapshot(0)
         self.assertTrue(first.reset)
         self.assertAlmostEqual(first.cell_size, 0.1, places=6)
-        self.assertAlmostEqual(first.origin.x, DISPLAY_OFFSET[0], places=6)
-        self.assertAlmostEqual(first.origin.y, DISPLAY_OFFSET[2], places=6)
         cells = {(cell.x, cell.z): cell for cell in first.cells}
         self.assertTrue(set(cells).issubset(grid.room_cells))
         self.assertLess(len(cells), 200)
@@ -68,7 +71,7 @@ class OccupancyExportTest(unittest.TestCase):
         self.assertEqual(unchanged.revision, first.revision)
 
         # A later scan only sends cells changed since the revision applied.
-        grid.update(origin, np.array([[2.05, 0.0, 6.55]]))
+        grid.update(ORIGIN, np.array([[2.05, 6.55]]))
         second = grid.snapshot(first.revision)
         self.assertFalse(second.reset)
         self.assertGreater(second.revision, first.revision)
@@ -130,24 +133,68 @@ class OccupancyExportTest(unittest.TestCase):
             set_tunable("OccupancyGrid.GAMMA", 0.0)
             self.assertAlmostEqual(OccupancyGrid.GAMMA, 0.0)
 
-            grid = OccupancyGrid()
-            origin = Transform3(position=Vector3(x=2.0, z=5.0))
+            grid = OccupancyGrid(ROOM)
             # Hit at the cell center is stronger than a hit near the cell edge.
-            grid.update(origin, np.array([[2.05, 0.0, 6.05]]))
+            grid.update(ORIGIN, np.array([[2.05, 6.05]]))
             on_center = grid.cells[(20, 60)].p_occupied
-            grid = OccupancyGrid()
-            grid.update(origin, np.array([[2.049, 0.0, 6.001]]))
+            grid = OccupancyGrid(ROOM)
+            grid.update(ORIGIN, np.array([[2.049, 6.001]]))
             near_edge = grid.cells[(20, 60)].p_occupied
             self.assertGreaterEqual(on_center, near_edge)
 
             # With gamma=0, repeating the same centered hit is idempotent.
-            grid = OccupancyGrid()
-            grid.update(origin, np.array([[2.05, 0.0, 6.05]]))
+            grid = OccupancyGrid(ROOM)
+            grid.update(ORIGIN, np.array([[2.05, 6.05]]))
             once = grid.cells[(20, 60)].p_occupied
-            grid.update(origin, np.array([[2.05, 0.0, 6.05]]))
+            grid.update(ORIGIN, np.array([[2.05, 6.05]]))
             self.assertEqual(grid.cells[(20, 60)].p_occupied, once)
         finally:
             OccupancyGrid.GAMMA = original
+
+
+class OccupancyStorageTest(unittest.TestCase):
+    def test_without_a_path_nothing_touches_disk(self):
+        grid = OccupancyGrid(ROOM)
+        grid.update(ORIGIN, np.array([[2.05, 6.55]]))
+        self.assertFalse(grid.save())
+
+    def test_save_and_load_round_trip_as_x_z_p_arrays(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "grid.json"
+            grid = OccupancyGrid(ROOM, path)
+            self.assertFalse(grid.save())  # nothing changed yet
+            grid.update(ORIGIN, np.array([[2.05, 6.55], [3.05, 6.55]]))
+            self.assertTrue(grid.save())
+            self.assertFalse(grid.save())  # already saved
+
+            payload = json.loads(path.read_text())
+            self.assertEqual(payload["cell_size"], 0.1)
+            self.assertTrue(all(isinstance(cell, list) and len(cell) == 3 for cell in payload["cells"]))
+            saved = {(x, z): p for x, z, p in payload["cells"]}
+
+            loaded = OccupancyGrid(ROOM, path)
+        restored = {(c.x, c.z): c.p for c in loaded.snapshot(0).cells}
+        self.assertEqual(restored.keys(), saved.keys())
+        for index, p in saved.items():
+            self.assertAlmostEqual(restored[index], p, places=2)
+        # Loading is not a change, so there is nothing new to save.
+        self.assertFalse(loaded.save())
+
+    def test_old_object_format_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "grid.json"
+            path.write_text(json.dumps({"cell_size": 0.1, "cells": [{"x": 20, "z": 65, "p": 0.9}]}))
+            grid = OccupancyGrid(ROOM, path)
+        self.assertEqual(list(grid.snapshot(0).cells), [])
+
+    def test_probabilities_at(self):
+        grid = OccupancyGrid(ROOM)
+        np.testing.assert_allclose(grid.probabilities_at(np.array([[2.05, 6.55]])), [0.5])
+        grid.update(ORIGIN, np.array([[2.05, 6.55]]))
+        hit, free, far = grid.probabilities_at(np.array([[2.05, 6.55], [2.05, 5.95], [50.0, 50.0]]))
+        self.assertGreater(hit, 0.5)
+        self.assertLess(free, 0.5)
+        self.assertEqual(far, 0.5)
 
 
 if __name__ == "__main__":

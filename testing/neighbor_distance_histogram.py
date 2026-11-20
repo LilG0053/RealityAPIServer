@@ -34,7 +34,8 @@ def fetch_points(uri: str) -> np.ndarray:
         reply.ParseFromString(websocket.recv())
     if reply.WhichOneof("data") != "lidar_data":
         raise SystemExit(f"server replied {reply.WhichOneof('data')}, expected lidar_data")
-    return np.array([[point.x, point.z] for point in reply.lidar_data.points], dtype=float)
+    # Lidar2 points: server X/Z, with Vector2.y carrying Z.
+    return np.array([[point.x, point.y] for point in reply.lidar_data.points], dtype=float)
 
 
 def mean_neighbor_distances(points: np.ndarray, neighbors: int = 5) -> np.ndarray:

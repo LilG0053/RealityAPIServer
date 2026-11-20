@@ -1,5 +1,5 @@
 import numpy as np
-from map.blockout import WallGrid
+from map.wallgrid import WallGrid
 # Used to localize robot against the room
 
 def precompute_max_grids(grid: np.ndarray, levels: int) -> list[np.ndarray]:

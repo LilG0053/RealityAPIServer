@@ -31,6 +31,14 @@ class Vector2(_message.Message):
     y: float
     def __init__(self, x: _Optional[float] = ..., y: _Optional[float] = ...) -> None: ...
 
+class Transform2(_message.Message):
+    __slots__ = ("position", "rotation")
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    ROTATION_FIELD_NUMBER: _ClassVar[int]
+    position: Vector2
+    rotation: float
+    def __init__(self, position: _Optional[_Union[Vector2, _Mapping]] = ..., rotation: _Optional[float] = ...) -> None: ...
+
 class Polygon2(_message.Message):
     __slots__ = ("vertices",)
     VERTICES_FIELD_NUMBER: _ClassVar[int]
@@ -55,29 +63,31 @@ class Transform3(_message.Message):
     rotation: Vector3
     def __init__(self, position: _Optional[_Union[Vector3, _Mapping]] = ..., rotation: _Optional[_Union[Vector3, _Mapping]] = ...) -> None: ...
 
-class Lidar(_message.Message):
+class Lidar2(_message.Message):
+    __slots__ = ("points",)
+    POINTS_FIELD_NUMBER: _ClassVar[int]
+    points: _containers.RepeatedCompositeFieldContainer[Vector2]
+    def __init__(self, points: _Optional[_Iterable[_Union[Vector2, _Mapping]]] = ...) -> None: ...
+
+class Lidar3(_message.Message):
     __slots__ = ("points",)
     POINTS_FIELD_NUMBER: _ClassVar[int]
     points: _containers.RepeatedCompositeFieldContainer[Vector3]
     def __init__(self, points: _Optional[_Iterable[_Union[Vector3, _Mapping]]] = ...) -> None: ...
 
-class RawLidarScan(_message.Message):
-    __slots__ = ("id", "transform", "ranges", "range_min", "range_max", "angle_min", "angle_increment")
-    ID_FIELD_NUMBER: _ClassVar[int]
-    TRANSFORM_FIELD_NUMBER: _ClassVar[int]
+class RawLidar2Scan(_message.Message):
+    __slots__ = ("ranges", "range_min", "range_max", "angle_min", "angle_increment")
     RANGES_FIELD_NUMBER: _ClassVar[int]
     RANGE_MIN_FIELD_NUMBER: _ClassVar[int]
     RANGE_MAX_FIELD_NUMBER: _ClassVar[int]
     ANGLE_MIN_FIELD_NUMBER: _ClassVar[int]
     ANGLE_INCREMENT_FIELD_NUMBER: _ClassVar[int]
-    id: str
-    transform: Transform3
     ranges: _containers.RepeatedScalarFieldContainer[float]
     range_min: float
     range_max: float
     angle_min: float
     angle_increment: float
-    def __init__(self, id: _Optional[str] = ..., transform: _Optional[_Union[Transform3, _Mapping]] = ..., ranges: _Optional[_Iterable[float]] = ..., range_min: _Optional[float] = ..., range_max: _Optional[float] = ..., angle_min: _Optional[float] = ..., angle_increment: _Optional[float] = ...) -> None: ...
+    def __init__(self, ranges: _Optional[_Iterable[float]] = ..., range_min: _Optional[float] = ..., range_max: _Optional[float] = ..., angle_min: _Optional[float] = ..., angle_increment: _Optional[float] = ...) -> None: ...
 
 class RawPointCloud(_message.Message):
     __slots__ = ("id", "transform", "xyz")
@@ -110,32 +120,38 @@ class OccupancyCell(_message.Message):
     def __init__(self, x: _Optional[int] = ..., z: _Optional[int] = ..., p: _Optional[float] = ...) -> None: ...
 
 class OccupancyGrid(_message.Message):
-    __slots__ = ("cell_size", "origin", "revision", "reset", "cells")
+    __slots__ = ("cell_size", "revision", "reset", "cells")
     CELL_SIZE_FIELD_NUMBER: _ClassVar[int]
-    ORIGIN_FIELD_NUMBER: _ClassVar[int]
     REVISION_FIELD_NUMBER: _ClassVar[int]
     RESET_FIELD_NUMBER: _ClassVar[int]
     CELLS_FIELD_NUMBER: _ClassVar[int]
     cell_size: float
-    origin: Vector2
     revision: int
     reset: bool
     cells: _containers.RepeatedCompositeFieldContainer[OccupancyCell]
-    def __init__(self, cell_size: _Optional[float] = ..., origin: _Optional[_Union[Vector2, _Mapping]] = ..., revision: _Optional[int] = ..., reset: _Optional[bool] = ..., cells: _Optional[_Iterable[_Union[OccupancyCell, _Mapping]]] = ...) -> None: ...
+    def __init__(self, cell_size: _Optional[float] = ..., revision: _Optional[int] = ..., reset: _Optional[bool] = ..., cells: _Optional[_Iterable[_Union[OccupancyCell, _Mapping]]] = ...) -> None: ...
 
 class DeviceInfo(_message.Message):
-    __slots__ = ("id", "device_type", "timestamp", "transform", "lidar")
+    __slots__ = ("id", "device_type", "timestamp", "transform3", "lidar3", "transform2", "lidar2", "raw_lidar2_scan", "raw_point_cloud")
     ID_FIELD_NUMBER: _ClassVar[int]
     DEVICE_TYPE_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
-    TRANSFORM_FIELD_NUMBER: _ClassVar[int]
-    LIDAR_FIELD_NUMBER: _ClassVar[int]
+    TRANSFORM3_FIELD_NUMBER: _ClassVar[int]
+    LIDAR3_FIELD_NUMBER: _ClassVar[int]
+    TRANSFORM2_FIELD_NUMBER: _ClassVar[int]
+    LIDAR2_FIELD_NUMBER: _ClassVar[int]
+    RAW_LIDAR2_SCAN_FIELD_NUMBER: _ClassVar[int]
+    RAW_POINT_CLOUD_FIELD_NUMBER: _ClassVar[int]
     id: str
     device_type: DeviceType
     timestamp: float
-    transform: Transform3
-    lidar: Lidar
-    def __init__(self, id: _Optional[str] = ..., device_type: _Optional[_Union[DeviceType, str]] = ..., timestamp: _Optional[float] = ..., transform: _Optional[_Union[Transform3, _Mapping]] = ..., lidar: _Optional[_Union[Lidar, _Mapping]] = ...) -> None: ...
+    transform3: Transform3
+    lidar3: Lidar3
+    transform2: Transform2
+    lidar2: Lidar2
+    raw_lidar2_scan: RawLidar2Scan
+    raw_point_cloud: RawPointCloud
+    def __init__(self, id: _Optional[str] = ..., device_type: _Optional[_Union[DeviceType, str]] = ..., timestamp: _Optional[float] = ..., transform3: _Optional[_Union[Transform3, _Mapping]] = ..., lidar3: _Optional[_Union[Lidar3, _Mapping]] = ..., transform2: _Optional[_Union[Transform2, _Mapping]] = ..., lidar2: _Optional[_Union[Lidar2, _Mapping]] = ..., raw_lidar2_scan: _Optional[_Union[RawLidar2Scan, _Mapping]] = ..., raw_point_cloud: _Optional[_Union[RawPointCloud, _Mapping]] = ...) -> None: ...
 
 class AllDeviceInfo(_message.Message):
     __slots__ = ("devices",)
@@ -164,21 +180,31 @@ class Response(_message.Message):
     err_failed_execute: _empty_pb2.Empty
     all_device_info: AllDeviceInfo
     device_info: DeviceInfo
-    lidar_data: Lidar
+    lidar_data: Lidar2
     room_bounds: RoomBounds
     occupancy_grid: OccupancyGrid
-    def __init__(self, req_uuid: _Optional[str] = ..., ok: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_id_not_found: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_not_supported: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_cannot_execute: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_failed_execute: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., all_device_info: _Optional[_Union[AllDeviceInfo, _Mapping]] = ..., device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., lidar_data: _Optional[_Union[Lidar, _Mapping]] = ..., room_bounds: _Optional[_Union[RoomBounds, _Mapping]] = ..., occupancy_grid: _Optional[_Union[OccupancyGrid, _Mapping]] = ...) -> None: ...
+    def __init__(self, req_uuid: _Optional[str] = ..., ok: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_id_not_found: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_not_supported: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_cannot_execute: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., err_failed_execute: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., all_device_info: _Optional[_Union[AllDeviceInfo, _Mapping]] = ..., device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., lidar_data: _Optional[_Union[Lidar2, _Mapping]] = ..., room_bounds: _Optional[_Union[RoomBounds, _Mapping]] = ..., occupancy_grid: _Optional[_Union[OccupancyGrid, _Mapping]] = ...) -> None: ...
 
 class Command(_message.Message):
-    __slots__ = ("target_id", "transform")
+    __slots__ = ("target_id", "transform3", "transform2")
     TARGET_ID_FIELD_NUMBER: _ClassVar[int]
-    TRANSFORM_FIELD_NUMBER: _ClassVar[int]
+    TRANSFORM3_FIELD_NUMBER: _ClassVar[int]
+    TRANSFORM2_FIELD_NUMBER: _ClassVar[int]
     target_id: str
-    transform: Transform3
-    def __init__(self, target_id: _Optional[str] = ..., transform: _Optional[_Union[Transform3, _Mapping]] = ...) -> None: ...
+    transform3: Transform3
+    transform2: Transform2
+    def __init__(self, target_id: _Optional[str] = ..., transform3: _Optional[_Union[Transform3, _Mapping]] = ..., transform2: _Optional[_Union[Transform2, _Mapping]] = ...) -> None: ...
+
+class OccupancyGridReq(_message.Message):
+    __slots__ = ("device_type", "since_revision")
+    DEVICE_TYPE_FIELD_NUMBER: _ClassVar[int]
+    SINCE_REVISION_FIELD_NUMBER: _ClassVar[int]
+    device_type: DeviceType
+    since_revision: int
+    def __init__(self, device_type: _Optional[_Union[DeviceType, str]] = ..., since_revision: _Optional[int] = ...) -> None: ...
 
 class ServerRequest(_message.Message):
-    __slots__ = ("req_uuid", "post_device_info", "post_heartbeat", "fetch_all_device_info", "fetch_single_device_info", "send_command", "fetch_lidar_data", "post_raw_lidar_scan", "clear_accumulated_scan", "post_raw_point_cloud", "fetch_room_bounds", "fetch_occupancy_grid")
+    __slots__ = ("req_uuid", "post_device_info", "post_heartbeat", "fetch_all_device_info", "fetch_single_device_info", "send_command", "fetch_lidar_data", "clear_accumulated_scan", "fetch_room_bounds", "fetch_occupancy_grid")
     REQ_UUID_FIELD_NUMBER: _ClassVar[int]
     POST_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
     POST_HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
@@ -186,9 +212,7 @@ class ServerRequest(_message.Message):
     FETCH_SINGLE_DEVICE_INFO_FIELD_NUMBER: _ClassVar[int]
     SEND_COMMAND_FIELD_NUMBER: _ClassVar[int]
     FETCH_LIDAR_DATA_FIELD_NUMBER: _ClassVar[int]
-    POST_RAW_LIDAR_SCAN_FIELD_NUMBER: _ClassVar[int]
     CLEAR_ACCUMULATED_SCAN_FIELD_NUMBER: _ClassVar[int]
-    POST_RAW_POINT_CLOUD_FIELD_NUMBER: _ClassVar[int]
     FETCH_ROOM_BOUNDS_FIELD_NUMBER: _ClassVar[int]
     FETCH_OCCUPANCY_GRID_FIELD_NUMBER: _ClassVar[int]
     req_uuid: str
@@ -198,12 +222,10 @@ class ServerRequest(_message.Message):
     fetch_single_device_info: str
     send_command: Command
     fetch_lidar_data: _empty_pb2.Empty
-    post_raw_lidar_scan: RawLidarScan
     clear_accumulated_scan: _empty_pb2.Empty
-    post_raw_point_cloud: RawPointCloud
     fetch_room_bounds: _empty_pb2.Empty
-    fetch_occupancy_grid: int
-    def __init__(self, req_uuid: _Optional[str] = ..., post_device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., post_heartbeat: _Optional[str] = ..., fetch_all_device_info: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., fetch_single_device_info: _Optional[str] = ..., send_command: _Optional[_Union[Command, _Mapping]] = ..., fetch_lidar_data: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., post_raw_lidar_scan: _Optional[_Union[RawLidarScan, _Mapping]] = ..., clear_accumulated_scan: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., post_raw_point_cloud: _Optional[_Union[RawPointCloud, _Mapping]] = ..., fetch_room_bounds: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., fetch_occupancy_grid: _Optional[int] = ...) -> None: ...
+    fetch_occupancy_grid: OccupancyGridReq
+    def __init__(self, req_uuid: _Optional[str] = ..., post_device_info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., post_heartbeat: _Optional[str] = ..., fetch_all_device_info: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., fetch_single_device_info: _Optional[str] = ..., send_command: _Optional[_Union[Command, _Mapping]] = ..., fetch_lidar_data: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., clear_accumulated_scan: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., fetch_room_bounds: _Optional[_Union[_empty_pb2.Empty, _Mapping]] = ..., fetch_occupancy_grid: _Optional[_Union[OccupancyGridReq, _Mapping]] = ...) -> None: ...
 
 class ClientRequest(_message.Message):
     __slots__ = ("req_uuid", "fetch_device_info", "post_command")

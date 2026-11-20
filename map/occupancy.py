@@ -14,8 +14,9 @@ revision number; a dashboard sends back the revision it has applied and gets
 only the cells changed since. After clear(), or when the dashboard's revision
 is from an earlier server run, the reply has reset=true and every observed cell.
 
-The grid is also saved to OCCUPANCY_SAVE_PATH (by the server, at most once a
-second while it changes) and loaded from there when the server starts.
+A grid made with a file path loads from that file when it is created and
+save() writes back to it (the server saves at most once a second while it
+changes). A grid made without a path never touches the disk.
 """
 
 from __future__ import annotations
@@ -29,13 +30,10 @@ import time
 
 import numpy as np
 
-from map.room import DISPLAY_OFFSET, cells_covering_room, server_room_corners
+from map.room import Room, cells_covering_room
 from map.tunable import TunableParameter
-from realityapi_pb2 import OccupancyCell, Transform3, Vector2, Vector3
+from realityapi_pb2 import OccupancyCell, Transform2
 from realityapi_pb2 import OccupancyGrid as OccupancyGridMessage
-
-# Where the server keeps the grid between runs.
-OCCUPANCY_SAVE_PATH = Path(__file__).resolve().parents[1] / "assets" / "occupancy_grid_turtlebot.json"
 
 INITIAL_PROBABILITY = 0.5
 FREE_SCAN_PROBABILITY = 0.2
@@ -180,10 +178,14 @@ class OccupancyGrid:
         0.5, minimum=0.01, maximum=4.0, step=0.01, label="Occupancy center-weight b",
     )
 
-    def __init__(self) -> None:
+    def __init__(self, room: Room, path: str | Path | None = None) -> None:
+        """room: the room the grid covers.
+        path: file to load the grid from now and save it to later; None for no disk.
+        """
+        self.room = room
+        self.path = path
         self.cell_size = 0.10
-        self.room_corners = server_room_corners()
-        self.room_cells = cells_covering_room(self.room_corners, self.cell_size)
+        self.room_cells = cells_covering_room(room.corners, self.cell_size)
         self.cells: dict[CellIndex, GridCell] = _CellMap(self.room_cells)
         # Revisions start at the wall clock so every revision from this run is
         # newer than any a dashboard kept from an earlier run.
@@ -192,6 +194,8 @@ class OccupancyGrid:
         self._cell_revisions: dict[CellIndex, int] = {}
         # Revision last written by save(); nothing to write until it moves.
         self._saved_revision = self.revision
+        if path is not None:
+            print(f"occupancy grid: {self._load()} cells loaded from {path}")
 
     def world_to_cell(self, x: float, z: float) -> CellIndex:
         return (math.floor(x / self.cell_size), math.floor(z / self.cell_size))
@@ -245,10 +249,10 @@ class OccupancyGrid:
 
     def update(
         self,
-        robot_pos: Transform3,
+        robot_pose: Transform2,
         corrected_points: np.ndarray,
     ) -> None:
-        """Incorporate server-frame LiDAR hits into the room grid.
+        """Incorporate server-frame LiDAR hits, an (N, 2) X/Z array, into the room grid.
 
         Each hit walks Bresenham to its cell. Free cells store the distance from
         the continuous ray to the cell center; the hit cell stores the distance
@@ -256,14 +260,14 @@ class OccupancyGrid:
         Occupied overrides free. Out-of-room cells are skipped.
         """
         gamma = self.GAMMA
-        robot_x = robot_pos.position.x
-        robot_z = robot_pos.position.z
+        # Transform2: Vector2.y carries the server's Z.
+        robot_x, robot_z = robot_pose.position.x, robot_pose.position.y
         robot_cell = self.world_to_cell(robot_x, robot_z)
 
         free_offsets: dict[CellIndex, float] = {}
         occupied_offsets: dict[CellIndex, float] = {}
 
-        for hit_x, _hit_y, hit_z in corrected_points:
+        for hit_x, hit_z in np.asarray(corrected_points, dtype=float).reshape(-1, 2):
             hit_x = float(hit_x)
             hit_z = float(hit_z)
             hit_cell = self.world_to_cell(hit_x, hit_z)
@@ -285,26 +289,6 @@ class OccupancyGrid:
         self._apply_evidence(free_offsets, FREE_SCAN_ODDS, gamma)
         self._apply_evidence(occupied_offsets, OCCUPIED_SCAN_ODDS, gamma)
 
-    def update_dashboard(
-        self,
-        robot_pos: Transform3,
-        corrected_points: np.ndarray,
-    ) -> None:
-        """Shift dashboard-frame pose/cloud into the server frame, then update."""
-        origin_x, origin_z = DISPLAY_OFFSET[0], DISPLAY_OFFSET[2]
-        server_pose = Transform3(
-            position=Vector3(
-                x=robot_pos.position.x - origin_x,
-                y=robot_pos.position.y,
-                z=robot_pos.position.z - origin_z,
-            ),
-            rotation=robot_pos.rotation,
-        )
-        points = np.array(corrected_points, dtype=float, copy=True)
-        points[:, 0] -= origin_x
-        points[:, 2] -= origin_z
-        self.update(server_pose, points)
-
     def snapshot(self, since: int = 0) -> OccupancyGridMessage:
         """Cells changed after revision `since`, or every observed cell with reset=True.
 
@@ -321,7 +305,6 @@ class OccupancyGrid:
         ]
         return OccupancyGridMessage(
             cell_size=self.cell_size,
-            origin=Vector2(x=DISPLAY_OFFSET[0], y=DISPLAY_OFFSET[2]),
             revision=self.revision,
             reset=reset,
             cells=cells,
@@ -334,22 +317,22 @@ class OccupancyGrid:
         self.revision += 1
         self._reset_revision = self.revision
 
-    def save(self, path: str | Path = OCCUPANCY_SAVE_PATH) -> bool:
-        """Write every changed cell if the grid moved since the last save."""
-        if self.revision == self._saved_revision:
+    def save(self) -> bool:
+        """Write every changed cell to the grid's file if the grid moved since the last save."""
+        if self.path is None or self.revision == self._saved_revision:
             return False
         payload = {
             "frame": "server",
             "cell_size": self.cell_size,
-            "origin_x": DISPLAY_OFFSET[0],
-            "origin_z": DISPLAY_OFFSET[2],
-            # l is the log-odds updates build on; p alone is rounded.
+            "origin_x": self.room.offset.x,
+            "origin_z": self.room.offset.z,
+            # [x, z, p] per changed cell: server-frame cell index and probability filled.
             "cells": [
-                {"x": cell.x, "z": cell.z, "p": cell.p_occupied, "l": cell.l_occupied}
+                [cell.x, cell.z, cell.p_occupied]
                 for cell in (self.cells[index] for index in self._cell_revisions)
             ],
         }
-        path = str(path)
+        path = str(self.path)
         temporary_path = path + ".tmp"
         try:
             with open(temporary_path, "w") as file:
@@ -362,8 +345,9 @@ class OccupancyGrid:
         self._saved_revision = self.revision
         return True
 
-    def load(self, path: str | Path = OCCUPANCY_SAVE_PATH) -> int:
+    def _load(self) -> int:
         """Restore cells saved by save(). Returns how many cells were loaded."""
+        path = self.path
         try:
             with open(path) as file:
                 payload = json.load(file)
@@ -376,13 +360,22 @@ class OccupancyGrid:
             print(f"[!] {path} uses cell size {payload.get('cell_size')}, not {self.cell_size}; not loaded")
             return 0
 
+        # Parse every cell before touching the grid, so a bad file loads nothing.
+        try:
+            entries = [(int(x), int(z), float(p)) for x, z, p in payload.get("cells", [])]
+        except (TypeError, ValueError) as error:
+            # A cell that is not [x, z, p], such as the old {"x", "z", "p"} objects.
+            print(f"[!] {path} has a cell that is not [x, z, p] ({error}); not loaded")
+            return 0
+
         loaded = 0
-        for entry in payload.get("cells", []):
-            index = (int(entry["x"]), int(entry["z"]))
+        for x, z, p in entries:
+            index = (x, z)
             if index not in self.room_cells:
                 continue
             cell = self.cells[index]
-            cell.l_occupied = clamp_log_odds(float(entry.get("l", log_odds(entry["p"]))))
+            # Only the rounded probability is saved, so the log-odds restart from it.
+            cell.l_occupied = log_odds(p)
             cell.p_occupied = probability_from_log_odds(cell.l_occupied)
             self.revision += 1
             self._cell_revisions[index] = self.revision
@@ -390,3 +383,20 @@ class OccupancyGrid:
         # Just loaded, so the file already matches.
         self._saved_revision = self.revision
         return loaded
+
+    def probabilities_at(self, points: np.ndarray) -> np.ndarray:
+        """Probability each server-frame (N, 2) X/Z point is filled; INITIAL_PROBABILITY if unobserved."""
+        points = np.asarray(points, dtype=float).reshape(-1, 2)
+        values = np.full(len(points), INITIAL_PROBABILITY)
+        if not self._cell_revisions:
+            return values
+        keys = np.array(list(self._cell_revisions))
+        low = keys.min(axis=0)
+        dense = np.full(keys.max(axis=0) - low + 1, INITIAL_PROBABILITY)
+        dense[keys[:, 0] - low[0], keys[:, 1] - low[1]] = [
+            self.cells[index].p_occupied for index in self._cell_revisions
+        ]
+        index = np.floor(points / self.cell_size).astype(int) - low
+        inside = (index >= 0).all(axis=1) & (index < dense.shape).all(axis=1)
+        values[inside] = dense[index[inside, 0], index[inside, 1]]
+        return values

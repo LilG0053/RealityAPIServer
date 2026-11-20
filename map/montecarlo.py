@@ -4,7 +4,7 @@ Standalone: needs only numpy and a grid object with
     likelihood  (nx, nz) array, 1.0 where a scan point is most expected
     origin      (x, z) of the corner of cell (0, 0)
     resolution  cell size in meters
-such as map.blockout.WallGrid. Cell (i, j) covers
+such as map.wallgrid.WallGrid. Cell (i, j) covers
 [origin_x + i*res, origin_x + (i+1)*res) x [origin_z + j*res, origin_z + (j+1)*res).
 
 Poses are (x, z, heading) in the grid's frame. heading is measured from +x

@@ -9,7 +9,7 @@ from websockets.sync.client import connect
 
 # realityapi_pb2 lives in the repo root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from realityapi_pb2 import DeviceInfo, DeviceType, Response, ServerRequest, Transform3, Vector3
+from realityapi_pb2 import DeviceInfo, DeviceType, Response, ServerRequest, Transform2, Transform3, Vector2, Vector3
 
 import json
 import random
@@ -35,18 +35,28 @@ def build_device_info() -> list[DeviceInfo]:
     with open(DATA_FILE, 'r', encoding='utf-8') as file:
         data = json.load(file)
 
+    # Recorded poses are in server coordinates. TurtleBots use the 2D messages
+    # (Vector2.y is Z, rotation is the heading about the up axis, rotY); other
+    # devices use the 3D ones. The server ignores a TurtleBot's poses until a
+    # raw scan has localized it.
     device_info = []
     for entry in data:
-        device_info.append(DeviceInfo(
+        info = DeviceInfo(
             id=entry['device_id'],
             device_type=DeviceType.Value(entry['device_type']),
             timestamp=entry['time'],
-            transform=Transform3(
+        )
+        if info.device_type == DeviceType.TURTLE:
+            info.transform2.CopyFrom(Transform2(
+                position=Vector2(x=entry['posX'], y=entry['posZ']),
+                rotation=entry['rotY'],
+            ))
+        else:
+            info.transform3.CopyFrom(Transform3(
                 position=Vector3(x=entry['posX'], y=entry['posY'], z=entry['posZ']),
-                # For turtlebot, all axis besides up axis should be 0 (2d plane)
-                rotation=Vector3(x=entry['rotX'], y=entry['rotY'], z=entry['rotZ'])
-            )
-        ))
+                rotation=Vector3(x=entry['rotX'], y=entry['rotY'], z=entry['rotZ']),
+            ))
+        device_info.append(info)
 
     return device_info
 
