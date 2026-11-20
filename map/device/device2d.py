@@ -35,9 +35,9 @@ from common.transform2 import (
 )
 from map.algorithms.branch_and_bound import BranchAndBound
 from map.algorithms.lidar import scan_to_device_points, simplify_points
+from map.algorithms.localization import AccumulatedMap
 from map.algorithms.montecarlo import MonteCarlo
-from map.device.device import Device, _message_dict, DeviceType
-from map.localization import AccumulatedMap
+from map.device.device import Device, _message_dict
 from map.room import polygon_array
 from map.tunable import TunableParameter
 from map.wallgrid import WallGrid

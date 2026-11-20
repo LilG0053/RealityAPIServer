@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sim import body_scan
 
 from common.transform2 import make_transform2
-from map.localization import AccumulatedMap, ScanLocalizer
+from map.algorithms.localization import AccumulatedMap, ScanLocalizer
 
 # A robot at (4, 6) facing +X; its scan placed in the room.
 POSE = (4.0, 6.0, 0.0)
