@@ -13,12 +13,18 @@ Dashboards fetch the grid over the websocket. Every cell change gets a new
 revision number; a dashboard sends back the revision it has applied and gets
 only the cells changed since. After clear(), or when the dashboard's revision
 is from an earlier server run, the reply has reset=true and every observed cell.
+
+The grid is also saved to OCCUPANCY_SAVE_PATH (by the server, at most once a
+second while it changes) and loaded from there when the server starts.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import math
+import os
+from pathlib import Path
 import time
 
 import numpy as np
@@ -27,6 +33,9 @@ from map.room import DISPLAY_OFFSET, cells_covering_room, server_room_corners
 from map.tunable import TunableParameter
 from realityapi_pb2 import OccupancyCell, Transform3, Vector2, Vector3
 from realityapi_pb2 import OccupancyGrid as OccupancyGridMessage
+
+# Where the server keeps the grid between runs.
+OCCUPANCY_SAVE_PATH = Path(__file__).resolve().parents[1] / "assets" / "occupancy_grid_turtlebot.json"
 
 INITIAL_PROBABILITY = 0.5
 FREE_SCAN_PROBABILITY = 0.2
@@ -181,6 +190,8 @@ class OccupancyGrid:
         self.revision = time.time_ns()
         self._reset_revision = self.revision
         self._cell_revisions: dict[CellIndex, int] = {}
+        # Revision last written by save(); nothing to write until it moves.
+        self._saved_revision = self.revision
 
     def world_to_cell(self, x: float, z: float) -> CellIndex:
         return (math.floor(x / self.cell_size), math.floor(z / self.cell_size))
@@ -322,3 +333,60 @@ class OccupancyGrid:
         self._cell_revisions.clear()
         self.revision += 1
         self._reset_revision = self.revision
+
+    def save(self, path: str | Path = OCCUPANCY_SAVE_PATH) -> bool:
+        """Write every changed cell if the grid moved since the last save."""
+        if self.revision == self._saved_revision:
+            return False
+        payload = {
+            "frame": "server",
+            "cell_size": self.cell_size,
+            "origin_x": DISPLAY_OFFSET[0],
+            "origin_z": DISPLAY_OFFSET[2],
+            # l is the log-odds updates build on; p alone is rounded.
+            "cells": [
+                {"x": cell.x, "z": cell.z, "p": cell.p_occupied, "l": cell.l_occupied}
+                for cell in (self.cells[index] for index in self._cell_revisions)
+            ],
+        }
+        path = str(path)
+        temporary_path = path + ".tmp"
+        try:
+            with open(temporary_path, "w") as file:
+                file.write(json.dumps(payload))
+            # Swap the file in whole, so a crash never leaves half a grid.
+            os.replace(temporary_path, path)
+        except OSError as error:
+            print(f"[!] could not save occupancy grid to {path}: {error}")
+            return False
+        self._saved_revision = self.revision
+        return True
+
+    def load(self, path: str | Path = OCCUPANCY_SAVE_PATH) -> int:
+        """Restore cells saved by save(). Returns how many cells were loaded."""
+        try:
+            with open(path) as file:
+                payload = json.load(file)
+        except FileNotFoundError:
+            return 0
+        except (OSError, json.JSONDecodeError) as error:
+            print(f"[!] could not load occupancy grid from {path}: {error}")
+            return 0
+        if not math.isclose(payload.get("cell_size", 0.0), self.cell_size):
+            print(f"[!] {path} uses cell size {payload.get('cell_size')}, not {self.cell_size}; not loaded")
+            return 0
+
+        loaded = 0
+        for entry in payload.get("cells", []):
+            index = (int(entry["x"]), int(entry["z"]))
+            if index not in self.room_cells:
+                continue
+            cell = self.cells[index]
+            cell.l_occupied = clamp_log_odds(float(entry.get("l", log_odds(entry["p"]))))
+            cell.p_occupied = probability_from_log_odds(cell.l_occupied)
+            self.revision += 1
+            self._cell_revisions[index] = self.revision
+            loaded += 1
+        # Just loaded, so the file already matches.
+        self._saved_revision = self.revision
+        return loaded

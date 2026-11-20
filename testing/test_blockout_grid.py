@@ -37,7 +37,7 @@ class WallGridTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.polygons = load_blockout_polygons(BLOCKOUT)
-        cls.grid = WallGrid.from_blockout(BLOCKOUT)
+        cls.grid = WallGrid.from_blockout(BLOCKOUT, occupancy_path=None)
 
     def test_room_outline_matches_room_module(self):
         np.testing.assert_allclose(self.polygons[0], np.array(server_room_corners()))
@@ -75,7 +75,7 @@ class WallGridTest(unittest.TestCase):
 def save_image(path):
     import cv2
 
-    grid = WallGrid.from_blockout(BLOCKOUT)
+    grid = WallGrid.from_blockout(BLOCKOUT, occupancy_path=None)
     # Transpose so z runs down the image, flip so z = 0 is at the bottom.
     image = (255 * (1.0 - grid.likelihood.T[::-1])).astype(np.uint8)
     cv2.imwrite(path, image)

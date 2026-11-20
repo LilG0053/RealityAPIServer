@@ -6,12 +6,23 @@ the pillars. It is stored in dashboard coordinates; this module shifts it into
 the server frame by removing DISPLAY_OFFSET, the same way map/room.py does.
 
 WallGrid holds, for every cell, the exact distance in meters from the cell
-center to the nearest blockout wall, and a likelihood
+center to the nearest blockout wall, and a wall likelihood
 
-    likelihood = exp(-distance^2 / (2 * sigma^2))
+    wall_likelihood = exp(-distance^2 / (2 * sigma^2))
 
-which is 1.0 on a wall and falls toward 0 away from walls. A scan placed at
-the right pose has its points on walls, so its mean likelihood is high.
+which is 1.0 on a wall and falls toward 0 away from walls.
+
+It also loads the saved occupancy grid (assets/occupancy_grid_turtlebot.json)
+and looks up, for every cell, the probability that the cell is filled (0.5
+where the occupancy grid has no observation). The weight branch and bound
+and Monte Carlo score against is the two added and normalized back to [0, 1]:
+
+    likelihood = (wall_likelihood + w * occupancy) / (1 + w)
+
+where w is the tunable WallGrid.OCCUPANCY_WEIGHT (0 = walls only, 1 = equal
+say). 1.0 is a cell on a blockout wall that the robot has also seen filled. A scan
+placed at the right pose has its points on walls and on things it has seen
+before, so its mean likelihood is high.
 
 Indexing matches map/occupancy.py: grid[i, j] with i along server x and j
 along server z. Cell (i, j) covers
@@ -21,11 +32,14 @@ along server z. Cell (i, j) covers
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 
 import numpy as np
 
+from map.occupancy import INITIAL_PROBABILITY, OCCUPANCY_SAVE_PATH
 from map.room import BLOCKOUT_PATH, DISPLAY_OFFSET, load_blockout
+from map.tunable import TunableParameter
 
 # 5 cm cells. Finer than the 10 cm occupancy grid: localization wants precision.
 WALL_GRID_RESOLUTION = 0.05
@@ -46,6 +60,44 @@ def load_blockout_polygons(
     for obstacle in blockout.obstacles:
         polygons.append(np.asarray(obstacle.polygon, dtype=float) - shift)
     return polygons
+
+
+def load_occupancy(path: str | Path = OCCUPANCY_SAVE_PATH) -> tuple[float, dict[tuple[int, int], float]]:
+    """Cell size and {(i, j): probability filled} from a saved occupancy grid.
+
+    Cell (i, j) covers [i*size, (i+1)*size) x [j*size, (j+1)*size) in the server
+    frame. A missing or unreadable file gives no cells (everything unknown).
+    """
+    try:
+        with open(path) as file:
+            payload = json.load(file)
+        cells = {(int(cell["x"]), int(cell["z"])): float(cell["p"]) for cell in payload.get("cells", [])}
+        return float(payload["cell_size"]), cells
+    except FileNotFoundError:
+        return 0.0, {}
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f"[!] could not load occupancy grid from {path}: {error}")
+        return 0.0, {}
+
+
+def occupancy_at(
+    points: np.ndarray,
+    cell_size: float,
+    cells: dict[tuple[int, int], float],
+) -> np.ndarray:
+    """Probability each server-frame (x, z) point is filled; INITIAL_PROBABILITY if unknown."""
+    values = np.full(len(points), INITIAL_PROBABILITY)
+    if not cells or cell_size <= 0.0:
+        return values
+    keys = np.array(list(cells.keys()))
+    low = keys.min(axis=0)
+    dense = np.full(keys.max(axis=0) - low + 1, INITIAL_PROBABILITY)
+    dense[keys[:, 0] - low[0], keys[:, 1] - low[1]] = list(cells.values())
+
+    index = np.floor(points / cell_size).astype(int) - low
+    ok = (index >= 0).all(axis=1) & (index < dense.shape).all(axis=1)
+    values[ok] = dense[index[ok, 0], index[ok, 1]]
+    return values
 
 
 def polygon_segments(polygons: list[np.ndarray]) -> np.ndarray:
@@ -70,11 +122,20 @@ def distance_to_segments(points: np.ndarray, segments: np.ndarray) -> np.ndarray
 
 @dataclass
 class WallGrid:
+    # How much the saved occupancy grid counts next to the blockout walls.
+    # The occupancy grid is built from localized poses, so a high weight lets a
+    # past localization error reinforce itself.
+    OCCUPANCY_WEIGHT = TunableParameter(
+        1.0, minimum=0.0, maximum=1.0, step=0.05, label="Localization occupancy weight",
+    )
+
     origin: np.ndarray        # (x, z) of the corner of cell (0, 0)
     resolution: float
     sigma: float
-    distance: np.ndarray      # meters to the nearest wall, shape (nx, nz)
-    likelihood: np.ndarray    # exp(-distance^2 / 2 sigma^2), same shape
+    distance: np.ndarray        # meters to the nearest wall, shape (nx, nz)
+    wall_likelihood: np.ndarray  # exp(-distance^2 / 2 sigma^2), same shape
+    occupancy: np.ndarray       # probability the cell is filled, same shape
+    likelihood: np.ndarray      # (wall_likelihood + w * occupancy) / (1 + w), what scans score against
 
     @classmethod
     def from_blockout(
@@ -83,7 +144,9 @@ class WallGrid:
         resolution: float = WALL_GRID_RESOLUTION,
         sigma: float = WALL_SIGMA,
         margin: float = WALL_GRID_MARGIN,
+        occupancy_path: str | Path | None = OCCUPANCY_SAVE_PATH,
     ) -> "WallGrid":
+        """occupancy_path=None scores against the blockout walls alone."""
         segments = polygon_segments(load_blockout_polygons(path))
         coords = segments.reshape(-1, 2)
         low = coords.min(axis=0) - margin
@@ -93,8 +156,17 @@ class WallGrid:
         i, j = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing="ij")
         centers = low + (np.stack((i, j), axis=-1).reshape(-1, 2) + 0.5) * resolution
         distance = distance_to_segments(centers, segments).reshape(tuple(shape))
-        likelihood = np.exp(-distance ** 2 / (2.0 * sigma ** 2))
-        return cls(low, resolution, sigma, distance, likelihood)
+        wall_likelihood = np.exp(-distance ** 2 / (2.0 * sigma ** 2))
+
+        if occupancy_path is None:
+            occupancy = np.full(tuple(shape), INITIAL_PROBABILITY)
+            likelihood = wall_likelihood
+        else:
+            occupancy = occupancy_at(centers, *load_occupancy(occupancy_path)).reshape(tuple(shape))
+            # Both terms are in [0, 1], so dividing by 1 + w keeps the weight in [0, 1].
+            weight = cls.OCCUPANCY_WEIGHT
+            likelihood = (wall_likelihood + weight * occupancy) / (1.0 + weight)
+        return cls(low, resolution, sigma, distance, wall_likelihood, occupancy, likelihood)
 
     def world_to_index(self, points: np.ndarray) -> np.ndarray:
         """Integer (i, j) cell of each server-frame (x, z) point."""
@@ -119,7 +191,7 @@ class WallGrid:
         return self.lookup(self.distance, points, np.inf)
 
     def score(self, points: np.ndarray) -> float:
-        """Mean likelihood of server-frame (x, z) points. 1.0 = every point on a wall."""
+        """Mean likelihood of server-frame (x, z) points. 1.0 = every point on a filled wall."""
         points = np.asarray(points, dtype=float).reshape(-1, 2)
         if len(points) == 0:
             return 0.0

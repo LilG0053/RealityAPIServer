@@ -1,7 +1,8 @@
 from realityapi_pb2 import Lidar, Transform3, Vector3
 import math
 from dataclasses import dataclass, field
-from map.icp import icp
+from map.icp import closest_point_rmse, icp
+from sklearn.neighbors import NearestNeighbors
 from map.lidar import LIDAR_EPSILON, inside_contour, shrink_contour, simplified_contour
 import numpy as np
 
@@ -14,6 +15,9 @@ def apply(matrix: np.ndarray, points: np.ndarray) -> np.ndarray:
         return points @ matrix[:2, :2].T + matrix[:2, 2]
 
 VOXEL_SIZE = 0.05
+# Scan points further than this from the map are not paired for RMSE; the
+# same rule (and value) as icp()'s distance_threshold.
+PAIR_DISTANCE = 0.3
 # Currently only 2D enabled
 @dataclass
 class ScanLocalizer:
@@ -107,3 +111,38 @@ class ScanLocalizer:
             rotation=Vector3(x=r.x, y=r.y + yaw, z=r.z),
         )
 
+
+@dataclass
+class ScanAccumulator(ScanLocalizer):
+    """Accumulated map for scans that are already placed (by Monte Carlo).
+
+    No ICP: the correction stays the identity and scans merge where they are.
+    The closest-point RMSE against the map is still measured, so a scan that
+    disagrees with the map by more than rmse_limit is not merged.
+    """
+
+    def update(self, lidar: Lidar, rmse_limit: float = math.inf) -> bool:
+        self.last_rmse = None
+        if not lidar.points:
+            return False
+        scan = np.array([[point.x, point.z] for point in lidar.points])
+        if self.accumulated_scan is None:
+            self.accumulated_scan = scan
+            return False
+
+        nbrs = NearestNeighbors(n_neighbors=1).fit(self.accumulated_scan)
+        rmse = closest_point_rmse(scan, nbrs, PAIR_DISTANCE)
+        self.last_rmse = rmse
+        if rmse is None:
+            print("lidar scan RMSE: no closest point pairs")
+        else:
+            print(f"lidar scan RMSE: {rmse:.4f} m")
+        if rmse is not None and rmse > rmse_limit:
+            print(f"lidar scan discarded: RMSE {rmse:.4f} m exceeds {rmse_limit:.1f} m")
+            return False
+
+        accumulated = self._drop_enclosed(self.accumulated_scan, scan)
+        merged = np.vstack((accumulated, scan))
+        _, keep = np.unique(np.floor(merged / VOXEL_SIZE).astype(int), axis=0, return_index=True)
+        self.accumulated_scan = merged[keep]
+        return True

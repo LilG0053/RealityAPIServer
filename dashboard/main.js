@@ -216,6 +216,10 @@ function buildRoom(bounds) {
 
   // The occupancy lattice covers the room, so rebuild it for the new outline.
   occupancyLayoutKey = "";
+
+  // Draw the room now instead of on the next animation frame, so it shows
+  // before any occupancy grid work that arrives right behind it.
+  renderer.render(scene, camera);
 }
 
 // Store 3D markers by device ID
@@ -693,6 +697,12 @@ async function pollMap() {
 // Ask the server for occupancy cells changed since the revision applied here.
 async function fetchOccupancyGrid() {
   const status = document.getElementById("occupancy-status");
+  // The lattice is built from the room outline, so there is nothing to apply
+  // cells to yet. The room itself never waits for the grid.
+  if (roomCorners.length < 3) {
+    if (status) status.textContent = "Waiting for room layout";
+    return;
+  }
   const response = await request({ case: "fetchOccupancyGrid", value: occupancyRevision });
   if (response.data.case !== "occupancyGrid") {
     console.warn("Occupancy grid request was not accepted; server replied:", response.data.case);

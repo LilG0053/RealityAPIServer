@@ -7,7 +7,7 @@ import numpy as np
 from map.device import Device, TurtleBot, device_from_info, device_from_dict
 from map.occupancy import OccupancyGrid
 from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform3, Vector3
-from map.localization import ScanLocalizer
+from map.localization import ScanAccumulator, ScanLocalizer
 from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
 
 # File the visual dashboard polls.
@@ -24,6 +24,8 @@ class Map:
         self.export_interval = EXPORT_INTERVAL
         self._last_export = 0.0
         self._localizers: dict[str, ScanLocalizer] = {}
+        # TurtleBot map epoch each accumulated map was built in.
+        self._map_epochs: dict[str, int] = {}
         self._last_map_size = -1
         # Finite closest-point RMSE of each scan after the first, oldest first.
         self.scan_rmses: list[float] = []
@@ -35,6 +37,18 @@ class Map:
 
     def exists(self, id: str) -> bool:
         return id in self._devices
+
+    def device(self, id: str) -> Device | None:
+        return self._devices.get(id)
+
+    @staticmethod
+    def _public_info(device: Device) -> DeviceInfo:
+        info = device.get_device_info()
+        # A TurtleBot has no place in the room until branch and bound finds one.
+        if isinstance(device, TurtleBot) and not device.localized:
+            info.ClearField("transform")
+            info.ClearField("lidar")
+        return info
 
     # function that defines what values are sent to updated_pos.json
     def export_to_json(self, filepath: str = DASHBOARD_PATH) -> None:
@@ -84,11 +98,11 @@ class Map:
 
         device = self._devices[device_id]
         # TurtleBot only keeps the first N scans while parked; past that, pose
-        # still updates but ICP / occupancy / live lidar are left alone.
+        # still updates but the map / occupancy / live lidar are left alone.
         if isinstance(device, TurtleBot) and not device.allow_lidar_scan(transform):
             return self.handle_device_info(DeviceInfo(id=device_id, transform=transform))
 
-        localizer = self._localizers.setdefault(device_id, ScanLocalizer())
+        localizer = self._localizer_for(device)
         had_map = localizer.accumulated_scan is not None
         accepted = localizer.update(lidar, rmse_limit=self.rmse_limit_for(device_id))
         if localizer.last_rmse is not None:
@@ -108,6 +122,26 @@ class Map:
             lidar=simplify_lidar_2d(corrected, epsilon=LIDAR_EPSILON),
         ))
     
+    def _localizer_for(self, device: Device) -> ScanLocalizer:
+        """The device's accumulated map.
+
+        A TurtleBot is placed by Monte Carlo before its scans get here, so its
+        scans merge as they are. Other devices (the dog) are aligned with ICP.
+        """
+        localizer = self._localizers.get(device.id)
+        if isinstance(device, TurtleBot):
+            # A relocalization that moved the robot starts a new epoch; scans
+            # merged at the old pose would not line up with new ones.
+            if localizer is not None and self._map_epochs.get(device.id) != device.map_epoch:
+                print(f"{device.id}: relocalized; clearing its accumulated map")
+                localizer.clear_scan()
+            self._map_epochs[device.id] = device.map_epoch
+            if localizer is None:
+                localizer = self._localizers[device.id] = ScanAccumulator()
+        elif localizer is None:
+            localizer = self._localizers[device.id] = ScanLocalizer()
+        return localizer
+
     def handle_device_info(self, device_info: DeviceInfo) -> Response:
         # Every pose, from /odom or a scan, gets the correction exactly once here
         localizer = self._localizers.get(device_info.id)
@@ -142,10 +176,10 @@ class Map:
             print(f"Device with id {id} does not exist")
             return Response(err_id_not_found={})
 
-        return Response(device_info=self._devices[id].get_device_info())
+        return Response(device_info=self._public_info(self._devices[id]))
 
     def get_all_device_info(self) -> Response:
-        devices = [dev.get_device_info() for dev in self._devices.values()]
+        devices = [self._public_info(dev) for dev in self._devices.values()]
         return Response(all_device_info=AllDeviceInfo(devices=devices))
 
     def del_device(self, id: str) -> Device:

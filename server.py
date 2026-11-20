@@ -24,7 +24,10 @@ from map.coordinate import (
 )
 from map.room import BLOCKOUT_PATH, DISPLAY_OFFSET, room_bounds
 from map.lidar import scan_to_world_points
+from map.device import TurtleBot
 from map.map import DASHBOARD_PATH, Map
+from map.occupancy import OCCUPANCY_SAVE_PATH
+from map.room_localization import wall_grid
 from map.tunable import list_tunables, set_tunable
 from map.pointcloud import raw_cloud_to_scan
 from realityapi_pb2 import (
@@ -51,6 +54,9 @@ TIMEOUT = 2.0
 
 # How often the monitor task sweeps the map for timed-out devices (seconds).
 MONITOR_INTERVAL = 0.04
+
+# How often the occupancy grid is saved while it keeps changing (seconds).
+OCCUPANCY_SAVE_INTERVAL = 1.0
 
 # Where the dog starts in the room, in dashboard axes (meters, X and Z), and which
 # way it faces there (radians: 0 = toward +X, pi/2 = toward +Z). The dog's own
@@ -119,7 +125,16 @@ def place_dog_lidar(lidar: Lidar) -> Lidar:
 def post_device_info(info: DeviceInfo) -> Response:
     # Devices with their own axes (the dog) are converted to server axes first.
     sender = SENDER_COORDS.get(info.device_type)
-    if info.HasField("transform"):
+    turtlebot = server_map.device(info.id)
+    if info.device_type == DeviceType.TURTLE or isinstance(turtlebot, TurtleBot):
+        # A TurtleBot reports odometry. Until branch and bound has placed it in
+        # the room (from a raw scan) the pose means nothing, so it is dropped.
+        if isinstance(turtlebot, TurtleBot) and turtlebot.localized and info.HasField("transform"):
+            info.transform.CopyFrom(translate_transform(turtlebot.place_transform(info.transform)))
+        else:
+            info.ClearField("transform")
+        info.ClearField("lidar")
+    elif info.HasField("transform"):
         if sender is not None:
             converted = convert_transform(info.transform, sender, SERVER_COORDS)
             info.transform.CopyFrom(place_dog_transform(converted))
@@ -168,12 +183,24 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
 
     # Goes through Map.handle_lidar_scan so the scan is run through the
     # localizer. post_device_info would skip it.
-    lidar = scan_to_world_points(raw_scan)
+    # Odometry pose and scan, in server axes but not yet placed in the room.
+    lidar = convert_lidar(scan_to_world_points(raw_scan), TURTLEBOT_COORDS, SERVER_COORDS)
     transform = convert_transform(raw_scan.transform, TURTLEBOT_COORDS, SERVER_COORDS)
+
+    device = server_map.device(raw_scan.id)
+    if isinstance(device, TurtleBot):
+        # Branch and bound places the robot from its first usable scan; after
+        # that Monte Carlo refines its origin on each scan once it has moved.
+        # The origin then places this scan and every pose until the next one.
+        if not device.observe_scan(transform, lidar):
+            return Response(err_cannot_execute={})
+        transform = device.place_transform(transform)
+        lidar = device.place_lidar(lidar)
+
     return server_map.handle_lidar_scan(
         raw_scan.id,
         translate_transform(transform),
-        translate_lidar(convert_lidar(lidar, TURTLEBOT_COORDS, SERVER_COORDS)),
+        translate_lidar(lidar),
     )
 
 #This method is specifically for the dog, whose raw LIDAR data is in three dimensions.
@@ -315,9 +342,24 @@ async def monitor(device_map: Map):
         await asyncio.sleep(MONITOR_INTERVAL)
 
 
+async def save_occupancy(device_map: Map):
+    """Save the occupancy grid at most once per interval, only when it changed."""
+    while True:
+        try:
+            device_map.occupancy.save(OCCUPANCY_SAVE_PATH)
+        except Exception:
+            traceback.print_exc()
+        await asyncio.sleep(OCCUPANCY_SAVE_INTERVAL)
+
+
 async def main():
     server_map.load_from_json(DASHBOARD_PATH)
+    loaded = server_map.occupancy.load(OCCUPANCY_SAVE_PATH)
+    print(f"occupancy grid: {loaded} cells loaded from {OCCUPANCY_SAVE_PATH}")
+    # Build the localization grid now rather than on the first robot's scan.
+    wall_grid()
     monitor_task = asyncio.create_task(monitor(server_map))
+    save_task = asyncio.create_task(save_occupancy(server_map))
     try:
         async with serve(handler, HOST, PORT, compression=None) as server:
             print(f"realityapi server on ws://{HOST}:{PORT}")
@@ -326,6 +368,9 @@ async def main():
             await server.serve_forever()
     finally:
         monitor_task.cancel()
+        save_task.cancel()
+        # Keep whatever changed since the last periodic save.
+        server_map.occupancy.save(OCCUPANCY_SAVE_PATH)
 
 
 if __name__ == "__main__":
