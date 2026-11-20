@@ -7,12 +7,12 @@ from time import time
 import numpy as np
 
 from map.cloud_map_3d import CloudMap
-from map.device import Device, TurtleBot, device_from_info, device_from_dict
+from map.device import Device, Dog, TurtleBot, device_from_info, device_from_dict
 from map.occupancy import OccupancyGrid  # <- use the exact import line main has for OccupancyGrid
 from realityapi_pb2 import AllDeviceInfo, DeviceInfo, DeviceType, Lidar, Response, Transform, Vector3
 import json, os
-from map.cloud_map import CloudMap
-from map.localization import ScanLocalizer
+from map.localization import ScanLocalizer, apply
+from map.static_localizer import StaticLocalizer
 from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
 
 # File the visual dashboard polls.
@@ -33,6 +33,15 @@ RECENT_RMSE_COUNT = 200
 # thinned with an even stride so the whole room stays covered.
 MAX_MAP_POINTS_SENT = 30000
 
+# Match the dog's ring against the room blockout (map/static_localizer.py). The
+# correction then comes from the walls instead of from earlier scans, and no map
+# is built until the dog has been located. False keeps the old behaviour.
+DOG_STATIC_LOCALIZATION = True
+# A whole-room fix that moves the dog farther than this (or turns it more) means
+# the maps built so far are in the wrong place, so they are cleared.
+RELOCATE_CLEAR_DISTANCE = 0.5
+RELOCATE_CLEAR_TURN = math.radians(8.0)
+
 class Map:
     def __init__(self) -> None:
         self._devices: dict[str, Device] = {}
@@ -51,6 +60,9 @@ class Map:
         # version so an unchanged map is not rebuilt on every dashboard poll.
         self._cloud_maps: dict[str, CloudMap] = {}
         self._cloud_points_cache: dict[str, tuple[int, list[Vector3]]] = {}
+        # Blockout matchers (the dog), built on first use. None = unavailable.
+        self._static_localizers: dict[str, StaticLocalizer] = {}
+        self._static_failed = not DOG_STATIC_LOCALIZATION
 
     def add_device(self, device: Device) -> None:
         self._devices[device.id] = device
@@ -115,6 +127,15 @@ class Map:
             return self.handle_device_info(DeviceInfo(id=device_id, transform=transform))
 
         localizer = self._localizers.setdefault(device_id, ScanLocalizer())
+        static = self._static_localizer_for(device)
+        if static is not None and not self._anchor_to_room(device_id, localizer, static, transform, lidar):
+            # Not located in the room yet. The pose and ring are still reported,
+            # but nothing is added to the maps until the dog knows where it is.
+            return self.handle_device_info(DeviceInfo(
+                id=device_id,
+                transform=transform,
+                lidar=simplify_lidar_2d(localizer.correct_lidar(lidar), epsilon=LIDAR_EPSILON),
+            ))
         had_map = localizer.accumulated_scan is not None
         accepted = localizer.update(lidar, rmse_limit=self.rmse_limit_for(device_id))
         if localizer.last_rmse is not None:
@@ -144,6 +165,58 @@ class Map:
             lidar=simplify_lidar_2d(corrected, epsilon=LIDAR_EPSILON),
         ))
     
+    def _static_localizer_for(self, device: Device) -> StaticLocalizer | None:
+        """The blockout matcher for this device, or None (not a dog, or unavailable)."""
+        if self._static_failed or not isinstance(device, Dog):
+            return None
+        static = self._static_localizers.get(device.id)
+        if static is None:
+            try:
+                shared = next(iter(self._static_localizers.values()), None)
+                static = StaticLocalizer(shared.wall_grid if shared else None)
+            except Exception as error:  # missing blockout.json, bad import, ...
+                print(f"[static] blockout localization unavailable, using scan matching only: {error}")
+                self._static_failed = True
+                return None
+            self._static_localizers[device.id] = static
+        return static
+
+    def _anchor_to_room(
+        self,
+        device_id: str,
+        localizer: ScanLocalizer,
+        static: StaticLocalizer,
+        transform: Transform,
+        lidar: Lidar,
+    ) -> bool:
+        """Fold a blockout fix into the correction. True once the device is located."""
+        if lidar.points:
+            ring = apply(localizer.correction, np.array([[p.x, p.z] for p in lidar.points]))
+            position = apply(
+                localizer.correction,
+                np.array([[transform.position.x, transform.position.z]]),
+            )[0]
+            fix = static.locate(ring, position)
+            if fix is not None:
+                # Maps built before this fix sit in the old frame. After a big
+                # relocation they would smear, so start them over. (The very first
+                # fix needs no clearing: nothing is built before it.)
+                if fix.global_search and (
+                    fix.shift > RELOCATE_CLEAR_DISTANCE or abs(fix.turn) > RELOCATE_CLEAR_TURN
+                ):
+                    localizer.accumulated_scan = None
+                    cloud_map = self._cloud_maps.get(device_id)
+                    if cloud_map is not None:
+                        cloud_map.clear()
+                localizer.correction = fix.delta @ localizer.correction
+                kind = "global" if fix.global_search else "track"
+                if fix.global_search:
+                    print(
+                        f"[static] {device_id} located ({kind}): score {fix.score:.2f}, "
+                        f"moved {fix.shift:.2f} m, turned {math.degrees(fix.turn):.1f} deg"
+                    )
+        return static.located
+
     def handle_device_info(self, device_info: DeviceInfo) -> Response:
         # Every pose, from /odom or a scan, gets the correction exactly once here
         localizer = self._localizers.get(device_info.id)
@@ -250,6 +323,9 @@ class Map:
     def clear_accumulated_scan(self) -> Response:
         for localizer in self._localizers.values():
             localizer.clear_scan()
+        # The correction was just reset, so the dog has to find itself in the room again.
+        for static in self._static_localizers.values():
+            static.reset()
         for cloud_map in self._cloud_maps.values():
             cloud_map.clear()
         self.scan_rmses.clear()
