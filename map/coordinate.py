@@ -5,7 +5,7 @@ from enum import Enum, auto
 import math
 import numpy as np
 
-from realityapi_pb2 import Lidar, Transform, Vector3
+from realityapi_pb2 import Lidar, Transform3, Vector3
 
 class Direction(Enum):
     """A signed axis. Opposites share an absolute value and cancel each other."""
@@ -136,13 +136,13 @@ def _heading_offset(source_heading: Direction, target_heading: Direction) -> flo
 
 
 def convert_transform(
-    transform: Transform,
+    transform: Transform3,
     source: CoordinateSystem,
     target: CoordinateSystem,
-) -> Transform:
+) -> Transform3:
     """Convert a protobuf Transform (position and rotation) from source to target."""
     if source == target:
-        return Transform(position=transform.position, rotation=transform.rotation)
+        return Transform3(position=transform.position, rotation=transform.rotation)
     matrix = get_transform_matrix(source, target)
     position = _apply_matrix(transform.position, matrix)
     rotation = _apply_matrix(transform.rotation, matrix)
@@ -156,7 +156,7 @@ def convert_transform(
             setattr(rotation, axis_name, getattr(rotation, axis_name) + sign * yaw_offset)
             break
 
-    return Transform(position=position, rotation=rotation)
+    return Transform3(position=position, rotation=rotation)
 
 
 def convert_lidar(

@@ -1,0 +1,54 @@
+{
+  "units": "meters",
+  "frame": "Dashboard X/Z ground plane. (0, 0) is the room corner furthest from the door.",
+  "room": [
+    [0, 0],
+    [0, 15.45],
+    [5.16, 15.45],
+    [5.16, 12.26],
+    [9.07, 12.26],
+    [9.07, 0]
+  ],
+  "obstacles": [
+    {
+      "name": "pillar A",
+      "note": "36in (X) by 29in (Z). Left face 9ft 5in from x = 0; bottom face 7ft 8in from z = 0.",
+      "polygon": [
+        [2.8702, 2.3368],
+        [2.8702, 3.0734],
+        [3.7846, 3.0734],
+        [3.7846, 2.3368]
+      ]
+    },
+    {
+      "name": "pillar B",
+      "note": "36in (X) by 29in (Z). Left face 9ft 5in from x = 0; top face 10ft 6in from z = 15.45.",
+      "polygon": [
+        [2.8702, 11.513],
+        [2.8702, 12.2496],
+        [3.7846, 12.2496],
+        [3.7846, 11.513]
+      ]
+    },
+    {
+      "name": "printer cabinet",
+      "note": "white cabinet with 3d printesr on it",
+      "polygon": [
+        [9.0065, 4.2418],
+        [8.3842, 4.2418],
+        [8.3842, 6.5278],
+        [9.0065, 6.5278]
+      ]
+    },
+    {
+        "name": "headset cabinet",
+        "note": "cabinet with headsets and shi",
+        "polygon": [
+            [9.0319, 6.5786],
+            [8.6128, 6.5786],
+            [8.6128, 9.5758],
+            [9.0319, 9.5758]
+        ]
+    }
+  ]
+}

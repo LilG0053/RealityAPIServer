@@ -16,9 +16,8 @@ corrected scan onto the blockout. The caller multiplies it into
 ScanLocalizer.correction, exactly like the transform icp() produces.
 
 Two modes:
-  global   Not located yet (or lost). Search every heading within
-           GLOBAL_XY_WINDOW of where the robot is believed to be (the start guess
-           at first, the last good pose after being lost). Rate limited.
+  global   Not located yet (or lost). Search every heading, and every position
+           in the room unless GLOBAL_XY_WINDOW limits it. Rate limited.
   tracking Located. Search a small window around the current corrected pose.
            Fast enough to run on every scan.
 """
@@ -31,8 +30,17 @@ from time import monotonic
 
 import numpy as np
 
-from map.blockout import WallGrid
+from map.blockout import WallGrid, load_blockout_polygons
 from map.branch_and_bound import BranchAndBound
+from map.room import DISPLAY_OFFSET
+
+# Map.handle_lidar_scan works in the dashboard's drawn frame: the TurtleBot's
+# points are shifted by OFFSET in server.py before they reach it, and the dog's
+# start position is given in dashboard axes. WallGrid is in the server frame,
+# which is the drawn frame minus DISPLAY_OFFSET (see map/room.py). This is that
+# shift, (x, z). Points are moved into the server frame to be matched, and the
+# result is moved back.
+FRAME_SHIFT = np.array([DISPLAY_OFFSET[0], DISPLAY_OFFSET[2]])
 
 # Points farther than this are ignored. BranchAndBound pads the wall grid by
 # 300 cells (15 m at 5 cm), so a scan reaching farther than ~10 m plus the
@@ -59,11 +67,12 @@ LOST_AFTER_MISSES = 15
 # Seconds between global searches while not located.
 GLOBAL_RETRY = 3.0
 # How far from its believed position a global search looks (meters, each way),
-# with every heading allowed. The room is close to point-symmetric and a scan
-# partly hidden by people or furniture can fit the far side of the room better
-# than the true spot, so the search is kept near where the robot is believed to
-# be. Set to None to search the whole room (only safe with an unobstructed view).
-GLOBAL_XY_WINDOW: float | None = 3.0
+# with every heading allowed. None searches the whole room, which is what you
+# want when the start position is only a rough guess. The room is close to
+# point-symmetric, so a scan partly hidden by people or furniture can fit the
+# far side better than the true spot; start the dog with a clear view. If you
+# know the start to within a few meters, a window such as 3.0 avoids that.
+GLOBAL_XY_WINDOW: float | None = None
 # How far from its believed heading a global search turns (radians, each way).
 # pi allows any heading. If DOG_START_YAW in server.py is accurate to a few
 # degrees, a smaller window (for example math.radians(45)) rules out the
@@ -80,6 +89,16 @@ def _translation(x: float, z: float) -> np.ndarray:
 def _pose_matrix(x: float, z: float, theta: float) -> np.ndarray:
     c, s = math.cos(theta), math.sin(theta)
     return np.array([[c, -s, x], [s, c, z], [0.0, 0.0, 1.0]])
+
+
+def _inside(polygon: np.ndarray, x: float, z: float) -> bool:
+    """Even-odd point-in-polygon test; polygon is K x 2 (x, z)."""
+    px, pz = polygon[:, 0], polygon[:, 1]
+    qx, qz = np.roll(px, 1), np.roll(pz, 1)
+    crosses = (pz > z) != (qz > z)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        x_at = (qx - px) * (z - pz) / (qz - pz) + px
+    return bool(np.count_nonzero(crosses & (x < x_at)) % 2)
 
 
 @dataclass
@@ -106,6 +125,11 @@ class StaticLocalizer:
         self._room_center = grid.origin + extent / 2.0
         self._room_radius = float(extent.max()) / 2.0
         self._searches = 0
+        # Server-frame room and obstacle outlines, to reject a fix that puts the
+        # robot outside the room or inside a pillar or cabinet.
+        polygons = load_blockout_polygons()
+        self._room_polygon = polygons[0]
+        self._obstacle_polygons = polygons[1:]
 
     def reset(self) -> None:
         """Forget the fix. The next scan does a whole-room search."""
@@ -133,11 +157,15 @@ class StaticLocalizer:
                 return None
             self._last_track = now
 
+        # Points arrive in the drawn frame; WallGrid is in the server frame.
+        # Only the robot position matters (the scan is made relative to it), so
+        # the shift is applied to the position and undone on the result.
         # The matcher takes points relative to the robot, in the robot's frame.
         # Using the corrected world axes as that frame (heading 0) is enough: the
         # search then reports how far to rotate about the robot and where it ends
         # up, which is exactly the correction we want.
         position = np.asarray(position, dtype=float).reshape(2)
+        search_position = position - FRAME_SHIFT
         rel = np.asarray(ring, dtype=float).reshape(-1, 2) - position
         distance = np.hypot(rel[:, 0], rel[:, 1])
         rel = rel[(distance >= MATCH_RANGE_MIN) & (distance <= MATCH_RANGE_MAX)]
@@ -148,12 +176,12 @@ class StaticLocalizer:
             if GLOBAL_XY_WINDOW is None:
                 center, window = (self._room_center[0], self._room_center[1], 0.0), self._room_radius
             else:
-                center, window = (position[0], position[1], 0.0), GLOBAL_XY_WINDOW
+                center, window = (search_position[0], search_position[1], 0.0), GLOBAL_XY_WINDOW
             # Headings within GLOBAL_THETA_WINDOW. The scan is relative to the robot, so
             # the center is where the robot is searched for, not where it was.
             found = self.matcher.search(rel, center, window, GLOBAL_THETA_WINDOW, GLOBAL_MIN_SCORE)
         else:
-            center = (position[0], position[1], 0.0)
+            center = (search_position[0], search_position[1], 0.0)
             found = self.matcher.search(
                 rel, center, TRACK_XY_WINDOW, TRACK_THETA_WINDOW, TRACK_MIN_SCORE
             )
@@ -164,6 +192,14 @@ class StaticLocalizer:
             return self._miss(global_search)
 
         x, z, theta, score = found
+        # A whole-room fix can land anywhere, so check it. A tracking fix cannot move
+        # far, and a robot beside a pillar can sit within a cell of its outline.
+        if global_search and not self._pose_is_valid(x, z):
+            print(f"[static] rejected a fix at ({x:.2f}, {z:.2f}) (score {score:.2f}): "
+                  "outside the room or inside an obstacle")
+            return self._miss(global_search)
+        # The fix is in the server frame; move it back to the frame the map uses.
+        x, z = x + FRAME_SHIFT[0], z + FRAME_SHIFT[1]
         # World point w = position + rel moves to R(theta) @ rel + (x, z).
         delta = _pose_matrix(x, z, theta) @ _translation(-position[0], -position[1])
         self.located = True
@@ -176,6 +212,12 @@ class StaticLocalizer:
             turn=float(theta),
             global_search=global_search,
         )
+
+    def _pose_is_valid(self, x: float, z: float) -> bool:
+        """True when a server-frame position is inside the room and outside every obstacle."""
+        if not _inside(self._room_polygon, x, z):
+            return False
+        return not any(_inside(polygon, x, z) for polygon in self._obstacle_polygons)
 
     def _miss(self, global_search: bool) -> None:
         if not global_search:

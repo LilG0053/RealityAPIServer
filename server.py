@@ -39,7 +39,7 @@ from realityapi_pb2 import (
     RawPointCloud,
     Response,
     ServerRequest,
-    Transform,
+    Transform3,
     Vector3,
 )
 
@@ -59,7 +59,7 @@ MONITOR_INTERVAL = 0.04
 # way it faces there (radians: 0 = toward +X, pi/2 = toward +Z). The dog's own
 # odometry always starts at (0, 0) facing "forward", so these two numbers decide
 # where that start is drawn. Change them to match where you set the dog down.
-DOG_START_POSITION = (1.0, 2.0)
+DOG_START_POSITION = (1.0, 6.5)
 DOG_START_YAW = math.pi
 
 # Devices that send plain pose updates in their own axes. Value("DOG") instead of
@@ -81,9 +81,10 @@ def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
     )
 
 
-def translate_transform(transform: Transform, offset=OFFSET) -> Transform:
-    """Return a new Transform with its position shifted by the offset."""
-    return Transform(
+
+def translate_transform(transform: Transform3, offset=OFFSET) -> Transform3:
+    """Return a new Transform3 with its position shifted by the offset."""
+    return Transform3(
         position=translate_vec3(transform.position, offset),
         rotation=transform.rotation,
     )
@@ -104,10 +105,10 @@ def place_dog_vec3(vec: Vector3) -> Vector3:
     )
 
 
-def place_dog_transform(transform: Transform) -> Transform:
+def place_dog_transform(transform: Transform3) -> Transform3:
     """Put a dog pose (already in server axes) at the dog's start in the room."""
     r = transform.rotation
-    return Transform(
+    return Transform3(
         position=place_dog_vec3(transform.position),
         rotation=Vector3(x=r.x, y=r.y + DOG_START_YAW, z=r.z),
     )

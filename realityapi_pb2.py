@@ -25,35 +25,45 @@ _sym_db = _symbol_database.Default()
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10realityapi.proto\x12\nrealityapi\x1a\x1bgoogle/protobuf/empty.proto\"*\n\x07Vector3\x12\t\n\x01x\x18\x01 \x01(\x02\x12\t\n\x01y\x18\x02 \x01(\x02\x12\t\n\x01z\x18\x03 \x01(\x02\"Y\n\tTransform\x12%\n\x08position\x18\x01 \x01(\x0b\x32\x13.realityapi.Vector3\x12%\n\x08rotation\x18\x02 \x01(\x0b\x32\x13.realityapi.Vector3\",\n\x05Lidar\x12#\n\x06points\x18\x01 \x03(\x0b\x32\x13.realityapi.Vector3\"\xa6\x01\n\x0cRawLidarScan\x12\n\n\x02id\x18\x01 \x01(\t\x12(\n\ttransform\x18\x02 \x01(\x0b\x32\x15.realityapi.Transform\x12\x0e\n\x06ranges\x18\x03 \x03(\x02\x12\x11\n\trange_min\x18\x04 \x01(\x02\x12\x11\n\trange_max\x18\x05 \x01(\x02\x12\x11\n\tangle_min\x18\x06 \x01(\x02\x12\x17\n\x0f\x61ngle_increment\x18\x07 \x01(\x02\"R\n\rRawPointCloud\x12\n\n\x02id\x18\x01 \x01(\t\x12(\n\ttransform\x18\x02 \x01(\x0b\x32\x15.realityapi.Transform\x12\x0b\n\x03xyz\x18\x03 \x01(\x0c\"\xc6\x01\n\nDeviceInfo\x12\n\n\x02id\x18\x01 \x01(\t\x12+\n\x0b\x64\x65vice_type\x18\x02 \x01(\x0e\x32\x16.realityapi.DeviceType\x12\x11\n\ttimestamp\x18\x03 \x01(\x02\x12-\n\ttransform\x18\x04 \x01(\x0b\x32\x15.realityapi.TransformH\x00\x88\x01\x01\x12%\n\x05lidar\x18\x05 \x01(\x0b\x32\x11.realityapi.LidarH\x01\x88\x01\x01\x42\x0c\n\n_transformB\x08\n\x06_lidar\"8\n\rAllDeviceInfo\x12\'\n\x07\x64\x65vices\x18\x01 \x03(\x0b\x32\x16.realityapi.DeviceInfo\"\xad\x03\n\x08Response\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12$\n\x02ok\x18\x04 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x32\n\x10\x65rr_id_not_found\x18\x05 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x33\n\x11\x65rr_not_supported\x18\x06 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x12\x65rr_cannot_execute\x18\x07 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x12\x65rr_failed_execute\x18\x08 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x0f\x61ll_device_info\x18\x14 \x01(\x0b\x32\x19.realityapi.AllDeviceInfoH\x00\x12-\n\x0b\x64\x65vice_info\x18\x15 \x01(\x0b\x32\x16.realityapi.DeviceInfoH\x00\x12\'\n\nlidar_data\x18\x16 \x01(\x0b\x32\x11.realityapi.LidarH\x00\x42\x06\n\x04\x64\x61ta\"Y\n\x07\x43ommand\x12\x11\n\ttarget_id\x18\x01 \x01(\t\x12-\n\ttransform\x18\x02 \x01(\x0b\x32\x15.realityapi.TransformH\x00\x88\x01\x01\x42\x0c\n\n_transform\"\x81\x04\n\rServerRequest\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12\x32\n\x10post_device_info\x18\x04 \x01(\x0b\x32\x16.realityapi.DeviceInfoH\x00\x12\x18\n\x0epost_heartbeat\x18\x05 \x01(\tH\x00\x12\x37\n\x15\x66\x65tch_all_device_info\x18\x06 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\"\n\x18\x66\x65tch_single_device_info\x18\x07 \x01(\tH\x00\x12+\n\x0csend_command\x18\x08 \x01(\x0b\x32\x13.realityapi.CommandH\x00\x12\x32\n\x10\x66\x65tch_lidar_data\x18\t \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x37\n\x13post_raw_lidar_scan\x18\n \x01(\x0b\x32\x18.realityapi.RawLidarScanH\x00\x12\x38\n\x16\x63lear_accumulated_scan\x18\x0b \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x39\n\x14post_raw_point_cloud\x18\x0c \x01(\x0b\x32\x19.realityapi.RawPointCloudH\x00\x12\x1c\n\x12set_dog_rmse_limit\x18\r \x01(\x02H\x00\x42\x06\n\x04\x64\x61ta\"\x8b\x01\n\rClientRequest\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12\x33\n\x11\x66\x65tch_device_info\x18\x04 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12+\n\x0cpost_command\x18\x05 \x01(\x0b\x32\x13.realityapi.CommandH\x00\x42\x06\n\x04\x64\x61ta*D\n\nDeviceType\x12\x08\n\x04NONE\x10\x00\x12\x06\n\x02VR\x10\x01\x12\x06\n\x02\x41R\x10\x02\x12\x07\n\x03\x44OG\x10\x03\x12\x07\n\x03\x41RM\x10\x04\x12\n\n\x06TURTLE\x10\x05\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10realityapi.proto\x12\nrealityapi\x1a\x1bgoogle/protobuf/empty.proto\"\x1f\n\x07Vector2\x12\t\n\x01x\x18\x01 \x01(\x02\x12\t\n\x01y\x18\x02 \x01(\x02\"1\n\x08Polygon2\x12%\n\x08vertices\x18\x01 \x03(\x0b\x32\x13.realityapi.Vector2\"*\n\x07Vector3\x12\t\n\x01x\x18\x01 \x01(\x02\x12\t\n\x01y\x18\x02 \x01(\x02\x12\t\n\x01z\x18\x03 \x01(\x02\"Z\n\nTransform3\x12%\n\x08position\x18\x01 \x01(\x0b\x32\x13.realityapi.Vector3\x12%\n\x08rotation\x18\x02 \x01(\x0b\x32\x13.realityapi.Vector3\",\n\x05Lidar\x12#\n\x06points\x18\x01 \x03(\x0b\x32\x13.realityapi.Vector3\"\xa7\x01\n\x0cRawLidarScan\x12\n\n\x02id\x18\x01 \x01(\t\x12)\n\ttransform\x18\x02 \x01(\x0b\x32\x16.realityapi.Transform3\x12\x0e\n\x06ranges\x18\x03 \x03(\x02\x12\x11\n\trange_min\x18\x04 \x01(\x02\x12\x11\n\trange_max\x18\x05 \x01(\x02\x12\x11\n\tangle_min\x18\x06 \x01(\x02\x12\x17\n\x0f\x61ngle_increment\x18\x07 \x01(\x02\"S\n\rRawPointCloud\x12\n\n\x02id\x18\x01 \x01(\t\x12)\n\ttransform\x18\x02 \x01(\x0b\x32\x16.realityapi.Transform3\x12\x0b\n\x03xyz\x18\x03 \x01(\x0c\"~\n\nRoomBounds\x12#\n\x06origin\x18\x01 \x01(\x0b\x32\x13.realityapi.Vector2\x12\"\n\x04room\x18\x02 \x01(\x0b\x32\x14.realityapi.Polygon2\x12\'\n\tobstacles\x18\x03 \x03(\x0b\x32\x14.realityapi.Polygon2\"0\n\rOccupancyCell\x12\t\n\x01x\x18\x01 \x01(\x05\x12\t\n\x01z\x18\x02 \x01(\x05\x12\t\n\x01p\x18\x03 \x01(\x02\"\x92\x01\n\rOccupancyGrid\x12\x11\n\tcell_size\x18\x01 \x01(\x02\x12#\n\x06origin\x18\x02 \x01(\x0b\x32\x13.realityapi.Vector2\x12\x10\n\x08revision\x18\x03 \x01(\x04\x12\r\n\x05reset\x18\x04 \x01(\x08\x12(\n\x05\x63\x65lls\x18\x05 \x03(\x0b\x32\x19.realityapi.OccupancyCell\"\xc7\x01\n\nDeviceInfo\x12\n\n\x02id\x18\x01 \x01(\t\x12+\n\x0b\x64\x65vice_type\x18\x02 \x01(\x0e\x32\x16.realityapi.DeviceType\x12\x11\n\ttimestamp\x18\x03 \x01(\x02\x12.\n\ttransform\x18\x04 \x01(\x0b\x32\x16.realityapi.Transform3H\x00\x88\x01\x01\x12%\n\x05lidar\x18\x05 \x01(\x0b\x32\x11.realityapi.LidarH\x01\x88\x01\x01\x42\x0c\n\n_transformB\x08\n\x06_lidar\"8\n\rAllDeviceInfo\x12\'\n\x07\x64\x65vices\x18\x01 \x03(\x0b\x32\x16.realityapi.DeviceInfo\"\x91\x04\n\x08Response\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12$\n\x02ok\x18\x04 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x32\n\x10\x65rr_id_not_found\x18\x05 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x33\n\x11\x65rr_not_supported\x18\x06 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x12\x65rr_cannot_execute\x18\x07 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x12\x65rr_failed_execute\x18\x08 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x34\n\x0f\x61ll_device_info\x18\x14 \x01(\x0b\x32\x19.realityapi.AllDeviceInfoH\x00\x12-\n\x0b\x64\x65vice_info\x18\x15 \x01(\x0b\x32\x16.realityapi.DeviceInfoH\x00\x12\'\n\nlidar_data\x18\x16 \x01(\x0b\x32\x11.realityapi.LidarH\x00\x12-\n\x0broom_bounds\x18\x17 \x01(\x0b\x32\x16.realityapi.RoomBoundsH\x00\x12\x33\n\x0eoccupancy_grid\x18\x18 \x01(\x0b\x32\x19.realityapi.OccupancyGridH\x00\x42\x06\n\x04\x64\x61ta\"Z\n\x07\x43ommand\x12\x11\n\ttarget_id\x18\x01 \x01(\t\x12.\n\ttransform\x18\x02 \x01(\x0b\x32\x16.realityapi.Transform3H\x00\x88\x01\x01\x42\x0c\n\n_transform\"\xd6\x04\n\rServerRequest\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12\x32\n\x10post_device_info\x18\x04 \x01(\x0b\x32\x16.realityapi.DeviceInfoH\x00\x12\x18\n\x0epost_heartbeat\x18\x05 \x01(\tH\x00\x12\x37\n\x15\x66\x65tch_all_device_info\x18\x06 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\"\n\x18\x66\x65tch_single_device_info\x18\x07 \x01(\tH\x00\x12+\n\x0csend_command\x18\x08 \x01(\x0b\x32\x13.realityapi.CommandH\x00\x12\x32\n\x10\x66\x65tch_lidar_data\x18\t \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x37\n\x13post_raw_lidar_scan\x18\n \x01(\x0b\x32\x18.realityapi.RawLidarScanH\x00\x12\x38\n\x16\x63lear_accumulated_scan\x18\x0b \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x39\n\x14post_raw_point_cloud\x18\x0c \x01(\x0b\x32\x19.realityapi.RawPointCloudH\x00\x12\x33\n\x11\x66\x65tch_room_bounds\x18\r \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12\x1e\n\x14\x66\x65tch_occupancy_grid\x18\x0e \x01(\x04H\x00\x12\x1c\n\x12set_dog_rmse_limit\x18\x0f \x01(\x02H\x00\x42\x06\n\x04\x64\x61ta\"\x8b\x01\n\rClientRequest\x12\x10\n\x08req_uuid\x18\x01 \x01(\t\x12\x33\n\x11\x66\x65tch_device_info\x18\x04 \x01(\x0b\x32\x16.google.protobuf.EmptyH\x00\x12+\n\x0cpost_command\x18\x05 \x01(\x0b\x32\x13.realityapi.CommandH\x00\x42\x06\n\x04\x64\x61ta*D\n\nDeviceType\x12\x08\n\x04NONE\x10\x00\x12\x06\n\x02VR\x10\x01\x12\x06\n\x02\x41R\x10\x02\x12\x07\n\x03\x44OG\x10\x03\x12\x07\n\x03\x41RM\x10\x04\x12\n\n\x06TURTLE\x10\x05\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'realityapi_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_DEVICETYPE']._serialized_start=1935
-  _globals['_DEVICETYPE']._serialized_end=2003
-  _globals['_VECTOR3']._serialized_start=61
-  _globals['_VECTOR3']._serialized_end=103
-  _globals['_TRANSFORM']._serialized_start=105
-  _globals['_TRANSFORM']._serialized_end=194
-  _globals['_LIDAR']._serialized_start=196
-  _globals['_LIDAR']._serialized_end=240
-  _globals['_RAWLIDARSCAN']._serialized_start=243
-  _globals['_RAWLIDARSCAN']._serialized_end=409
-  _globals['_RAWPOINTCLOUD']._serialized_start=411
-  _globals['_RAWPOINTCLOUD']._serialized_end=493
-  _globals['_DEVICEINFO']._serialized_start=496
-  _globals['_DEVICEINFO']._serialized_end=694
-  _globals['_ALLDEVICEINFO']._serialized_start=696
-  _globals['_ALLDEVICEINFO']._serialized_end=752
-  _globals['_RESPONSE']._serialized_start=755
-  _globals['_RESPONSE']._serialized_end=1184
-  _globals['_COMMAND']._serialized_start=1186
-  _globals['_COMMAND']._serialized_end=1275
-  _globals['_SERVERREQUEST']._serialized_start=1278
-  _globals['_SERVERREQUEST']._serialized_end=1791
-  _globals['_CLIENTREQUEST']._serialized_start=1794
-  _globals['_CLIENTREQUEST']._serialized_end=1933
+  _globals['_DEVICETYPE']._serialized_start=2536
+  _globals['_DEVICETYPE']._serialized_end=2604
+  _globals['_VECTOR2']._serialized_start=61
+  _globals['_VECTOR2']._serialized_end=92
+  _globals['_POLYGON2']._serialized_start=94
+  _globals['_POLYGON2']._serialized_end=143
+  _globals['_VECTOR3']._serialized_start=145
+  _globals['_VECTOR3']._serialized_end=187
+  _globals['_TRANSFORM3']._serialized_start=189
+  _globals['_TRANSFORM3']._serialized_end=279
+  _globals['_LIDAR']._serialized_start=281
+  _globals['_LIDAR']._serialized_end=325
+  _globals['_RAWLIDARSCAN']._serialized_start=328
+  _globals['_RAWLIDARSCAN']._serialized_end=495
+  _globals['_RAWPOINTCLOUD']._serialized_start=497
+  _globals['_RAWPOINTCLOUD']._serialized_end=580
+  _globals['_ROOMBOUNDS']._serialized_start=582
+  _globals['_ROOMBOUNDS']._serialized_end=708
+  _globals['_OCCUPANCYCELL']._serialized_start=710
+  _globals['_OCCUPANCYCELL']._serialized_end=758
+  _globals['_OCCUPANCYGRID']._serialized_start=761
+  _globals['_OCCUPANCYGRID']._serialized_end=907
+  _globals['_DEVICEINFO']._serialized_start=910
+  _globals['_DEVICEINFO']._serialized_end=1109
+  _globals['_ALLDEVICEINFO']._serialized_start=1111
+  _globals['_ALLDEVICEINFO']._serialized_end=1167
+  _globals['_RESPONSE']._serialized_start=1170
+  _globals['_RESPONSE']._serialized_end=1699
+  _globals['_COMMAND']._serialized_start=1701
+  _globals['_COMMAND']._serialized_end=1791
+  _globals['_SERVERREQUEST']._serialized_start=1794
+  _globals['_SERVERREQUEST']._serialized_end=2392
+  _globals['_CLIENTREQUEST']._serialized_start=2395
+  _globals['_CLIENTREQUEST']._serialized_end=2534
 # @@protoc_insertion_point(module_scope)

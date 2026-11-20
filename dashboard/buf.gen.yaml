@@ -1,4 +1,6 @@
 version: v2
+inputs:
+  - directory: ../..
 plugins:
   - local: protoc-gen-es
     out: gen

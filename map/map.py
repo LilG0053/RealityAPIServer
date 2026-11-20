@@ -9,7 +9,7 @@ import numpy as np
 from map.cloud_map_3d import CloudMap
 from map.device import Device, Dog, TurtleBot, device_from_info, device_from_dict
 from map.occupancy import OccupancyGrid  # <- use the exact import line main has for OccupancyGrid
-from realityapi_pb2 import AllDeviceInfo, DeviceInfo, DeviceType, Lidar, Response, Transform, Vector3
+from realityapi_pb2 import AllDeviceInfo, DeviceInfo, DeviceType, Lidar, Response, Transform3, Vector3
 import json, os
 from map.localization import ScanLocalizer, apply
 from map.static_localizer import StaticLocalizer
@@ -111,7 +111,7 @@ class Map:
     def handle_lidar_scan(
         self,
         device_id: str,
-        transform: Transform,
+        transform: Transform3,
         lidar: Lidar,
         cloud: np.ndarray | None = None,
         evidence: np.ndarray | None = None,
@@ -186,7 +186,7 @@ class Map:
         device_id: str,
         localizer: ScanLocalizer,
         static: StaticLocalizer,
-        transform: Transform,
+        transform: Transform3,
         lidar: Lidar,
     ) -> bool:
         """Fold a blockout fix into the correction. True once the device is located."""

@@ -24,7 +24,7 @@ import numpy as np
 
 from map.room import DISPLAY_OFFSET, cells_covering_room, server_room_corners
 from map.tunable import TunableParameter
-from realityapi_pb2 import Transform, Vector3
+from realityapi_pb2 import Transform3, Vector3
 
 OCCUPANCY_PATH = "dashboard/occupancy_grid.json"
 
@@ -230,7 +230,7 @@ class OccupancyGrid:
 
     def update(
         self,
-        robot_pos: Transform,
+        robot_pos: Transform3,
         corrected_points: np.ndarray,
     ) -> None:
         """Incorporate server-frame LiDAR hits into the room grid.
@@ -272,12 +272,12 @@ class OccupancyGrid:
 
     def update_dashboard(
         self,
-        robot_pos: Transform,
+        robot_pos: Transform3,
         corrected_points: np.ndarray,
     ) -> None:
         """Shift dashboard-frame pose/cloud into the server frame, then update."""
         origin_x, origin_z = DISPLAY_OFFSET[0], DISPLAY_OFFSET[2]
-        server_pose = Transform(
+        server_pose = Transform3(
             position=Vector3(
                 x=robot_pos.position.x - origin_x,
                 y=robot_pos.position.y,

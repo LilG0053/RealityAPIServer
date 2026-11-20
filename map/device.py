@@ -9,12 +9,12 @@ from google.protobuf.json_format import MessageToDict, ParseDict
 
 from map.coordinate import CoordinateSystem, Direction, convert_lidar, convert_transform
 from map.tunable import TunableParameter
-from realityapi_pb2 import DeviceInfo, DeviceType, Lidar, Transform, Vector3
+from realityapi_pb2 import DeviceInfo, DeviceType, Lidar, Transform3, Vector3
 
 RMSE_LIMIT = 0.2
 
-def zero_transform() -> Transform:
-    return Transform(position=Vector3(), rotation=Vector3())
+def zero_transform() -> Transform3:
+    return Transform3(position=Vector3(), rotation=Vector3())
 
 
 def _message_dict(message) -> dict[str, Any]:
@@ -55,7 +55,7 @@ class Device:
 
 @dataclass
 class TransformDevice(Device):
-    transform: Transform
+    transform: Transform3
     lidar: Lidar
     initial_heading: InitVar[Direction] = Direction.NORTH
 
@@ -146,7 +146,7 @@ class TurtleBot(TransformDevice):
         self.stationary_scans = 0
         self._station_pose: tuple[float, float, float, float] | None = None
 
-    def allow_lidar_scan(self, transform: Transform) -> bool:
+    def allow_lidar_scan(self, transform: Transform3) -> bool:
         """True for the first stationary_scan_limit scans at the current pose."""
         pose = (
             transform.position.x,
