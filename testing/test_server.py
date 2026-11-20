@@ -98,7 +98,10 @@ class ServerTest(unittest.TestCase):
 
     def test_registered_device_heartbeat_command_and_timeout(self):
         dog = DeviceInfo(id="dog", device_type=DeviceType.DOG)
-        self.assertTrue(self.dispatch(ServerRequest(post_device_info=dog)).HasField("ok"))
+        reply = self.dispatch(ServerRequest(post_device_info=dog))
+        # A post is answered with the server's view of the device.
+        self.assertEqual(reply.device_info.id, "dog")
+        self.assertEqual(reply.device_info.device_type, DeviceType.DOG)
         self.assertTrue(self.dispatch(ServerRequest(post_heartbeat="dog")).HasField("ok"))
         # Commands are not forwarded to devices yet.
         self.assertTrue(self.dispatch(ServerRequest(send_command=Command(target_id="dog"))).HasField("err_not_supported"))

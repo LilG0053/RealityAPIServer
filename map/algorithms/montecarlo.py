@@ -1,14 +1,14 @@
 """Adaptive Monte Carlo localization (AMCL) against a likelihood grid.
 
-Standalone: needs only numpy and a grid object with
+Standalone: needs only numpy, the protobuf Transform2, and a WallGridInterface, of which it reads
     likelihood  (nx, nz) array, 1.0 where a scan point is most expected
     origin      (x, z) of the corner of cell (0, 0)
     resolution  cell size in meters
 such as map.wallgrid.WallGrid. Cell (i, j) covers
 [origin_x + i*res, origin_x + (i+1)*res) x [origin_z + j*res, origin_z + (j+1)*res).
 
-Poses are (x, z, heading) in the grid's frame. heading is measured from +x
-toward +z. A scan is an (N, 2) array of points relative to the robot in its own
+Poses are Transform2s in the grid's frame: position.x is x, position.y
+carries z, and rotation is the heading, measured from +x toward +z. A scan is an (N, 2) array of points relative to the robot in its own
 frame: the robot faces +x, so a scan point p sits at R(heading) @ p + (x, z).
 
 Usage:
@@ -29,18 +29,28 @@ import math
 
 import numpy as np
 
-Pose = tuple[float, float, float]
+from map.algorithms.wallgridinterface import WallGridInterface
+from realityapi_pb2 import Transform2, Vector2
 
 
-def wrap_angle(angle):
-    """Wrap to [-pi, pi)."""
+def _unpack(pose: Transform2) -> tuple[float, float, float]:
+    """(x, z, heading) of a pose, for the arithmetic below."""
+    return pose.position.x, pose.position.y, pose.rotation
+
+
+def _pack(x: float, z: float, heading: float) -> Transform2:
+    return Transform2(position=Vector2(x=float(x), y=float(z)), rotation=float(heading))
+
+
+def wrap_angle(angle: float | np.ndarray) -> np.ndarray:
+    """Wrap to [-pi, pi), elementwise; a float gives a 0-d array (use float() on it)."""
     return (np.asarray(angle) + math.pi) % (2 * math.pi) - math.pi
 
 
 class MonteCarlo:
     def __init__(
         self,
-        grid,
+        grid: WallGridInterface,
         *,
         min_particles: int = 100,
         max_particles: int = 5000,
@@ -61,52 +71,54 @@ class MonteCarlo:
         # Particles in neighboring bins of this size form one cluster.
         cluster_bin: tuple[float, float] = (0.5, math.radians(20.0)),
         seed: int | None = None,
-    ):
-        self.grid = grid
-        self.min_particles = min_particles
-        self.max_particles = max_particles
-        self.initial_particles = initial_particles
-        self.initial_std = initial_std
-        self.alphas = alphas
-        self.max_beams = max_beams
-        self.z_hit = z_hit
-        self.z_rand = z_rand
-        self.kld_error = kld_error
-        self.kld_z = kld_z
-        self.kld_bin = kld_bin
-        self.cluster_bin = cluster_bin
-        self.rng = np.random.default_rng(seed)
+    ) -> None:
+        self.grid: WallGridInterface = grid
+        self.min_particles: int = min_particles
+        self.max_particles: int = max_particles
+        self.initial_particles: int = initial_particles
+        self.initial_std: tuple[float, float] = initial_std
+        self.alphas: tuple[float, float, float, float] = alphas
+        self.max_beams: int = max_beams
+        self.z_hit: float = z_hit
+        self.z_rand: float = z_rand
+        self.kld_error: float = kld_error
+        self.kld_z: float = kld_z
+        self.kld_bin: tuple[float, float] = kld_bin
+        self.cluster_bin: tuple[float, float] = cluster_bin
+        self.rng: np.random.Generator = np.random.default_rng(seed)
 
-        self.particles = np.zeros((0, 3))   # rows of (x, z, heading)
-        self.weights = np.zeros(0)
-        self.pose: Pose | None = None
+        self.particles: np.ndarray = np.zeros((0, 3))   # rows of (x, z, heading)
+        self.weights: np.ndarray = np.zeros(0)          # one per particle, summing to 1
+        self.pose: Transform2 | None = None
         # Mean grid likelihood of the last scan at the estimated pose (0..1).
         self.fit: float | None = None
 
-    def initialize(self, pose: Pose, count: int | None = None) -> None:
+    def initialize(self, pose: Transform2, count: int | None = None) -> None:
         """Start the particle map as a small cloud around one pose."""
         count = count or self.initial_particles
         std_xy, std_heading = self.initial_std
+        x, z, heading = _unpack(pose)
         self.particles = np.column_stack((
-            self.rng.normal(pose[0], std_xy, count),
-            self.rng.normal(pose[1], std_xy, count),
-            wrap_angle(self.rng.normal(pose[2], std_heading, count)),
+            self.rng.normal(x, std_xy, count),
+            self.rng.normal(z, std_xy, count),
+            wrap_angle(self.rng.normal(heading, std_heading, count)),
         ))
         self.weights = np.full(count, 1.0 / count)
-        self.pose = (float(pose[0]), float(pose[1]), float(wrap_angle(pose[2])))
+        self.pose = _pack(x, z, float(wrap_angle(heading)))
         self.fit = None
 
-    def predict(self, odom_before: Pose, odom_now: Pose) -> None:
+    def predict(self, odom_before: Transform2, odom_now: Transform2) -> None:
         """Move every particle by the odometry change, with noise.
 
         The odometry poses may be in any frame; only their difference is used.
         """
-        dx = odom_now[0] - odom_before[0]
-        dz = odom_now[1] - odom_before[1]
+        x0, z0, heading0 = _unpack(odom_before)
+        x1, z1, heading1 = _unpack(odom_now)
+        dx, dz = x1 - x0, z1 - z0
         translation = math.hypot(dx, dz)
         # Below ~1 cm the direction of travel is noise; treat it as a turn in place.
-        rot1 = float(wrap_angle(math.atan2(dz, dx) - odom_before[2])) if translation > 0.01 else 0.0
-        rot2 = float(wrap_angle(odom_now[2] - odom_before[2] - rot1))
+        rot1 = float(wrap_angle(math.atan2(dz, dx) - heading0)) if translation > 0.01 else 0.0
+        rot2 = float(wrap_angle(heading1 - heading0 - rot1))
 
         # Driving backwards looks like a half turn; use the smaller angle for noise.
         rot1_noise = min(abs(rot1), abs(float(wrap_angle(rot1 - math.pi))))
@@ -124,7 +136,7 @@ class MonteCarlo:
         self.particles[:, 1] += trans_hat * np.sin(heading)
         self.particles[:, 2] = wrap_angle(heading + rot2_hat)
 
-    def update(self, scan: np.ndarray) -> Pose | None:
+    def update(self, scan: np.ndarray) -> Transform2 | None:
         """Weight the particles by the scan, estimate the pose, and resample."""
         scan = np.asarray(scan, dtype=float).reshape(-1, 2)
         if len(scan) == 0 or len(self.particles) == 0:
@@ -139,7 +151,7 @@ class MonteCarlo:
         self.weights = weights / total if total > 0 else np.full(len(weights), 1.0 / len(weights))
 
         self.pose = self._best_cluster_pose()
-        self.fit = float(self._likelihood(self._place(scan, np.array([self.pose])))[0].mean())
+        self.fit = float(self._likelihood(self._place(scan, np.array([_unpack(self.pose)])))[0].mean())
         self._resample()
         return self.pose
 
@@ -172,7 +184,7 @@ class MonteCarlo:
             np.floor((particles[:, 2] + math.pi) / (2 * math.pi) * heading_bins) % heading_bins,
         )).astype(int)
 
-    def _best_cluster_pose(self) -> Pose:
+    def _best_cluster_pose(self) -> Transform2:
         """Weighted mean pose of the cluster of particles carrying the most weight."""
         bins = self._bins(self.particles, self.cluster_bin)
         heading_bins = max(1, round(2 * math.pi / self.cluster_bin[1]))
@@ -182,15 +194,17 @@ class MonteCarlo:
 
         # Flood-fill occupied bins into clusters: neighbors differ by at most 1
         # in every bin coordinate (heading wraps around).
-        index_of = {tuple(b): i for i, b in enumerate(unique)}
+        index_of: dict[tuple[int, ...], int] = {tuple(b): i for i, b in enumerate(unique)}
         cluster = np.full(len(unique), -1)
-        offsets = [(dx, dz, dh) for dx in (-1, 0, 1) for dz in (-1, 0, 1) for dh in (-1, 0, 1)]
+        offsets: list[tuple[int, int, int]] = [
+            (dx, dz, dh) for dx in (-1, 0, 1) for dz in (-1, 0, 1) for dh in (-1, 0, 1)
+        ]
         clusters = 0
         for start in range(len(unique)):
             if cluster[start] >= 0:
                 continue
             cluster[start] = clusters
-            stack = [start]
+            stack: list[int] = [start]
             while stack:
                 bx, bz, bh = unique[stack.pop()]
                 for dx, dz, dh in offsets:
@@ -208,7 +222,7 @@ class MonteCarlo:
             w = np.ones(len(p))
         x, z = np.average(p[:, :2], axis=0, weights=w)
         heading = math.atan2(np.average(np.sin(p[:, 2]), weights=w), np.average(np.cos(p[:, 2]), weights=w))
-        return float(x), float(z), float(heading)
+        return _pack(x, z, heading)
 
     def _kld_count(self, bins_occupied: np.ndarray) -> np.ndarray:
         """Particles needed (KLD bound) for each count of occupied bins."""

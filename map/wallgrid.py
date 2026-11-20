@@ -34,7 +34,7 @@ import time
 
 import numpy as np
 
-from map.algorithms.wallgrid import (
+from map.algorithms.wallgridinterface import (
     WallGridInterface,
     distance_to_segments,
     polygon_segments,

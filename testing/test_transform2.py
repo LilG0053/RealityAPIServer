@@ -11,7 +11,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common.transform2 import (
     apply_transform2,
-    as_tuple,
     compose_transform2,
     invert_transform2,
     make_transform2,
@@ -28,10 +27,9 @@ def assert_pose(test, pose, x, z, rotation, places=5):
 
 
 class Transform2Test(unittest.TestCase):
-    def test_make_and_as_tuple_use_vector2_y_for_z(self):
+    def test_make_uses_vector2_y_for_z(self):
         pose = make_transform2(1.0, 2.0, 0.5)
-        self.assertEqual(pose.position.y, 2.0)
-        self.assertEqual(as_tuple(pose), (1.0, 2.0, 0.5))
+        self.assertEqual((pose.position.x, pose.position.y, pose.rotation), (1.0, 2.0, 0.5))
 
     def test_compose_places_a_relative_pose(self):
         # One meter ahead of a pose at (1, 2) facing +Z is (1, 3), still facing +Z.

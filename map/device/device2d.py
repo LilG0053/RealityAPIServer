@@ -11,8 +11,8 @@ occupancy grid (which other devices may share).
 
 The device reports poses through a correction it keeps on-device. The server
 keeps its own correction on top of that (from the reported pose to the room
-pose) and hands it over whenever the device fetches its own info; see
-handover().
+pose) and hands it over in the reply to every post, which the device takes on;
+see reply().
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ from google.protobuf.json_format import ParseDict
 
 from common.transform2 import (
     apply_transform2,
-    as_tuple,
     compose_transform2,
     invert_transform2,
     make_transform2,
@@ -160,7 +159,7 @@ class Device2D(Device):
 
     def handle_device_info(self, device_info: DeviceInfo) -> Response:
         """Localize (branch and bound) or track (Monte Carlo) the device, then merge its scan."""
-        super().handle_device_info(device_info)
+        self.heartbeat()
         reported = None
         if device_info.HasField("transform2"):
             reported = Transform2()
@@ -171,10 +170,8 @@ class Device2D(Device):
 
         pose = self._observe(reported, scan)
         if pose is None:
-            # A scan that did not place the device: it should send another.
-            if scan is not None and not self.localized:
-                return Response(err_cannot_execute={})
-            return Response(ok={})
+            # Not placed: the reply has no transform2, so the device sends another scan.
+            return self.reply()
 
         self.transform2.CopyFrom(pose)
         if scan is not None:
@@ -184,7 +181,13 @@ class Device2D(Device):
                 self._store_scan(self._merge_scan(pose, apply_transform2(pose, scan)))
         elif device_info.HasField("lidar2"):
             self.lidar2.CopyFrom(device_info.lidar2)
-        return Response(ok={})
+        return self.reply()
+
+    def reply(self) -> Response:
+        """The device's room pose and live scan; it takes the pose on, so the correction is handed over."""
+        response = super().reply()
+        self._handover()
+        return response
 
     def get_device_info(self) -> DeviceInfo:
         info = super().get_device_info()
@@ -219,12 +222,14 @@ class Device2D(Device):
                 # particles where they are and re-anchor the correction to them.
                 if self.particles is not None and self.particles.pose is not None:
                     self.correction = compose_transform2(
-                        make_transform2(*self.particles.pose), invert_transform2(reported)
+                        self.particles.pose, invert_transform2(reported)
                     )
                     self._last_mc_reported = reported
             self._last_reported = reported
 
-        if scan is not None and (not self.localized or self.needs_relocalization):
+        # A scan with no pose from a placed device: it lost its frame (e.g. the
+        # client restarted), so place it again.
+        if scan is not None and (not self.localized or self.needs_relocalization or reported is None):
             if self._localize(reported, scan):
                 return self.get_pose()
         if not self.localized or reported is None:
@@ -261,7 +266,7 @@ class Device2D(Device):
         self._last_reported = base
         self.transform2.CopyFrom(room)
         self.particles = MonteCarlo(self.wall_grid)
-        self.particles.initialize(as_tuple(room))
+        self.particles.initialize(room)
         self.stationary_scans = 0
         self._poor_fits = 0
         self.needs_relocalization = False
@@ -287,15 +292,12 @@ class Device2D(Device):
         room = self.wall_grid.room
         corners = polygon_array(room.corners)
         low, high = corners.min(axis=0), corners.max(axis=0)
-        center = (*((low + high) / 2), 0.0)
+        center = make_transform2(*((low + high) / 2), 0.0)
         window = float((high - low).max() / 2)
         result = _matcher(self.wall_grid).search(scan, center, window, math.pi, self.BNB_MIN_SCORE)
-        if result is None:
+        if result is None or not room.contains(result[0].position.x, result[0].position.y):
             return None
-        x, z, heading, score = result
-        if not room.contains(x, z):
-            return None
-        return make_transform2(float(x), float(z), float(heading)), float(score)
+        return result
 
     def _track(self, reported: Transform2, scan: np.ndarray) -> None:
         """Run Monte Carlo on this scan if the device moved since the last run; else count it as parked."""
@@ -306,14 +308,13 @@ class Device2D(Device):
             self.stationary_scans += 1
             return
         self.stationary_scans = 0
-        # MonteCarlo works on plain (x, z, heading) tuples.
         self.wall_grid.refresh()
-        self.particles.predict(as_tuple(self._last_mc_reported), as_tuple(reported))
+        self.particles.predict(self._last_mc_reported, reported)
         pose = self.particles.update(scan)
         self._last_mc_reported = reported
         if pose is None:
             return
-        self.correction = compose_transform2(make_transform2(*pose), invert_transform2(reported))
+        self.correction = compose_transform2(pose, invert_transform2(reported))
 
         if self.particles.fit is not None and self.particles.fit < self.MC_POOR_FIT:
             self._poor_fits += 1
@@ -323,8 +324,8 @@ class Device2D(Device):
         else:
             self._poor_fits = 0
 
-    def handover(self) -> None:
-        """The device has been sent its room pose and will report in that frame.
+    def _handover(self) -> None:
+        """The device has been sent its room pose (in reply()) and will report in that frame.
 
         It anchors the pose to its last post, so its next reports equal
         compose_transform2(correction, what it would have reported). Re-express

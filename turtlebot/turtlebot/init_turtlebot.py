@@ -9,16 +9,16 @@ if str(ROOT) not in sys.path:
 
 from common.coordinate import SERVER_COORDS, TURTLEBOT_COORDS, convert_transform
 from common.transform2 import compose_transform2, invert_transform2, transform2_from_transform3
-from realityapi_pb2 import Transform2, Transform3
+from realityapi_pb2 import DeviceInfo, Transform2, Transform3
 
 
 class TurtleBotPose:
     """On-device coordinate correction from this robot's odometry to the server frame.
 
     The server localizes the robot (branch and bound, then Monte Carlo) and
-    answers fetch_single_device_info with its pose in the room. adopt() turns
-    that answer into a correction, so every later pose is sent in server
-    coordinates.
+    answers every post_device_info with the robot as it sees it. take_reply()
+    takes that on: the id, and the room pose as a correction, so every later
+    pose is sent in server coordinates.
     """
 
     def __init__(self, device_id: str):
@@ -46,6 +46,15 @@ class TurtleBotPose:
     def adopt(self, server_pose: Transform2) -> None:
         """Take on the server's pose for the last post."""
         self.correction = compose_transform2(server_pose, invert_transform2(self.posted_odom))
+
+    def take_reply(self, info: DeviceInfo) -> None:
+        """Take on the server's DeviceInfo from the reply to the last post."""
+        if info.id:
+            self.id = info.id
+        if info.HasField("transform2"):
+            self.adopt(info.transform2)
+        else:
+            self.forget()
 
     def forget(self) -> None:
         """The server no longer has this robot placed; localize again."""

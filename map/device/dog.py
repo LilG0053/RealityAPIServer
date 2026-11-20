@@ -37,7 +37,7 @@ class Dog(Device):
         return dog
 
     def handle_device_info(self, device_info: DeviceInfo) -> Response:
-        super().handle_device_info(device_info)
+        self.heartbeat()
         if device_info.HasField("raw_point_cloud"):
             ring, height = raw_cloud_to_ring(device_info.raw_point_cloud)
             # Nothing in range keeps the last scan.
@@ -53,7 +53,8 @@ class Dog(Device):
             self.transform3 = self._corrected(device_info.transform3)
         elif device_info.HasField("raw_point_cloud"):
             self.transform3 = self._corrected(device_info.raw_point_cloud.transform)
-        return Response(ok={})
+        # The dog does not take on the corrected pose; the server applies ICP to every post.
+        return self.reply()
 
     def _corrected(self, transform: Transform3) -> Transform3:
         """A server-coordinate Transform3 with the ICP correction applied on the ground plane."""

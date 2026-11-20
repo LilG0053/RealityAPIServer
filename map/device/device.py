@@ -46,16 +46,29 @@ class Device:
         return cls(id=data["id"], timestamp=time(), **kwargs)
 
     def handle_device_info(self, device_info: DeviceInfo) -> Response:
-        """Take one post_device_info from this device."""
-        # Server clock: the float32 wire timestamp is only accurate to ~128 s.
-        self.timestamp = time()
-        return Response(ok={})
+        """Take one post_device_info from this device and answer with reply().
+
+        Subclasses call heartbeat() rather than this, and reply() once they
+        have taken the post in.
+        """
+        self.heartbeat()
+        return self.reply()
+
+    def reply(self) -> Response:
+        """The answer to a post: the server's view of this device.
+
+        The device takes on what it is sent (its id, and for a 2D device its
+        room pose), so this is how the server renames devices and corrects
+        their poses and scans.
+        """
+        return Response(device_info=self.get_device_info())
 
     def get_device_info(self) -> DeviceInfo:
         """What other clients (and the dashboard) see of this device."""
         return DeviceInfo(id=self.id, device_type=self.device_type, timestamp=self.timestamp)
 
     def heartbeat(self) -> None:
+        # Server clock: the float32 wire timestamp is only accurate to ~128 s.
         self.timestamp = time()
 
     def to_dict(self) -> dict[str, Any]:

@@ -781,7 +781,6 @@ async function pollMap() {
   }
 }
 
-// Pending cell deltas are flushed about once a second, on the same cadence as the pose export.
 // Ask the server for occupancy cells changed since the revision applied here.
 async function fetchOccupancyGrid() {
   const status = document.getElementById("occupancy-status");

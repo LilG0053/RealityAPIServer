@@ -97,7 +97,11 @@ class Map:
         return id in self._devices
 
     def handle_device_info(self, info: DeviceInfo) -> Response:
-        """Take a post_device_info. Everything in it is in server coordinates."""
+        """Take a post_device_info. Everything in it is in server coordinates.
+
+        The reply is the device's DeviceInfo as the server sees it, which the
+        device takes on.
+        """
         device = self._devices.get(info.id)
         if device is None:
             device = self._new_device(info)
@@ -105,7 +109,11 @@ class Map:
                 return Response(err_not_supported={})
             self.add_device(device)
 
-        return device.handle_device_info(info)
+        response = device.handle_device_info(info)
+        if device.id != info.id:
+            # Renamed: the reply tells the device its new id.
+            self._devices[device.id] = self._devices.pop(info.id)
+        return response
 
     def handle_heartbeat(self, device_id: str) -> Response:
         if device_id not in self._devices:
@@ -119,13 +127,7 @@ class Map:
             print(f"Device with id {id} does not exist")
             return Response(err_id_not_found={})
 
-        device = self._devices[id]
-        response = Response(device_info=device.get_device_info())
-        # A 2D device asks for its own info to take on its room pose; from its
-        # next post on, it reports in that frame.
-        if isinstance(device, Device2D):
-            device.handover()
-        return response
+        return Response(device_info=self._devices[id].get_device_info())
 
     def get_all_device_info(self) -> Response:
         devices = [device.get_device_info() for device in self._devices.values()]

@@ -4,6 +4,7 @@ MonteCarloTest exercises map/montecarlo.py on its own. TurtleBotHandshakeTest
 runs the whole TurtleBot flow: the robot's on-device correction
 (turtlebot/turtlebot/init_turtlebot.py) talking to the server's Map, as
 coordinate_node.py does, with branch and bound and Monte Carlo on the server.
+The client takes on the server's DeviceInfo in the reply to every post.
 """
 
 import math
@@ -18,6 +19,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "turtlebot" / "turtlebot"))
 
 import sim
+from common.transform2 import make_transform2
 from init_turtlebot import TurtleBotPose
 
 from map.algorithms.montecarlo import MonteCarlo
@@ -36,21 +38,21 @@ class MonteCarloTest(unittest.TestCase):
         rng = np.random.default_rng(1)
         odom = sim.drifting_odometry(PATH, (0.0, 0.0, 0.0), rng)
         mc = MonteCarlo(WALLS, seed=2)
-        mc.initialize(PATH[0])
+        mc.initialize(make_transform2(*PATH[0]))
 
         worst = 0.0
         for k in range(1, len(PATH)):
-            mc.predict(odom[k - 1], odom[k])
+            mc.predict(make_transform2(*odom[k - 1]), make_transform2(*odom[k]))
             pose = mc.update(sim.body_scan(PATH[k]))
-            worst = max(worst, math.dist(pose[:2], PATH[k][:2]))
+            worst = max(worst, math.dist((pose.position.x, pose.position.y), PATH[k][:2]))
 
         end = PATH[-1]
         # Dead reckoning: odometry started at (0, 0, 0), anchored at the true start.
         odom_end = sim.compose(PATH[0], odom[-1])
         self.assertGreater(math.dist(odom_end[:2], end[:2]), 0.3)
         self.assertLess(worst, 0.15)
-        self.assertLess(math.dist(mc.pose[:2], end[:2]), 0.08)
-        self.assertLess(sim.heading_error(mc.pose[2], end[2]), 3.0)
+        self.assertLess(math.dist((mc.pose.position.x, mc.pose.position.y), end[:2]), 0.08)
+        self.assertLess(sim.heading_error(mc.pose.rotation, end[2]), 3.0)
         self.assertGreater(mc.fit, 0.5)
         # Once confident, KLD sampling keeps far fewer than the maximum.
         self.assertLess(len(mc.particles), mc.max_particles)
@@ -71,21 +73,19 @@ class TurtleBotHandshakeTest(unittest.TestCase):
         return self.map._devices[self.ID]
 
     def post(self, room_pose, odom, scan=True, raw=None):
-        """One post_device_info: pose once placed, plus the scan the lidar sees at room_pose."""
+        """One post_device_info, as coordinate_node.py sends it: pose once placed, plus the
+        scan the lidar sees at room_pose. The client takes on the reply."""
         self.client.set_odometry(sim.ros_odometry(odom))
-        info = DeviceInfo(id=self.ID, device_type=DeviceType.TURTLE)
+        info = DeviceInfo(id=self.client.id, device_type=DeviceType.TURTLE)
         if self.client.localized:
             info.transform2.CopyFrom(self.client.server_pose())
         if scan:
             info.raw_lidar2_scan.CopyFrom(raw or sim.raw_scan(room_pose, LIDAR_OFFSET))
         self.client.posted_odom = self.client.odom
-        return self.map.handle_device_info(info)
-
-    def fetch(self):
-        """fetch_single_device_info, and the client taking on the pose it returns."""
-        reply = self.map.get_device_info(self.ID)
-        if reply.HasField("device_info") and reply.device_info.HasField("transform2"):
-            self.client.adopt(reply.device_info.transform2)
+        reply = self.map.handle_device_info(info)
+        # The client takes on the server's view of it in every reply.
+        self.assertTrue(reply.HasField("device_info"))
+        self.client.take_reply(reply.device_info)
         return reply
 
     def assert_near(self, pose, truth, distance=0.1, degrees=2.0):
@@ -93,8 +93,7 @@ class TurtleBotHandshakeTest(unittest.TestCase):
         self.assertLess(sim.heading_error(pose.rotation, truth[2]), degrees)
 
     def localize(self, odom):
-        self.assertTrue(self.post(PATH[0], odom[0]).HasField("ok"))
-        self.fetch()
+        self.post(PATH[0], odom[0])
         self.assertTrue(self.client.localized)
 
     def test_odometry_converts_to_server_axes(self):
@@ -108,28 +107,26 @@ class TurtleBotHandshakeTest(unittest.TestCase):
         # Odometry starts somewhere arbitrary relative to the room.
         odom = sim.drifting_odometry(PATH, (2.0, -1.0, 1.1), np.random.default_rng(3))
 
-        # 1-3: a scan with no pose places the robot; the client fetches and adopts it.
-        self.assertTrue(self.post(PATH[0], odom[0]).HasField("ok"))
-        self.assertIsNotNone(self.bot.get_pose())
-        self.fetch()
+        # 1-2: a scan with no pose places the robot, and the reply carries the pose.
+        reply = self.post(PATH[0], odom[0])
+        self.assertTrue(reply.device_info.HasField("transform2"))
+        self.assertGreater(len(reply.device_info.lidar2.points), 0)
         self.assert_near(self.client.server_pose(), PATH[0])
 
-        # 4: poses in server coordinates, with a pose-only post now and then and
-        # a refresh every 20 posts, as the client does every couple of seconds.
+        # 3: poses in server coordinates, with a pose-only post now and then.
         worst = 0.0
         for k in range(1, len(PATH)):
             if k % 5 == 0:
                 self.post(PATH[k], odom[k], scan=False)
-            self.assertTrue(self.post(PATH[k], odom[k]).HasField("ok"))
+            self.post(PATH[k], odom[k])
             pose = self.bot.get_pose()
             worst = max(worst, math.dist((pose.position.x, pose.position.y), PATH[k][:2]))
-            if k % 20 == 0:
-                self.fetch()
+            # Every reply's correction is taken on, so the robot reports the room pose itself.
+            self.assert_near(self.client.server_pose(), (pose.position.x, pose.position.y, pose.rotation),
+                             distance=1e-3, degrees=0.1)
 
         self.assertLess(worst, 0.15)
         self.assert_near(self.bot.get_pose(), PATH[-1], distance=0.08, degrees=3.0)
-        self.fetch()
-        # After a refresh the robot's own server pose agrees with the truth too.
         self.assert_near(self.client.server_pose(), PATH[-1], distance=0.08, degrees=3.0)
         self.assertFalse(self.bot.needs_relocalization)
         self.assertIsNotNone(self.bot.accumulated_points())
@@ -148,24 +145,56 @@ class TurtleBotHandshakeTest(unittest.TestCase):
         self.assertTrue(self.bot.needs_relocalization)
         self.assert_near(self.bot.get_pose(), (here.position.x, here.position.y, here.rotation), distance=0.01, degrees=0.5)
 
-        # The next scan reruns branch and bound, and a refresh brings the client back in line.
+        self.assert_near(self.client.server_pose(), PATH[9])
+
+        # The next scan reruns branch and bound; the client stays in line.
         self.bot.LOCALIZE_RETRY = 0.0
         self.post(PATH[9], (0.0, 0.0, 0.0))
         self.assertFalse(self.bot.needs_relocalization)
-        self.fetch()
         self.assert_near(self.client.server_pose(), PATH[9])
 
     def test_unplaceable_scan_is_refused_and_hidden(self):
         blind = RawLidar2Scan(ranges=[float("inf")] * 720, range_min=0.15, range_max=12.0,
                               angle_min=-math.pi, angle_increment=2 * math.pi / 720)
         reply = self.post(PATH[0], (0.0, 0.0, 0.0), raw=blind)
-        self.assertTrue(reply.HasField("err_cannot_execute"))
+        # No pose in the reply: the client keeps sending scans.
+        self.assertFalse(reply.device_info.HasField("transform2"))
+        self.assertFalse(self.client.localized)
         self.assertIsNone(self.bot.get_pose())
         info = self.map.get_all_device_info().all_device_info.devices[0]
         self.assertFalse(info.HasField("transform2"))
-        # A fetch gives the client nothing to adopt yet.
-        self.fetch()
+
+    def test_dropped_robot_localizes_again(self):
+        odom = sim.drifting_odometry(PATH, (0.0, 0.0, 0.0), np.random.default_rng(7))
+        self.localize(odom)
+        # The server times the robot out; its next pose-only post meets a new device.
+        self.map.del_device(self.ID)
+        self.post(PATH[1], odom[1], scan=False)
         self.assertFalse(self.client.localized)
+        self.post(PATH[1], odom[1])
+        self.assertTrue(self.client.localized)
+        self.assert_near(self.client.server_pose(), PATH[1])
+
+    def test_scan_without_pose_from_a_placed_robot_places_it_again(self):
+        odom = sim.drifting_odometry(PATH, (0.0, 0.0, 0.0), np.random.default_rng(8))
+        self.localize(odom)
+        self.bot.LOCALIZE_RETRY = 0.0
+        # The client restarted: odometry from zero and no correction, under the same id.
+        self.client = TurtleBotPose(self.ID)
+        self.post(PATH[3], (0.0, 0.0, 0.0))
+        self.assertTrue(self.client.localized)
+        self.assert_near(self.client.server_pose(), PATH[3])
+
+    def test_server_can_rename_the_robot(self):
+        odom = sim.drifting_odometry(PATH, (0.0, 0.0, 0.0), np.random.default_rng(9))
+        self.localize(odom)
+        bot = self.bot
+        bot.id = "renamed"
+        self.post(PATH[1], odom[1])
+        self.assertEqual(self.client.id, "renamed")
+        self.assertFalse(self.map.exists(self.ID))
+        self.post(PATH[2], odom[2])
+        self.assertIs(self.map._devices["renamed"], bot)
 
     def test_poor_fit_requests_branch_and_bound(self):
         odom = sim.drifting_odometry(PATH, (0.0, 0.0, 0.0), np.random.default_rng(5))

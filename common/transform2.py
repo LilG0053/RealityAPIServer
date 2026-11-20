@@ -19,11 +19,6 @@ def make_transform2(x: float, z: float, rotation: float) -> Transform2:
     return Transform2(position=Vector2(x=x, y=z), rotation=rotation)
 
 
-def as_tuple(transform: Transform2) -> tuple:
-    """(x, z, heading), for code that works on plain numbers (e.g. map/montecarlo.py)."""
-    return (transform.position.x, transform.position.y, transform.rotation)
-
-
 def transform2_from_transform3(transform: Transform3) -> Transform2:
     """Ground-plane part of a Transform3 already in server coordinates (heading is rotation.y)."""
     return make_transform2(transform.position.x, transform.position.z, transform.rotation.y)

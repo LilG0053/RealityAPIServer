@@ -73,10 +73,12 @@ class DogServerTest(unittest.TestCase):
         return self.map.handle_device_info(request.post_device_info)
 
     def test_cloud_becomes_a_ring_at_the_dogs_height(self):
-        self.assertTrue(self.post(cloud_request(point_cloud(ring_around(POSE)), POSE)).HasField("ok"))
+        reply = self.post(cloud_request(point_cloud(ring_around(POSE)), POSE))
         dog = self.map._devices[dog_protocol.DEVICE_ID]
         placed = server_transform(POSE)
         self.assertEqual(dog.transform3, placed)  # the first scan has no ICP correction
+        # The reply is the server's view of the dog: its corrected pose and ring.
+        self.assertEqual(reply.device_info, dog.get_device_info())
 
         points = np.array([[p.x, p.y, p.z] for p in dog.lidar3.points])
         self.assertGreater(len(points), 10)
