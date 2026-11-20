@@ -6,7 +6,7 @@ from time import time
 
 import numpy as np
 
-from map.cloud_map import CloudMap
+from map.cloud_map_3d import CloudMap
 from map.device import Device, Dog, TurtleBot, device_from_info, device_from_dict
 from map.occupancy import OccupancyGrid  # <- use the exact import line main has for OccupancyGrid
 from realityapi_pb2 import AllDeviceInfo, DeviceInfo, DeviceType, Lidar, Response, Transform, Vector3
