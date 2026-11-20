@@ -9,10 +9,19 @@ from websockets.sync.client import connect
 
 # realityapi_pb2 lives in the repo root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from realityapi_pb2 import DeviceInfo, DeviceType, Response, ServerRequest, Transform2, Transform3, Vector2, Vector3
-
 import json
 import random
+
+from realityapi_pb2 import (
+    DeviceInfo,
+    DeviceType,
+    Response,
+    ServerRequest,
+    Transform2,
+    Transform3,
+    Vector2,
+    Vector3,
+)
 
 URI = "ws://localhost:65432"
 PACKET_RATE = 0.1

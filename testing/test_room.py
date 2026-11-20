@@ -4,13 +4,19 @@ import json
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from map.room import BLOCKOUT_PATH, Room, cells_covering_room, display_offset, point_in_polygon
+from map.room import (
+    BLOCKOUT_PATH,
+    Room,
+    cells_covering_room,
+    display_offset,
+    point_in_polygon,
+)
 from realityapi_pb2 import Polygon2, Vector2, Vector3
 
 

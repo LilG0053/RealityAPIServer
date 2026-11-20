@@ -9,9 +9,9 @@ server frame is that with the room's offset removed, so a server-frame point
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import json
 import math
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np

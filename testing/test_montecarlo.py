@@ -19,9 +19,10 @@ sys.path.insert(0, str(ROOT / "turtlebot" / "turtlebot"))
 
 import sim
 from init_turtlebot import TurtleBotPose
+
+from map.algorithms.montecarlo import MonteCarlo
 from map.device.turtlebot import LIDAR_OFFSET
 from map.map import Map
-from map.montecarlo import MonteCarlo
 from map.wallgrid import WallGrid
 from realityapi_pb2 import DeviceInfo, DeviceType, RawLidar2Scan
 

@@ -12,10 +12,10 @@ from typing import Any, ClassVar
 from google.protobuf.json_format import ParseDict
 
 from common.transform2 import transform2_from_transform3
+from map.algorithms.lidar import simplify_points
+from map.algorithms.pointcloud import raw_cloud_to_ring
 from map.device.device import Device, _message_dict
-from map.lidar import simplify_points
 from map.localization import ScanLocalizer
-from map.pointcloud import raw_cloud_to_ring
 from realityapi_pb2 import DeviceInfo, DeviceType, Lidar3, Response, Transform3, Vector3
 
 

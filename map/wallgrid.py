@@ -34,6 +34,11 @@ import time
 
 import numpy as np
 
+from map.algorithms.wallgrid import (
+    WallGridInterface,
+    distance_to_segments,
+    polygon_segments,
+)
 from map.occupancy import OccupancyGrid
 from map.room import Room, polygon_array
 from map.tunable import TunableParameter
@@ -45,28 +50,7 @@ WALL_SIGMA = 0.10
 # Extra space around the room so points just outside it still get a distance.
 WALL_GRID_MARGIN = 1.0
 
-
-def polygon_segments(polygons: list[np.ndarray]) -> np.ndarray:
-    """Every closed polygon edge as one row (x0, z0, x1, z1)."""
-    rows = [np.hstack((polygon, np.roll(polygon, -1, axis=0))) for polygon in polygons]
-    return np.vstack(rows)
-
-
-def distance_to_segments(points: np.ndarray, segments: np.ndarray) -> np.ndarray:
-    """Exact distance from each point (N x 2) to its nearest segment (M x 4)."""
-    start = segments[:, :2]
-    direction = segments[:, 2:] - start
-    length_sq = np.maximum((direction ** 2).sum(axis=1), 1e-12)
-    best = np.full(len(points), np.inf)
-    # One segment at a time keeps memory at N floats instead of N x M.
-    for a, d, l2 in zip(start, direction, length_sq):
-        t = np.clip(((points - a) @ d) / l2, 0.0, 1.0)
-        nearest = a + t[:, None] * d
-        np.minimum(best, np.hypot(*(points - nearest).T), out=best)
-    return best
-
-
-class WallGrid:
+class WallGrid(WallGridInterface):
     # How much the occupancy grid counts next to the blockout walls. The
     # occupancy grid is built from localized poses, so a high weight lets a
     # past localization error reinforce itself.
@@ -90,7 +74,7 @@ class WallGrid:
         """
         self.room = room
         self.occupancy = occupancy
-        self.resolution = resolution
+        self._resolution = resolution
         self.sigma = sigma
 
         segments = polygon_segments([polygon_array(polygon) for polygon in room.polygons()])
@@ -98,7 +82,7 @@ class WallGrid:
         low = coords.min(axis=0) - margin
         high = coords.max(axis=0) + margin
         shape = tuple(np.ceil((high - low) / resolution).astype(int))
-        self.origin = low                 # (x, z) of the corner of cell (0, 0)
+        self._origin = low                 # (x, z) of the corner of cell (0, 0)
 
         i, j = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing="ij")
         self._centers = low + (np.stack((i, j), axis=-1).reshape(-1, 2) + 0.5) * resolution
@@ -113,6 +97,12 @@ class WallGrid:
         # Bumped whenever the likelihood changes, so callers can rebuild caches.
         self.version = 0
 
+    @property
+    def resolution(self) -> float:
+        return self._resolution
+    @property
+    def origin(self) -> np.ndarray:
+        return self._origin
     @property
     def likelihood(self) -> np.ndarray:
         """(wall_likelihood + w * occupancy) / (1 + w), what scans score against.

@@ -21,12 +21,12 @@ changes). A grid made without a path never touches the disk.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import math
 import os
-from pathlib import Path
 import time
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 

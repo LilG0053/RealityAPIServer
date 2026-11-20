@@ -13,12 +13,19 @@ from pathlib import Path
 from time import perf_counter
 
 import numpy as np
+from client_test import URI, build_device_info, exchange
 from websockets.sync.client import connect
 
-from client_test import URI, build_device_info, exchange
-from map.lidar import simplify_points
-from realityapi_pb2 import DeviceInfo, DeviceType, Lidar2, Lidar3, ServerRequest, Vector2, Vector3
-
+from map.algorithms.lidar import simplify_points
+from realityapi_pb2 import (
+    DeviceInfo,
+    DeviceType,
+    Lidar2,
+    Lidar3,
+    ServerRequest,
+    Vector2,
+    Vector3,
+)
 
 POINT_COUNT = 550
 

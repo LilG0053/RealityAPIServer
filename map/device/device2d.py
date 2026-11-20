@@ -33,15 +33,22 @@ from common.transform2 import (
     make_transform2,
     pose_change,
 )
-from map.room import polygon_array
-from map.wallgrid import WallGrid
-from map.branch_and_bound import BranchAndBound
-from map.device.device import Device, _message_dict
-from map.lidar import scan_to_device_points, simplify_points
+from map.algorithms.branch_and_bound import BranchAndBound
+from map.algorithms.lidar import scan_to_device_points, simplify_points
+from map.algorithms.montecarlo import MonteCarlo
+from map.device.device import Device, _message_dict, DeviceType
 from map.localization import AccumulatedMap
-from map.montecarlo import MonteCarlo
+from map.room import polygon_array
 from map.tunable import TunableParameter
-from realityapi_pb2 import DeviceInfo, Lidar2, RawLidar2Scan, Response, Transform2, Vector2
+from map.wallgrid import WallGrid
+from realityapi_pb2 import (
+    DeviceInfo,
+    Lidar2,
+    RawLidar2Scan,
+    Response,
+    Transform2,
+    Vector2,
+)
 
 # Scan RMSEs kept per device for the dashboard histogram, oldest dropped first.
 SCAN_RMSE_LIMIT = 2000

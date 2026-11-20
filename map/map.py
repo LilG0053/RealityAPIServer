@@ -9,7 +9,14 @@ from map.device.turtlebot import TurtleBot
 from map.occupancy import OccupancyGrid
 from map.room import BLOCKOUT_PATH, Room
 from map.wallgrid import WallGrid
-from realityapi_pb2 import AllDeviceInfo, DeviceInfo, DeviceType, Lidar2, Response, Vector2
+from realityapi_pb2 import (
+    AllDeviceInfo,
+    DeviceInfo,
+    DeviceType,
+    Lidar2,
+    Response,
+    Vector2,
+)
 
 # Where the TurtleBots' shared occupancy grid is kept between server runs.
 TURTLEBOT_OCCUPANCY_PATH = Path(__file__).resolve().parents[1] / "assets" / "occupancy_grid_turtlebot.json"

@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import numpy as np
 from google.protobuf.empty_pb2 import Empty
 
 import server
@@ -26,8 +27,6 @@ from realityapi_pb2 import (
     Transform2,
     Vector2,
 )
-
-import numpy as np
 
 
 class ServerTest(unittest.TestCase):

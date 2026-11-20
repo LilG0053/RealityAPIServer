@@ -7,8 +7,8 @@ from typing import ClassVar
 
 import numpy as np
 
+from map.algorithms.lidar import scan_to_device_points
 from map.device.device2d import Device2D
-from map.lidar import scan_to_device_points
 from map.wallgrid import WallGrid
 from realityapi_pb2 import DeviceType, RawLidar2Scan, Transform2, Vector2
 

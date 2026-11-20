@@ -9,8 +9,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from map.algorithms.lidar import scan_to_device_points, simplify_points
 from map.device.turtlebot import LIDAR_OFFSET
-from map.lidar import scan_to_device_points, simplify_points
 from realityapi_pb2 import RawLidar2Scan, Transform2, Vector2
 
 CENTERED = Transform2(position=Vector2())

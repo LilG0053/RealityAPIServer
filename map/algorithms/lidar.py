@@ -2,6 +2,7 @@
 
 import cv2
 import numpy as np
+
 from realityapi_pb2 import RawLidar2Scan, Transform2
 
 # Contour tolerance, in meters, applied to each scan before it is posted.

@@ -1,5 +1,7 @@
 import numpy as np
-from map.wallgrid import WallGrid
+
+from map.algorithms.wallgrid import WallGridInterface
+
 # Used to localize robot against the room
 
 def precompute_max_grids(grid: np.ndarray, levels: int) -> list[np.ndarray]:
@@ -13,13 +15,13 @@ def precompute_max_grids(grid: np.ndarray, levels: int) -> list[np.ndarray]:
     return stack
 
 class BranchAndBound:
-    def __init__(self, wall_grid: WallGrid, levels: int = 7):
+    def __init__(self, wall_grid: WallGridInterface, levels: int = 7):
         self.wall_grid = wall_grid
 
         # Required padding for out of range scans to not destroy measurements
         P = 300
         self.pad = P
-        self.stack = precompute_max_grids(np.pad(wall_grid.likelihood, P, constant_values=0.0), levels)        
+        self.stack = precompute_max_grids(np.pad(wall_grid.likelihood, P, constant_values=0.0), levels)
 
     def search(self, scan_rel, center, xy_window, theta_window, min_score):
         # Thin the scan for dupes
@@ -37,7 +39,7 @@ class BranchAndBound:
             sin_t, cos_t = np.sin(t), np.cos(t)
             # rotation array here
             rotated = scan_clean @ np.array([[cos_t, -sin_t], [sin_t, cos_t]]).T
-            # Convert from scan to grid cell and save 
+            # Convert from scan to grid cell and save
             offsets.append(np.round(rotated / res).astype(int)) # Offsets[0] uses thetas[0], offsets[1] w thetas[1] , etc
 
 
@@ -103,12 +105,3 @@ class BranchAndBound:
     def score(self, h, offsets, x0, z0):
         idx = offsets + (x0 + self.pad, z0 + self.pad)
         return self.stack[h][idx[:, 0], idx[:, 1]].mean()
-
-
-
-
-
-
-
-
-    

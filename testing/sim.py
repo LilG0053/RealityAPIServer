@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from common.transform2 import compose_transform2, make_transform2
-from map.montecarlo import wrap_angle
+from map.algorithms.montecarlo import wrap_angle
 from map.room import BLOCKOUT_PATH, Room, polygon_array
 from realityapi_pb2 import RawLidar2Scan, Transform3, Vector3
 

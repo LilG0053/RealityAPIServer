@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from map.occupancy import (
-    GridCell,
     OCCUPIED_SCAN_ODDS,
+    GridCell,
     OccupancyGrid,
     center_weight,
     p_from_log_odds,

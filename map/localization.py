@@ -7,8 +7,13 @@ import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
 from common.transform2 import make_transform2
-from map.icp import closest_point_rmse, icp
-from map.lidar import LIDAR_EPSILON, inside_contour, shrink_contour, simplified_contour
+from map.algorithms.icp import closest_point_rmse, icp
+from map.algorithms.lidar import (
+    LIDAR_EPSILON,
+    inside_contour,
+    shrink_contour,
+    simplified_contour,
+)
 from realityapi_pb2 import Transform2
 
 # Shrink the current scan's contour about its centroid before treating the
