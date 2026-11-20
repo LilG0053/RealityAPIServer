@@ -1,8 +1,6 @@
 """The occupancy grid is the whole room, fixed in the server frame."""
 
-import json
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -21,7 +19,7 @@ from map.occupancy import (
 )
 from map.room import DISPLAY_OFFSET, point_in_polygon, server_room_corners
 from map.tunable import list_tunables, set_tunable
-from realityapi_pb2 import Transform, Vector3
+from realityapi_pb2 import Transform3, Vector3
 
 
 class OccupancyExportTest(unittest.TestCase):
@@ -42,54 +40,51 @@ class OccupancyExportTest(unittest.TestCase):
             self.assertTrue(any(point_in_polygon(x, z, corners) for x, z in samples))
 
         # A hit at the center of cell (20, 65), and one far outside the room.
-        origin = Transform(position=Vector3(x=2.0, z=5.0))
+        origin = Transform3(position=Vector3(x=2.0, z=5.0))
         self.assertEqual(grid.cells[(0, 0)].p_occupied, 0.5)
         grid.update(origin, np.array([[2.05, 0.0, 6.55], [100.0, 0.0, 100.0]]))
         self.assertLess(grid.cells[(20, 50)].p_occupied, 0.5)
         self.assertGreater(grid.cells[(20, 65)].p_occupied, 0.5)
         self.assertNotIn((1000, 1000), grid.cells)
 
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "occupancy_grid.json"
-            grid.export(str(path))
-            data = json.loads(path.read_text())
+        # A dashboard with nothing applied yet gets every observed cell.
+        first = grid.snapshot(0)
+        self.assertTrue(first.reset)
+        self.assertAlmostEqual(first.cell_size, 0.1, places=6)
+        self.assertAlmostEqual(first.origin.x, DISPLAY_OFFSET[0], places=6)
+        self.assertAlmostEqual(first.origin.y, DISPLAY_OFFSET[2], places=6)
+        cells = {(cell.x, cell.z): cell for cell in first.cells}
+        self.assertTrue(set(cells).issubset(grid.room_cells))
+        self.assertLess(len(cells), 200)
+        self.assertGreater(cells[(20, 65)].p, 0.5)
+        self.assertLess(cells[(20, 50)].p, 0.5)
+        self.assertNotIn((0, 0), cells)
+        self.assertNotIn((1000, 1000), cells)
 
-            self.assertEqual(data["frame"], "server")
-            self.assertEqual(data["cell_size"], 0.1)
-            self.assertEqual(data["origin_x"], DISPLAY_OFFSET[0])
-            self.assertEqual(data["origin_z"], DISPLAY_OFFSET[2])
-            self.assertFalse(data["reset"])
-            cells = {(cell["x"], cell["z"]): cell for cell in data["cells"]}
-            self.assertTrue(set(cells).issubset(grid.room_cells))
-            self.assertLess(len(cells), 200)
-            self.assertGreater(cells[(20, 65)]["p"], 0.5)
-            self.assertLess(cells[(20, 50)]["p"], 0.5)
-            self.assertNotIn("status", cells[(20, 65)])
-            self.assertNotIn((0, 0), cells)
-            self.assertNotIn((1000, 1000), cells)
+        # Nothing changed since that revision, so the next fetch is empty.
+        unchanged = grid.snapshot(first.revision)
+        self.assertFalse(unchanged.reset)
+        self.assertEqual(list(unchanged.cells), [])
+        self.assertEqual(unchanged.revision, first.revision)
 
-            # Pending set was cleared; a second export with no new updates is empty.
-            self.assertEqual(grid._pending_export_cells, set())
-            grid.export(str(path))
-            empty = json.loads(path.read_text())
-            self.assertEqual(empty["cells"], [])
-            self.assertFalse(empty["reset"])
+        # A later scan only sends cells changed since the revision applied.
+        grid.update(origin, np.array([[2.05, 0.0, 6.55]]))
+        second = grid.snapshot(first.revision)
+        self.assertFalse(second.reset)
+        self.assertGreater(second.revision, first.revision)
+        second_cells = {(cell.x, cell.z) for cell in second.cells}
+        self.assertIn((20, 65), second_cells)
+        self.assertTrue(second_cells.issubset(grid.room_cells))
 
-            # A later scan only exports cells touched since the previous export.
-            grid.update(origin, np.array([[2.05, 0.0, 6.55]]))
-            grid.export(str(path))
-            second = json.loads(path.read_text())
-            second_cells = {(cell["x"], cell["z"]) for cell in second["cells"]}
-            self.assertIn((20, 65), second_cells)
-            self.assertTrue(second_cells.issubset(grid.room_cells))
+        # After clear, a dashboard holding an older revision is told to wipe.
+        grid.clear()
+        cleared = grid.snapshot(second.revision)
+        self.assertTrue(cleared.reset)
+        self.assertEqual(list(cleared.cells), [])
+        self.assertFalse(grid.snapshot(cleared.revision).reset)
 
-            clear_path = Path(directory) / "cleared_occupancy_grid.json"
-            grid.path = str(clear_path)
-            grid.clear()
-            cleared = json.loads(clear_path.read_text())
-        self.assertEqual(cleared["cells"], [])
-        self.assertTrue(cleared["reset"])
-        self.assertEqual(grid._pending_export_cells, set())
+        # A revision from another server run (newer than this one) also resets.
+        self.assertTrue(grid.snapshot(cleared.revision + 10**12).reset)
 
     def test_center_weight_and_tunable_gamma_follow_update_equation(self):
         names = {parameter["name"] for parameter in list_tunables()}
@@ -136,7 +131,7 @@ class OccupancyExportTest(unittest.TestCase):
             self.assertAlmostEqual(OccupancyGrid.GAMMA, 0.0)
 
             grid = OccupancyGrid()
-            origin = Transform(position=Vector3(x=2.0, z=5.0))
+            origin = Transform3(position=Vector3(x=2.0, z=5.0))
             # Hit at the cell center is stronger than a hit near the cell edge.
             grid.update(origin, np.array([[2.05, 0.0, 6.05]]))
             on_center = grid.cells[(20, 60)].p_occupied

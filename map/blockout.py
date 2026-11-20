@@ -1,9 +1,9 @@
 """Closeness-to-wall grid built from the measured room blockout.
 
-The blockout (dashboard/blockout.json) is the fixed map the robot localizes
-against: the room outline plus measured obstacles such as the pillars. It is
-stored in dashboard coordinates; this module shifts it into the server frame
-by removing DISPLAY_OFFSET, the same way map/room.py does.
+The blockout (assets/blockout.json, loaded by map/room.py) is the fixed map
+the robot localizes against: the room outline plus measured obstacles such as
+the pillars. It is stored in dashboard coordinates; this module shifts it into
+the server frame by removing DISPLAY_OFFSET, the same way map/room.py does.
 
 WallGrid holds, for every cell, the exact distance in meters from the cell
 center to the nearest blockout wall, and a likelihood
@@ -21,13 +21,11 @@ along server z. Cell (i, j) covers
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
+from pathlib import Path
 
 import numpy as np
 
-from map.room import DISPLAY_OFFSET
-
-BLOCKOUT_PATH = "dashboard/blockout.json"
+from map.room import BLOCKOUT_PATH, DISPLAY_OFFSET, load_blockout
 
 # 5 cm cells. Finer than the 10 cm occupancy grid: localization wants precision.
 WALL_GRID_RESOLUTION = 0.05
@@ -38,16 +36,15 @@ WALL_GRID_MARGIN = 1.0
 
 
 def load_blockout_polygons(
-    path: str = BLOCKOUT_PATH,
+    path: str | Path = BLOCKOUT_PATH,
     offset: tuple[float, float, float] = DISPLAY_OFFSET,
 ) -> list[np.ndarray]:
     """Room outline first, then each obstacle, as K x 2 (x, z) arrays in the server frame."""
-    with open(path) as file:
-        blockout = json.load(file)
+    blockout = load_blockout(path)
     shift = np.array([offset[0], offset[2]])
-    polygons = [np.asarray(blockout["room"], dtype=float) - shift]
-    for obstacle in blockout.get("obstacles", []):
-        polygons.append(np.asarray(obstacle["polygon"], dtype=float) - shift)
+    polygons = [np.asarray(blockout.room, dtype=float) - shift]
+    for obstacle in blockout.obstacles:
+        polygons.append(np.asarray(obstacle.polygon, dtype=float) - shift)
     return polygons
 
 
@@ -82,7 +79,7 @@ class WallGrid:
     @classmethod
     def from_blockout(
         cls,
-        path: str = BLOCKOUT_PATH,
+        path: str | Path = BLOCKOUT_PATH,
         resolution: float = WALL_GRID_RESOLUTION,
         sigma: float = WALL_SIGMA,
         margin: float = WALL_GRID_MARGIN,

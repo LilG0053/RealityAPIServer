@@ -11,16 +11,12 @@ const sceneContainer = document.getElementById("scene-container");
 const WALL_HEIGHT = 3;
 const WALL_THICKNESS = 0.15;
 
-// Room corners (in meters)
-// (0, 0) is the corner furthest from the door.
-const roomCorners = [
-  { x: 0, z: 0 },
-  { x: 0, z: 15.45 },
-  { x: 5.16, z: 15.45 },
-  { x: 5.16, z: 12.26 },
-  { x: 9.07, z: 12.26 },
-  { x: 9.07, z: 0 }
-];
+// The blockout has no heights, so obstacles are drawn as tall as the walls.
+const OBSTACLE_HEIGHT = WALL_HEIGHT;
+
+// Room corners (in meters), from the server's RoomBounds (assets/blockout.json).
+// (0, 0) is the corner furthest from the door. Empty until the server answers.
+let roomCorners = [];
 
 // Scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -69,27 +65,6 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x2b3340, 2));
 const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
 directionalLight.position.set(5, 10, 5);
 scene.add(directionalLight);
-
-// Room floor
-// ShapeGeometry fills the exact L-shaped outline from roomCorners.
-const floorShape = new THREE.Shape();
-floorShape.moveTo(roomCorners[0].x, roomCorners[0].z);
-
-for (const corner of roomCorners.slice(1)) {
-  floorShape.lineTo(corner.x, corner.z);
-}
-
-floorShape.closePath();
-
-const floor = new THREE.Mesh(
-  new THREE.ShapeGeometry(floorShape),
-  new THREE.MeshBasicMaterial({
-    color: 0x68717d,
-    side: THREE.DoubleSide
-  })
-);
-floor.rotation.x = Math.PI / 2;
-scene.add(floor);
 
 // Coordinate axes
 // X is red, Y is green, and Z is blue. All axes begin at (0, 0, 0).
@@ -146,22 +121,102 @@ function createWallBetween(start, end) {
     (start.z + end.z) / 2
   );
   wall.rotation.y = Math.atan2(-dz, dx);
-  scene.add(wall);
+  return wall;
 }
 
-for (let index = 0; index < roomCorners.length; index += 1) {
-  const start = roomCorners[index];
-  const end = roomCorners[(index + 1) % roomCorners.length];
-  createWallBetween(start, end);
+// Shape in the X/Z ground plane. Rotating it +90 degrees about X maps the
+// shape's y onto Z, the same way for the floor and the obstacles.
+function groundShape(points) {
+  const shape = new THREE.Shape();
+  shape.moveTo(points[0].x, points[0].z);
+  for (const point of points.slice(1)) {
+    shape.lineTo(point.x, point.z);
+  }
+  shape.closePath();
+  return shape;
 }
 
-const roomOutline = new THREE.LineLoop(
-  new THREE.BufferGeometry().setFromPoints(
-    roomCorners.map((corner) => new THREE.Vector3(corner.x, 0.02, corner.z))
-  ),
-  new THREE.LineBasicMaterial({ color: 0xffffff })
-);
-scene.add(roomOutline);
+// Floor, walls, outline, and obstacles all come from the server, so they
+// live in one group that is rebuilt whenever the room changes.
+const roomGroup = new THREE.Group();
+scene.add(roomGroup);
+let roomKey = "";
+
+// RoomBounds polygons are Vector2s on the X/Z ground plane: Vector2.y is Z.
+function toGroundPoints(polygon) {
+  return (polygon?.vertices ?? []).map((vertex) => ({ x: vertex.x, z: vertex.y }));
+}
+
+function buildRoom(bounds) {
+  const corners = toGroundPoints(bounds.room);
+  const obstacles = bounds.obstacles.map(toGroundPoints).filter((points) => points.length >= 3);
+  const key = JSON.stringify([corners, obstacles]);
+  if (corners.length < 3 || key === roomKey) return;
+  roomKey = key;
+  roomCorners = corners;
+
+  roomGroup.traverse((object) => {
+    object.geometry?.dispose();
+    object.material?.dispose();
+  });
+  roomGroup.clear();
+
+  // Room floor
+  // ShapeGeometry fills the exact outline from roomCorners.
+  const floor = new THREE.Mesh(
+    new THREE.ShapeGeometry(groundShape(roomCorners)),
+    new THREE.MeshBasicMaterial({
+      color: 0x68717d,
+      side: THREE.DoubleSide
+    })
+  );
+  floor.rotation.x = Math.PI / 2;
+  roomGroup.add(floor);
+
+  // Room walls
+  for (let index = 0; index < roomCorners.length; index += 1) {
+    const start = roomCorners[index];
+    const end = roomCorners[(index + 1) % roomCorners.length];
+    roomGroup.add(createWallBetween(start, end));
+  }
+
+  const roomOutline = new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints(
+      roomCorners.map((corner) => new THREE.Vector3(corner.x, 0.02, corner.z))
+    ),
+    new THREE.LineBasicMaterial({ color: 0xffffff })
+  );
+  roomGroup.add(roomOutline);
+
+  // Obstacles (pillars, cabinets): solid blocks standing on their footprints.
+  // The extrusion runs along the shape's +Z, which the rotation turns into
+  // world -Y, so the block is lifted by its height to stand on the floor.
+  for (const points of obstacles) {
+    const block = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(groundShape(points), { depth: OBSTACLE_HEIGHT, bevelEnabled: false }),
+      new THREE.MeshStandardMaterial({
+        color: 0xb0b8c4,
+        roughness: 0.8,
+        transparent: true,
+        opacity: 0.8
+      })
+    );
+    block.rotation.x = Math.PI / 2;
+    block.position.y = OBSTACLE_HEIGHT;
+    roomGroup.add(block);
+
+    const outline = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints(
+        points.map((point) => new THREE.Vector3(point.x, 0.02, point.z))
+      ),
+      new THREE.LineBasicMaterial({ color: 0xffffff })
+    );
+    roomGroup.add(outline);
+  }
+
+  // The occupancy lattice covers the room, so rebuild it for the new outline.
+  occupancyLayoutKey = "";
+}
 
 // Store 3D markers by device ID
 const robotMarkers = {};
@@ -317,8 +372,8 @@ function updateMapMarkers(points) {
 }
 
 // Occupancy grid. The room cell lattice is built once in the browser from
-// roomCorners. occupancy_grid.json carries deltas: only cells updated since
-// the previous export. reset=true wipes colors back to unknown (0.5).
+// roomCorners. The server sends cells changed since occupancyRevision, the
+// revision last applied here. reset=true wipes colors back to unknown (0.5).
 const occupancyGeometry = new THREE.PlaneGeometry(1, 1);
 const occupancyMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
 const occupancyMarker = new THREE.Object3D();
@@ -329,6 +384,7 @@ const cellColor = new THREE.Color();
 let occupancyMesh = null;
 let occupancyIndexByKey = new Map();
 let occupancyLayoutKey = "";
+let occupancyRevision = 0n;
 
 function pointInRoomPolygon(x, z, corners) {
   let inside = false;
@@ -356,9 +412,11 @@ function colorForProbability(probability) {
   return cellColor.copy(unknownColor);
 }
 
+// Returns true when the lattice was (re)built, which leaves every cell unknown.
 function ensureOccupancyLattice(cellSize, originX, originZ) {
+  if (roomCorners.length < 3) return false;
   const key = `${cellSize}:${originX}:${originZ}`;
-  if (occupancyMesh && occupancyLayoutKey === key) return;
+  if (occupancyMesh && occupancyLayoutKey === key) return false;
 
   if (occupancyMesh) {
     scene.remove(occupancyMesh);
@@ -412,16 +470,21 @@ function ensureOccupancyLattice(cellSize, originX, originZ) {
   if (occupancyMesh.instanceColor) occupancyMesh.instanceColor.needsUpdate = true;
   if (coords.length) occupancyMesh.computeBoundingSphere();
   scene.add(occupancyMesh);
+  return true;
 }
 
+// Apply an OccupancyGrid message. Returns false when it could not be applied
+// (no room yet, or a fresh lattice that a delta cannot fill in).
 function updateOccupancyGrid(grid) {
-  if (!Number.isFinite(grid.cell_size) || grid.cell_size <= 0 || !Array.isArray(grid.cells)) return;
-  const originX = Number.isFinite(grid.origin_x) ? grid.origin_x : 0;
-  const originZ = Number.isFinite(grid.origin_z) ? grid.origin_z : 0;
-  ensureOccupancyLattice(grid.cell_size, originX, originZ);
-  if (!occupancyMesh) return;
+  if (!(grid.cellSize > 0)) return false;
+  // origin is on the X/Z ground plane: Vector2.y is Z.
+  const originX = grid.origin?.x ?? 0;
+  const originZ = grid.origin?.y ?? 0;
+  const rebuilt = ensureOccupancyLattice(grid.cellSize, originX, originZ);
+  if (!occupancyMesh) return false;
+  if (rebuilt && !grid.reset) return false;
 
-  // Full wipe after OccupancyGrid.clear on the server.
+  // Full wipe after OccupancyGrid.clear on the server, or a fresh start.
   if (grid.reset) {
     for (let index = 0; index < occupancyMesh.count; index += 1) {
       occupancyMesh.setColorAt(index, unknownColor);
@@ -437,6 +500,7 @@ function updateOccupancyGrid(grid) {
   }
 
   if (occupancyMesh.instanceColor) occupancyMesh.instanceColor.needsUpdate = true;
+  return true;
 }
 
 // Rendering and window behavior
@@ -464,6 +528,9 @@ const POLL_INTERVAL = 50;
 // How long to wait between FetchLidarData polls for the accumulated map (ms).
 // The map changes slowly and is much larger than the device list.
 const MAP_POLL_INTERVAL = 500;
+
+// How long to wait between occupancy grid polls (ms).
+const OCCUPANCY_POLL_INTERVAL = 1000;
 
 // How long to wait before reconnecting after the socket closes (ms).
 const RECONNECT_DELAY = 1000;
@@ -496,6 +563,7 @@ function connect() {
   });
 
   socket.addEventListener("open", () => {
+    fetchRoomBounds();
     loadTunables();
   });
 
@@ -517,6 +585,18 @@ function request(data) {
     pendingRequests.set(reqUuid, { resolve, reject });
     socket.send(toBinary(ServerRequestSchema, message));
   });
+}
+
+// Ask the server for the room outline and obstacles and redraw them.
+async function fetchRoomBounds() {
+  try {
+    const response = await request({ case: "fetchRoomBounds", value: {} });
+    if (response.data.case === "roomBounds") {
+      buildRoom(response.data.value);
+    }
+  } catch (error) {
+    console.error("Error fetching room bounds:", error);
+  }
 }
 
 // Track device positions
@@ -610,24 +690,37 @@ async function pollMap() {
 }
 
 // Pending cell deltas are flushed about once a second, on the same cadence as the pose export.
+// Ask the server for occupancy cells changed since the revision applied here.
+async function fetchOccupancyGrid() {
+  const status = document.getElementById("occupancy-status");
+  const response = await request({ case: "fetchOccupancyGrid", value: occupancyRevision });
+  if (response.data.case !== "occupancyGrid") {
+    console.warn("Occupancy grid request was not accepted; server replied:", response.data.case);
+    return;
+  }
+  const grid = response.data.value;
+  if (updateOccupancyGrid(grid)) {
+    occupancyRevision = grid.revision;
+    if (status) status.textContent = "Occupancy grid loaded";
+  } else {
+    // Nothing was applied, so ask for every cell next time.
+    occupancyRevision = 0n;
+    if (status) status.textContent = "Waiting for occupancy grid";
+  }
+}
+
 async function pollOccupancyGrid() {
   while (true) {
-    try {
-      const response = await fetch("./occupancy_grid.json", { cache: "no-store" });
-      const status = document.getElementById("occupancy-status");
-      if (response.ok) {
-        updateOccupancyGrid(await response.json());
-        if (status) status.textContent = "Occupancy grid loaded";
-      } else {
-        if (status) status.textContent = "Waiting for occupancy grid";
-        if (response.status !== 404) console.error("Could not load occupancy grid:", response.status);
+    if (socket.readyState === WebSocket.OPEN) {
+      try {
+        await fetchOccupancyGrid();
+      } catch (error) {
+        const status = document.getElementById("occupancy-status");
+        if (status) status.textContent = "Occupancy grid unavailable";
+        console.error("Error fetching occupancy grid:", error);
       }
-    } catch (error) {
-      const status = document.getElementById("occupancy-status");
-      if (status) status.textContent = "Occupancy grid unavailable";
-      console.error("Error loading occupancy grid:", error);
     }
-    await sleep(1000);
+    await sleep(OCCUPANCY_POLL_INTERVAL);
   }
 }
 
@@ -681,8 +774,7 @@ async function clearAccumulatedScan() {
       console.log("Clear accumulated scan: server accepted");
       updateMapMarkers([]);
       try {
-        const gridResponse = await fetch("./occupancy_grid.json", { cache: "no-store" });
-        if (gridResponse.ok) updateOccupancyGrid(await gridResponse.json());
+        await fetchOccupancyGrid();
       } catch (error) {
         console.error("Error reloading occupancy grid:", error);
       }

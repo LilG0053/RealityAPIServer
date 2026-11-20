@@ -1,27 +1,99 @@
 """The lab room, fixed in the server frame.
 
-The dashboard draws the room at ROOM_CORNERS_DRAWN. Incoming poses are shifted by
-DISPLAY_OFFSET before they are drawn, so a server-frame point (x, z) appears at
+The room is loaded from assets/blockout.json: its outline plus measured
+obstacles such as the pillars. The blockout is stored in the coordinates the
+dashboard draws. Incoming poses are shifted by DISPLAY_OFFSET before they are
+drawn, so a server-frame point (x, z) appears at
 (x + DISPLAY_OFFSET[0], z + DISPLAY_OFFSET[2]). The occupancy grid uses the
 server-frame polygon and never moves with the robot.
 """
 
-from functools import lru_cache
+from __future__ import annotations
+
+from dataclasses import dataclass
+from functools import cache, lru_cache
+import json
 import math
+from pathlib import Path
+
+from realityapi_pb2 import Polygon2, RoomBounds, Vector2
 
 # x, y, z. Shared with server.py so the grid and the live poses stay aligned.
 DISPLAY_OFFSET = (0.1, 0.1, 2.0)
 
+BLOCKOUT_PATH = Path(__file__).resolve().parents[1] / "assets" / "blockout.json"
+
+
+@dataclass(frozen=True)
+class Obstacle:
+    name: str
+    polygon: tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True)
+class Blockout:
+    """The room in the coordinates the dashboard draws, meters (x, z).
+
+    (0, 0) is the corner furthest from the door.
+    """
+    room: tuple[tuple[float, float], ...]
+    obstacles: tuple[Obstacle, ...]
+
+
+def _polygon(points, label: str) -> tuple[tuple[float, float], ...]:
+    """Validate a JSON polygon: a list of at least three [x, z] pairs."""
+    if not isinstance(points, list) or len(points) < 3:
+        raise ValueError(f"{label} needs at least three [x, z] points")
+    polygon = []
+    for point in points:
+        if (
+            not isinstance(point, list)
+            or len(point) != 2
+            or not all(isinstance(value, (int, float)) for value in point)
+        ):
+            raise ValueError(f"{label} has a point that is not [x, z]: {point!r}")
+        polygon.append((float(point[0]), float(point[1])))
+    return tuple(polygon)
+
+
+@cache
+def load_blockout(path: str | Path = BLOCKOUT_PATH) -> Blockout:
+    """Read the room outline and obstacles from the blockout JSON."""
+    with open(path) as file:
+        data = json.load(file)
+
+    room = _polygon(data.get("room"), "room")
+    obstacles = []
+    for index, entry in enumerate(data.get("obstacles", [])):
+        name = entry.get("name") or f"obstacle {index}"
+        try:
+            obstacles.append(Obstacle(name, _polygon(entry.get("polygon"), f"obstacle {name!r}")))
+        except ValueError as error:
+            # Obstacles are often added before they are measured; skip those.
+            print(f"[!] skipping {error} in {path}")
+    return Blockout(room=room, obstacles=tuple(obstacles))
+
+
 # Outline of the room in the coordinates the dashboard draws, meters (x, z).
-# (0, 0) is the corner furthest from the door.
-ROOM_CORNERS_DRAWN = (
-    (0.0, 0.0),
-    (0.0, 15.45),
-    (5.16, 15.45),
-    (5.16, 12.26),
-    (9.07, 12.26),
-    (9.07, 0.0),
-)
+ROOM_CORNERS_DRAWN = load_blockout().room
+
+
+def room_bounds(blockout: Blockout | None = None) -> RoomBounds:
+    """The blockout as a RoomBounds message.
+
+    Polygons stay in the dashboard's drawn coordinates (Vector2.x is X and
+    Vector2.y is Z). origin is where the server frame's (0, 0) is drawn.
+    """
+    blockout = blockout or load_blockout()
+
+    def polygon(points: tuple[tuple[float, float], ...]) -> Polygon2:
+        return Polygon2(vertices=[Vector2(x=x, y=z) for x, z in points])
+
+    return RoomBounds(
+        origin=Vector2(x=DISPLAY_OFFSET[0], y=DISPLAY_OFFSET[2]),
+        room=polygon(blockout.room),
+        obstacles=[polygon(obstacle.polygon) for obstacle in blockout.obstacles],
+    )
 
 
 def server_room_corners(offset: tuple[float, float, float] = DISPLAY_OFFSET) -> tuple[tuple[float, float], ...]:

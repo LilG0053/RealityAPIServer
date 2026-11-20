@@ -9,7 +9,7 @@ from websockets.sync.client import connect
 
 # realityapi_pb2 lives in the repo root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from realityapi_pb2 import DeviceInfo, DeviceType, Response, ServerRequest, Transform, Vector3
+from realityapi_pb2 import DeviceInfo, DeviceType, Response, ServerRequest, Transform3, Vector3
 
 import json
 import random
@@ -41,7 +41,7 @@ def build_device_info() -> list[DeviceInfo]:
             id=entry['device_id'],
             device_type=DeviceType.Value(entry['device_type']),
             timestamp=entry['time'],
-            transform=Transform(
+            transform=Transform3(
                 position=Vector3(x=entry['posX'], y=entry['posY'], z=entry['posZ']),
                 # For turtlebot, all axis besides up axis should be 0 (2d plane)
                 rotation=Vector3(x=entry['rotX'], y=entry['rotY'], z=entry['rotZ'])

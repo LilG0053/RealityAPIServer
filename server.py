@@ -22,7 +22,7 @@ from map.coordinate import (
     convert_lidar,
     convert_transform,
 )
-from map.room import DISPLAY_OFFSET
+from map.room import BLOCKOUT_PATH, DISPLAY_OFFSET, room_bounds
 from map.lidar import scan_to_world_points
 from map.map import DASHBOARD_PATH, Map
 from map.tunable import list_tunables, set_tunable
@@ -36,7 +36,7 @@ from realityapi_pb2 import (
     RawPointCloud,
     Response,
     ServerRequest,
-    Transform,
+    Transform3,
     Vector3,
 )
 
@@ -65,6 +65,9 @@ SENDER_COORDS = {DeviceType.Value("DOG"): DOG_COORDS}
 
 server_map = Map()
 
+# The room outline and obstacles from assets/blockout.json, sent to dashboards.
+ROOM_BOUNDS = room_bounds()
+
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
     """Return a new Vector3 shifted by the offset."""
@@ -75,9 +78,9 @@ def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
     )
 
 
-def translate_transform(transform: Transform, offset=OFFSET) -> Transform:
-    """Return a new Transform with its position shifted by the offset."""
-    return Transform(
+def translate_transform(transform: Transform3, offset=OFFSET) -> Transform3:
+    """Return a new Transform3 with its position shifted by the offset."""
+    return Transform3(
         position=translate_vec3(transform.position, offset),
         rotation=transform.rotation,
     )
@@ -98,10 +101,10 @@ def place_dog_vec3(vec: Vector3) -> Vector3:
     )
 
 
-def place_dog_transform(transform: Transform) -> Transform:
+def place_dog_transform(transform: Transform3) -> Transform3:
     """Put a dog pose (already in server axes) at the dog's start in the room."""
     r = transform.rotation
-    return Transform(
+    return Transform3(
         position=place_dog_vec3(transform.position),
         rotation=Vector3(x=r.x, y=r.y + DOG_START_YAW, z=r.z),
     )
@@ -149,6 +152,14 @@ def fetch_lidar_data(_: Empty) -> Response:
 
 def clear_accumulated_scan(_: Empty) -> Response:
     return server_map.clear_accumulated_scan()
+
+
+def fetch_room_bounds(_: Empty) -> Response:
+    return Response(room_bounds=ROOM_BOUNDS)
+
+
+def fetch_occupancy_grid(since_revision: int) -> Response:
+    return Response(occupancy_grid=server_map.occupancy.snapshot(since_revision))
 
 
 def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
@@ -207,6 +218,8 @@ HANDLERS = {
     "post_raw_lidar_scan": handle_raw_lidar_scan,
     "post_raw_point_cloud": handle_raw_point_cloud,
     "clear_accumulated_scan": clear_accumulated_scan,
+    "fetch_room_bounds": fetch_room_bounds,
+    "fetch_occupancy_grid": fetch_occupancy_grid,
 }
 
 
@@ -304,12 +317,12 @@ async def monitor(device_map: Map):
 
 async def main():
     server_map.load_from_json(DASHBOARD_PATH)
-    # Fresh process: wipe any colors left from a previous server run.
-    server_map.occupancy.export(reset=True)
     monitor_task = asyncio.create_task(monitor(server_map))
     try:
         async with serve(handler, HOST, PORT, compression=None) as server:
             print(f"realityapi server on ws://{HOST}:{PORT}")
+            print(f"room from {BLOCKOUT_PATH}: {len(ROOM_BOUNDS.room.vertices)} corners, "
+                  f"{len(ROOM_BOUNDS.obstacles)} obstacles")
             await server.serve_forever()
     finally:
         monitor_task.cancel()

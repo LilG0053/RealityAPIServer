@@ -29,6 +29,26 @@
         [3.7846, 12.2496],
         [3.7846, 11.513]
       ]
+    },
+    {
+      "name": "printer cabinet",
+      "note": "white cabinet with 3d printesr on it",
+      "polygon": [
+        [9.0065, 4.2418],
+        [8.3842, 4.2418],
+        [8.3842, 6.5278],
+        [9.0065, 6.5278]
+      ]
+    },
+    {
+        "name": "headset cabinet",
+        "note": "cabinet with headsets and shi",
+        "polygon": [
+            [9.0319, 6.5786],
+            [8.6128, 6.5786],
+            [8.6128, 9.5758],
+            [9.0319, 9.5758]
+        ]
     }
   ]
 }

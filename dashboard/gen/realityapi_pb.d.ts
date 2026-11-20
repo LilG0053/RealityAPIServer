@@ -12,6 +12,43 @@ import type { Empty } from "@bufbuild/protobuf/wkt";
 export declare const file_realityapi: GenFile;
 
 /**
+ * @generated from message realityapi.Vector2
+ */
+export declare type Vector2 = Message<"realityapi.Vector2"> & {
+  /**
+   * @generated from field: float x = 1;
+   */
+  x: number;
+
+  /**
+   * @generated from field: float y = 2;
+   */
+  y: number;
+};
+
+/**
+ * Describes the message realityapi.Vector2.
+ * Use `create(Vector2Schema)` to create a new message.
+ */
+export declare const Vector2Schema: GenMessage<Vector2>;
+
+/**
+ * @generated from message realityapi.Polygon2
+ */
+export declare type Polygon2 = Message<"realityapi.Polygon2"> & {
+  /**
+   * @generated from field: repeated realityapi.Vector2 vertices = 1;
+   */
+  vertices: Vector2[];
+};
+
+/**
+ * Describes the message realityapi.Polygon2.
+ * Use `create(Polygon2Schema)` to create a new message.
+ */
+export declare const Polygon2Schema: GenMessage<Polygon2>;
+
+/**
  * @generated from message realityapi.Vector3
  */
 export declare type Vector3 = Message<"realityapi.Vector3"> & {
@@ -38,9 +75,9 @@ export declare type Vector3 = Message<"realityapi.Vector3"> & {
 export declare const Vector3Schema: GenMessage<Vector3>;
 
 /**
- * @generated from message realityapi.Transform
+ * @generated from message realityapi.Transform3
  */
-export declare type Transform = Message<"realityapi.Transform"> & {
+export declare type Transform3 = Message<"realityapi.Transform3"> & {
   /**
    * @generated from field: realityapi.Vector3 position = 1;
    */
@@ -53,10 +90,10 @@ export declare type Transform = Message<"realityapi.Transform"> & {
 };
 
 /**
- * Describes the message realityapi.Transform.
- * Use `create(TransformSchema)` to create a new message.
+ * Describes the message realityapi.Transform3.
+ * Use `create(Transform3Schema)` to create a new message.
  */
-export declare const TransformSchema: GenMessage<Transform>;
+export declare const Transform3Schema: GenMessage<Transform3>;
 
 /**
  * @generated from message realityapi.Lidar
@@ -86,9 +123,9 @@ export declare type RawLidarScan = Message<"realityapi.RawLidarScan"> & {
   /**
    * snapshot of the robot pose when the scan was read
    *
-   * @generated from field: realityapi.Transform transform = 2;
+   * @generated from field: realityapi.Transform3 transform = 2;
    */
-  transform?: Transform | undefined;
+  transform?: Transform3 | undefined;
 
   /**
    * raw LaserScan distances
@@ -139,9 +176,9 @@ export declare type RawPointCloud = Message<"realityapi.RawPointCloud"> & {
    * Pose of the robot when the cloud was read, in the SENDER's own axes
    * (ROS x/y/z for the dog). The server uses its position as the crop centre.
    *
-   * @generated from field: realityapi.Transform transform = 2;
+   * @generated from field: realityapi.Transform3 transform = 2;
    */
-  transform?: Transform | undefined;
+  transform?: Transform3 | undefined;
 
   /**
    * Packed little-endian float32 x, y, z triples: 12 bytes per point, in the
@@ -157,6 +194,108 @@ export declare type RawPointCloud = Message<"realityapi.RawPointCloud"> & {
  * Use `create(RawPointCloudSchema)` to create a new message.
  */
 export declare const RawPointCloudSchema: GenMessage<RawPointCloud>;
+
+/**
+ * room bounds (2d)
+ *
+ * @generated from message realityapi.RoomBounds
+ */
+export declare type RoomBounds = Message<"realityapi.RoomBounds"> & {
+  /**
+   * @generated from field: realityapi.Vector2 origin = 1;
+   */
+  origin?: Vector2 | undefined;
+
+  /**
+   * @generated from field: realityapi.Polygon2 room = 2;
+   */
+  room?: Polygon2 | undefined;
+
+  /**
+   * @generated from field: repeated realityapi.Polygon2 obstacles = 3;
+   */
+  obstacles: Polygon2[];
+};
+
+/**
+ * Describes the message realityapi.RoomBounds.
+ * Use `create(RoomBoundsSchema)` to create a new message.
+ */
+export declare const RoomBoundsSchema: GenMessage<RoomBounds>;
+
+/**
+ * occupancy grid cell (2d), indexed in the server frame
+ *
+ * @generated from message realityapi.OccupancyCell
+ */
+export declare type OccupancyCell = Message<"realityapi.OccupancyCell"> & {
+  /**
+   * @generated from field: int32 x = 1;
+   */
+  x: number;
+
+  /**
+   * @generated from field: int32 z = 2;
+   */
+  z: number;
+
+  /**
+   * probability the cell is occupied
+   *
+   * @generated from field: float p = 3;
+   */
+  p: number;
+};
+
+/**
+ * Describes the message realityapi.OccupancyCell.
+ * Use `create(OccupancyCellSchema)` to create a new message.
+ */
+export declare const OccupancyCellSchema: GenMessage<OccupancyCell>;
+
+/**
+ * occupancy grid (2d)
+ *
+ * @generated from message realityapi.OccupancyGrid
+ */
+export declare type OccupancyGrid = Message<"realityapi.OccupancyGrid"> & {
+  /**
+   * @generated from field: float cell_size = 1;
+   */
+  cellSize: number;
+
+  /**
+   * where server (0, 0) is drawn, like RoomBounds.origin
+   *
+   * @generated from field: realityapi.Vector2 origin = 2;
+   */
+  origin?: Vector2 | undefined;
+
+  /**
+   * send this back in fetch_occupancy_grid to get only the cells changed since
+   *
+   * @generated from field: uint64 revision = 3;
+   */
+  revision: bigint;
+
+  /**
+   * wipe every cell back to unknown (0.5) before applying cells
+   *
+   * @generated from field: bool reset = 4;
+   */
+  reset: boolean;
+
+  /**
+   * @generated from field: repeated realityapi.OccupancyCell cells = 5;
+   */
+  cells: OccupancyCell[];
+};
+
+/**
+ * Describes the message realityapi.OccupancyGrid.
+ * Use `create(OccupancyGridSchema)` to create a new message.
+ */
+export declare const OccupancyGridSchema: GenMessage<OccupancyGrid>;
 
 /**
  * A device report. Everything after timestamp is optional so a client can send
@@ -181,9 +320,9 @@ export declare type DeviceInfo = Message<"realityapi.DeviceInfo"> & {
   timestamp: number;
 
   /**
-   * @generated from field: optional realityapi.Transform transform = 4;
+   * @generated from field: optional realityapi.Transform3 transform = 4;
    */
-  transform?: Transform | undefined;
+  transform?: Transform3 | undefined;
 
   /**
    * @generated from field: optional realityapi.Lidar lidar = 5;
@@ -287,6 +426,18 @@ export declare type Response = Message<"realityapi.Response"> & {
      */
     value: Lidar;
     case: "lidarData";
+  } | {
+    /**
+     * @generated from field: realityapi.RoomBounds room_bounds = 23;
+     */
+    value: RoomBounds;
+    case: "roomBounds";
+  } | {
+    /**
+     * @generated from field: realityapi.OccupancyGrid occupancy_grid = 24;
+     */
+    value: OccupancyGrid;
+    case: "occupancyGrid";
   } | { case: undefined; value?: undefined };
 };
 
@@ -310,9 +461,9 @@ export declare type Command = Message<"realityapi.Command"> & {
   /**
    * multiple demands can be packaged into one command
    *
-   * @generated from field: optional realityapi.Transform transform = 2;
+   * @generated from field: optional realityapi.Transform3 transform = 2;
    */
-  transform?: Transform | undefined;
+  transform?: Transform3 | undefined;
 };
 
 /**
@@ -389,6 +540,20 @@ export declare type ServerRequest = Message<"realityapi.ServerRequest"> & {
      */
     value: RawPointCloud;
     case: "postRawPointCloud";
+  } | {
+    /**
+     * @generated from field: google.protobuf.Empty fetch_room_bounds = 13;
+     */
+    value: Empty;
+    case: "fetchRoomBounds";
+  } | {
+    /**
+     * revision already applied; 0 for everything
+     *
+     * @generated from field: uint64 fetch_occupancy_grid = 14;
+     */
+    value: bigint;
+    case: "fetchOccupancyGrid";
   } | { case: undefined; value?: undefined };
 };
 

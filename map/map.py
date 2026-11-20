@@ -6,7 +6,7 @@ import numpy as np
 
 from map.device import Device, TurtleBot, device_from_info, device_from_dict
 from map.occupancy import OccupancyGrid
-from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform, Vector3
+from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform3, Vector3
 from map.localization import ScanLocalizer
 from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
 
@@ -52,7 +52,6 @@ class Map:
     def _export_if_due(self) -> None:
         if time() - self._last_export >= self.export_interval:
             self.export_to_json()
-            self.occupancy.export_pending_updates()
 
     def load_from_json(self, filepath: str = DASHBOARD_PATH) -> None:
         try:
@@ -76,7 +75,7 @@ class Map:
     def handle_lidar_scan(
         self,
         device_id: str,
-        transform: Transform,
+        transform: Transform3,
         lidar: Lidar,
     ) -> Response:
         # A scan can update an existing device but cannot create one by itself.

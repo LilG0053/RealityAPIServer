@@ -1,10 +1,13 @@
 # FOR TESTING W/ KEYBOARD: ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true
 # FOR POSE RESET: ros2 service call /reset_pose irobot_create_msgs/srv/ResetPose "{}"
+import argparse
+import sys
 import time
 from uuid import uuid4
 import math
 
 import rclpy
+from rclpy.utilities import remove_ros_args
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import LaserScan
 from rclpy.node import Node
@@ -15,6 +18,7 @@ from init_turtlebot import create_turtlebot
 from realityapi_pb2 import Response, ServerRequest, Vector3, RawLidarScan
 from map.coordinate import SERVER_COORDS
 
+# Used when no server URI is passed on the command line.
 SERVER_URI = "ws://0.0.0.0:65432"
 
 # The server drops a device after 2 seconds of silence.
@@ -22,10 +26,11 @@ HEARTBEAT_INTERVAL = 1.0
 
 
 class CoordinateNode(Node):
-    def __init__(self):
+    def __init__(self, server_uri: str = SERVER_URI):
         super().__init__('coordinate_node')
         self.robot = create_turtlebot()
-        self.ws = connect(SERVER_URI)
+        self.get_logger().info(f'Connecting to {server_uri}')
+        self.ws = connect(server_uri)
         self.post_device_info()
 
         self.odom_sub = self.create_subscription(
@@ -122,9 +127,22 @@ class CoordinateNode(Node):
         self.ws.close()
         super().destroy_node()
 
+def parse_args(args=None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='Stream TurtleBot odometry and lidar to the Reality API server.')
+    parser.add_argument(
+        'server_uri',
+        nargs='?',
+        default=SERVER_URI,
+        help=f'websocket URI of the server (default: {SERVER_URI})',
+    )
+    # ROS arguments (--ros-args ...) are for rclpy, not this parser.
+    return parser.parse_args(remove_ros_args(args if args is not None else sys.argv)[1:])
+
+
 def main(args=None):
+    options = parse_args(args)
     rclpy.init(args=args)
-    node = CoordinateNode()
+    node = CoordinateNode(options.server_uri)
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
