@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pathfinding grid test</title>
+  <link rel="stylesheet" href="style.css" />
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+
+<body>
+  <main class="visualization-panel" aria-label="Pathfinding grid">
+    <p class="instructions">Pathfinding test · Drag to rotate · Right-drag to pan · Scroll to zoom</p>
+    <p class="axis-key"><span class="x-axis">X</span> width · <span class="y-axis">Y</span> height · <span
+        class="z-axis">Z</span> depth</p>
+    <div class="map-legend" aria-label="Grid colors">
+      <span><i class="legend-swatch free-cell"></i>Unoccupied, stronger toward 0</span>
+      <span><i class="legend-swatch occupied-cell"></i>Occupied, stronger toward 1</span>
+      <span><i class="legend-swatch unknown-cell"></i>Unknown (0.5)</span>
+      <span id="occupancy-status" role="status">Waiting for occupancy grid</span>
+    </div>
+    <div id="scene-container"></div>
+  </main>
+
+  <script type="module" src="main.js"></script>
+</body>
+
+</html>
