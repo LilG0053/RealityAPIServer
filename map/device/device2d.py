@@ -114,7 +114,7 @@ class Device2D(Device):
 
         # Room pose = compose_transform2(correction, reported pose). Branch and
         # bound sets it; Monte Carlo updates it on every scan after the device
-        # moves; handover() resets it once the device has taken it on. None
+        # moves; _handover() resets it in each reply, which the device takes on. None
         # until placed.
         self.correction: Transform2 | None = None
         self.last_localize_attempt = -math.inf
