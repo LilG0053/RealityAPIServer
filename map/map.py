@@ -1,33 +1,93 @@
-import json
-import os
+from pathlib import Path
 from time import time
+from typing import Any
 
-import numpy as np
-
-from map.device import Device, TurtleBot, device_from_info, device_from_dict
+from map.device.device import Device
+from map.device.device2d import Device2D
+from map.device.dog import Dog
+from map.device.turtlebot import TurtleBot
 from map.occupancy import OccupancyGrid
-from realityapi_pb2 import AllDeviceInfo, DeviceInfo, Lidar, Response, Transform, Vector3
-from map.localization import ScanLocalizer
-from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
+from map.room import BLOCKOUT_PATH, Room
+from map.wallgrid import WallGrid
+from realityapi_pb2 import (
+    AllDeviceInfo,
+    DeviceInfo,
+    DeviceType,
+    Lidar2,
+    Response,
+    Vector2,
+)
 
-# File the visual dashboard polls.
-DASHBOARD_PATH = "dashboard/updated_pos.json"
+# Where the TurtleBots' shared occupancy grid is kept between server runs.
+TURTLEBOT_OCCUPANCY_PATH = Path(__file__).resolve().parents[1] / "assets" / "occupancy_grid_turtlebot.json"
 
-EXPORT_INTERVAL = 1.0
+# The class for each device type a client can register as.
+_DEVICE_CLASSES: dict[int, type[Device]] = {
+    DeviceType.TURTLE: TurtleBot,
+    DeviceType.DOG: Dog,
+}
 
-# Histogram samples kept in arrival order. Older values are dropped past this.
-SCAN_RMSE_LIMIT = 2000
 
 class Map:
-    def __init__(self) -> None:
+    def __init__(self, blockout_path: str | Path = BLOCKOUT_PATH) -> None:
         self._devices: dict[str, Device] = {}
-        self.export_interval = EXPORT_INTERVAL
-        self._last_export = 0.0
-        self._localizers: dict[str, ScanLocalizer] = {}
         self._last_map_size = -1
-        # Finite closest-point RMSE of each scan after the first, oldest first.
-        self.scan_rmses: list[float] = []
-        self.occupancy = OccupancyGrid()
+        self._room = Room.from_json(blockout_path)
+        # The wall grid each device type localizes against: the shared room and,
+        # through it, the occupancy grid that type maps into. Devices of a type
+        # share theirs; dashboards fetch the occupancy grid per type.
+        self.wall_grids: dict[int, WallGrid] = {
+            DeviceType.TURTLE: WallGrid(self._room, OccupancyGrid(self._room, TURTLEBOT_OCCUPANCY_PATH)),
+        }
+
+    @property
+    def room(self) -> Room:
+        """The room loaded from the blockout."""
+        return self._room
+
+    def _device_kwargs(self, cls: type[Device], device_type: int) -> dict[str, Any]:
+        """What a device class's constructor needs beyond its id."""
+        # 2D devices localize against their type's shared wall grid.
+        if issubclass(cls, Device2D):
+            return {"wall_grid": self.wall_grids[device_type]}
+        return {}
+
+    def _new_device(self, device_info: DeviceInfo) -> Device | None:
+        cls = _DEVICE_CLASSES.get(device_info.device_type)
+        if cls is None:
+            return None
+        return cls.from_packet(device_info, **self._device_kwargs(cls, device_info.device_type))
+
+    def occupancy_grids(self) -> list[OccupancyGrid]:
+        """Every device type's occupancy grid, once each."""
+        grids = []
+        for wall_grid in self.wall_grids.values():
+            if wall_grid.occupancy is not None and wall_grid.occupancy not in grids:
+                grids.append(wall_grid.occupancy)
+        return grids
+
+    def get_room_bounds(self) -> Response:
+        """The room every device shares."""
+        return Response(room_bounds=self.room.bounds())
+
+    def get_occupancy_grid(self, device_type: int, since_revision: int) -> Response:
+        """A device type's occupancy grid: cells changed after since_revision (see OccupancyGrid.snapshot)."""
+        wall_grid = self.wall_grids.get(device_type)
+        if wall_grid is None or wall_grid.occupancy is None:
+            return Response(err_not_supported={})
+        return Response(occupancy_grid=wall_grid.occupancy.snapshot(since_revision))
+
+    @property
+    def scan_rmses(self) -> list[float]:
+        """Every 2D device's recorded scan RMSEs, for the dashboard histogram."""
+        return [rmse for device in self._devices_2d() for rmse in device.scan_rmses]
+
+    def _devices_2d(self) -> list[Device2D]:
+        return [device for device in self._devices.values() if isinstance(device, Device2D)]
+
+    def _mapping_devices(self) -> list[Device2D | Dog]:
+        """Devices that keep an accumulated map."""
+        return [device for device in self._devices.values() if isinstance(device, (Device2D, Dog))]
 
     def add_device(self, device: Device) -> None:
         self._devices[device.id] = device
@@ -36,100 +96,24 @@ class Map:
     def exists(self, id: str) -> bool:
         return id in self._devices
 
-    # function that defines what values are sent to updated_pos.json
-    def export_to_json(self, filepath: str = DASHBOARD_PATH) -> None:
-        devices_data = [device.to_dict() for device in self._devices.values()]
+    def handle_device_info(self, info: DeviceInfo) -> Response:
+        """Take a post_device_info. Everything in it is in server coordinates.
 
-        # Write to a temp file, then swap it in, so the dashboard never
-        # reads a half-written file.
-        # json.dumps without indent uses the C encoder; switched from Python's json.dump to increase speed.
-        tmp_path = filepath + ".tmp"
-        with open(tmp_path, "w") as f:
-            f.write(json.dumps(devices_data))
-        os.replace(tmp_path, filepath)
-        self._last_export = time()
-
-    def _export_if_due(self) -> None:
-        if time() - self._last_export >= self.export_interval:
-            self.export_to_json()
-            self.occupancy.export_pending_updates()
-
-    def load_from_json(self, filepath: str = DASHBOARD_PATH) -> None:
-        try:
-            with open(filepath, "r") as f:
-                devices_data = json.load(f)
-
-            devices_loaded = 0
-            for device_data in devices_data:
-                device = device_from_dict(device_data)
-                if device is None:
-                    print(f"Failed to load device {device_data.get('id')} (may be in wrong format)")
-                    continue
-                self.add_device(device)
-                devices_loaded += 1
-            print(f"Loaded {devices_loaded} devices from {filepath}")
-        except FileNotFoundError:
-            print(f"No existing JSON file at {filepath}, starting with empty map")
-        except Exception as error:
-            print(f"Error loading from JSON: {error}")
-
-    def handle_lidar_scan(
-        self,
-        device_id: str,
-        transform: Transform,
-        lidar: Lidar,
-    ) -> Response:
-        # A scan can update an existing device but cannot create one by itself.
-        if not self.exists(device_id):
-            return Response(err_id_not_found={})
-
-        device = self._devices[device_id]
-        # TurtleBot only keeps the first N scans while parked; past that, pose
-        # still updates but ICP / occupancy / live lidar are left alone.
-        if isinstance(device, TurtleBot) and not device.allow_lidar_scan(transform):
-            return self.handle_device_info(DeviceInfo(id=device_id, transform=transform))
-
-        localizer = self._localizers.setdefault(device_id, ScanLocalizer())
-        had_map = localizer.accumulated_scan is not None
-        accepted = localizer.update(lidar, rmse_limit=self.rmse_limit_for(device_id))
-        if localizer.last_rmse is not None:
-            self.record_scan_rmse(localizer.last_rmse)
-        corrected = localizer.correct_lidar(lidar)
-        # The first scan is stored with no RMSE. Later scans enter only when
-        # update() accepts them. A rejected scan stays at the predicted pose
-        # and must not change the grid.
-        kept = accepted or (not had_map and localizer.accumulated_scan is not None)
-        if kept and corrected.points:
-            pose = localizer.correct_transform(transform)
-            points = np.array([[point.x, point.y, point.z] for point in corrected.points])
-            self.occupancy.update_dashboard(pose, points)
-        return self.handle_device_info(DeviceInfo(
-            id=device_id,
-            transform=transform,
-            lidar=simplify_lidar_2d(corrected, epsilon=LIDAR_EPSILON),
-        ))
-    
-    def handle_device_info(self, device_info: DeviceInfo) -> Response:
-        # Every pose, from /odom or a scan, gets the correction exactly once here
-        localizer = self._localizers.get(device_info.id)
-        if localizer is not None and device_info.HasField("transform"):
-            device_info.transform.CopyFrom(localizer.correct_transform(device_info.transform))
-        if device_info.id in self._devices: # if id of robot exists, set new position
-            device = self._devices[device_info.id]
-            device.handle_device_info(device_info)
-        else:
-            device = device_from_info(device_info)
+        The reply is the device's DeviceInfo as the server sees it, which the
+        device takes on.
+        """
+        device = self._devices.get(info.id)
+        if device is None:
+            device = self._new_device(info)
             if device is None:
                 return Response(err_not_supported={})
             self.add_device(device)
 
-        device.timestamp = time()
-
-        # The dashboard gets its data over the websocket; this file is only the
-        # saved state reloaded at startup, so it does not need every update.
-        self._export_if_due()
-
-        return Response(ok={})
+        response = device.handle_device_info(info)
+        if device.id != info.id:
+            # Renamed: the reply tells the device its new id.
+            self._devices[device.id] = self._devices.pop(info.id)
+        return response
 
     def handle_heartbeat(self, device_id: str) -> Response:
         if device_id not in self._devices:
@@ -146,14 +130,11 @@ class Map:
         return Response(device_info=self._devices[id].get_device_info())
 
     def get_all_device_info(self) -> Response:
-        devices = [dev.get_device_info() for dev in self._devices.values()]
+        devices = [device.get_device_info() for device in self._devices.values()]
         return Response(all_device_info=AllDeviceInfo(devices=devices))
 
     def del_device(self, id: str) -> Device:
         return self._devices.pop(id)
-
-    def update_last_time(self, id: str, new_time: float) -> None:
-        self._devices[id].timestamp = new_time
 
     def heartbeat_check(self, id: str, timeout: float) -> bool:
         """Drop a device that has not been heard from within timeout seconds."""
@@ -164,48 +145,27 @@ class Map:
         return False
 
     def check_all(self, timeout: float) -> None:
-        dropped = False
         for id in list(self._devices):
-            dropped = self.heartbeat_check(id, timeout) or dropped
-
-        # Re-export so the dashboard stops drawing a device that timed out.
-        if dropped:
-            self.export_to_json()
-
-    def rmse_limit_for(self, device_id: str) -> float:
-        """The device class decides which scan RMSE is too large to merge."""
-        return self._devices[device_id].RMSE_LIMIT
-
-    def record_scan_rmse(self, rmse: float) -> None:
-        """Keep at most SCAN_RMSE_LIMIT samples, dropping the oldest first."""
-        self.scan_rmses.append(rmse)
-        overflow = len(self.scan_rmses) - SCAN_RMSE_LIMIT
-        if overflow > 0:
-            del self.scan_rmses[:overflow]
+            self.heartbeat_check(id, timeout)
 
     def clear_accumulated_scan(self) -> Response:
-        for localizer in self._localizers.values():
-            localizer.clear_scan()
-        self.scan_rmses.clear()
-        self.occupancy.clear()
-        for device in self._devices.values():
-            if isinstance(device, TurtleBot):
-                device.reset_stationary_scans()
-
+        for device in self._mapping_devices():
+            device.clear_scan()
+        for grid in self.occupancy_grids():
+            grid.clear()
         return Response(ok={})
 
     def get_lidar_data(self) -> Response:
-        # Every localizer's accumulated map. Those points only track the X/Z
-        # ground plane, so they are sent at height 0.
+        # Every device's accumulated map: server-frame X/Z points, with
+        # Vector2.y carrying Z.
+        devices = self._mapping_devices()
         points = []
-        for localizer in self._localizers.values():
-            if localizer.accumulated_scan is not None:
-                points.extend(
-                    Vector3(x=float(x), y=0.0, z=float(z))
-                    for x, z in localizer.accumulated_scan
-                )
+        for device in devices:
+            accumulated = device.accumulated_points()
+            if accumulated is not None:
+                points.extend(Vector2(x=float(x), y=float(z)) for x, z in accumulated)
         # Log only when the size changes, so an empty map is visible in the terminal.
         if len(points) != self._last_map_size:
             self._last_map_size = len(points)
-            print(f"accumulated map: {len(points)} points from {len(self._localizers)} localizer(s)")
-        return Response(lidar_data=Lidar(points=points))
+            print(f"accumulated map: {len(points)} points from {len(devices)} device(s)")
+        return Response(lidar_data=Lidar2(points=points))

@@ -5,7 +5,7 @@ from enum import Enum, auto
 import math
 import numpy as np
 
-from realityapi_pb2 import Lidar, Transform, Vector3
+from realityapi_pb2 import Transform3, Vector3
 
 class Direction(Enum):
     """A signed axis. Opposites share an absolute value and cancel each other."""
@@ -101,28 +101,6 @@ def _apply_matrix(vec: Vector3, matrix: np.ndarray) -> Vector3:
     return Vector3(x=float(x), y=float(y), z=float(z))
 
 
-def convert_vector(
-    vector: list[float],
-    source: CoordinateSystem,
-    target: CoordinateSystem,
-) -> list[float]:
-    """Convert a [x, y, z] list from one coordinate system to another."""
-    matrix = get_transform_matrix(source, target)
-    return (matrix @ np.array(vector)).tolist()
-
-
-def convert_vec3(
-    vec: Vector3,
-    source: CoordinateSystem,
-    target: CoordinateSystem,
-) -> Vector3:
-    """Convert a protobuf Vector3 from source to target coordinate system."""
-    if source == target:
-        return Vector3(x=vec.x, y=vec.y, z=vec.z)
-    matrix = get_transform_matrix(source, target)
-    return _apply_matrix(vec, matrix)
-
-
 def _heading_offset(source_heading: Direction, target_heading: Direction) -> float:
     """Return the counterclockwise angle (in radians, in (-pi, pi]) from target_heading to source_heading."""
     ccw_order = [
@@ -136,13 +114,13 @@ def _heading_offset(source_heading: Direction, target_heading: Direction) -> flo
 
 
 def convert_transform(
-    transform: Transform,
+    transform: Transform3,
     source: CoordinateSystem,
     target: CoordinateSystem,
-) -> Transform:
-    """Convert a protobuf Transform (position and rotation) from source to target."""
+) -> Transform3:
+    """Convert a protobuf Transform3 (position and rotation) from source to target."""
     if source == target:
-        return Transform(position=transform.position, rotation=transform.rotation)
+        return Transform3(position=transform.position, rotation=transform.rotation)
     matrix = get_transform_matrix(source, target)
     position = _apply_matrix(transform.position, matrix)
     rotation = _apply_matrix(transform.rotation, matrix)
@@ -156,16 +134,13 @@ def convert_transform(
             setattr(rotation, axis_name, getattr(rotation, axis_name) + sign * yaw_offset)
             break
 
-    return Transform(position=position, rotation=rotation)
+    return Transform3(position=position, rotation=rotation)
 
 
-def convert_lidar(
-    lidar: Lidar,
+def convert_points(
+    points: np.ndarray,
     source: CoordinateSystem,
     target: CoordinateSystem,
-) -> Lidar:
-    """Convert all points in a protobuf Lidar message from source to target."""
-    if source == target or not lidar.points:
-        return Lidar(points=lidar.points)
-    matrix = get_transform_matrix(source, target)
-    return Lidar(points=[_apply_matrix(pt, matrix) for pt in lidar.points])
+) -> np.ndarray:
+    """Convert an (N, 3) array of x/y/z points from source to target."""
+    return np.asarray(points, dtype=float) @ get_transform_matrix(source, target).T

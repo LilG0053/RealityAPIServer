@@ -219,15 +219,13 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Temp file from Map.export_to_json atomic write
-dashboard/updated_pos.json.tmp
-dashboard/updated_pos.json
-dashboard/occupancy_grid.json
-dashboard/occupancy_grid.json.tmp
+# Occupancy grid the server saves while robots map (map/map.py TURTLEBOT_OCCUPANCY_PATH)
+assets/occupancy_grid_*.json
+assets/occupancy_grid_*.json.tmp
 saved_scans/
 
 # Dashboard tooling
 node_modules/
 
 # Vim swap file
-turtlebot/turtlebot/.coordinate_node.py.swp
+clients/turtlebot/turtlebot/.coordinate_node.py.swp

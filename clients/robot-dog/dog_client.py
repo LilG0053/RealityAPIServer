@@ -23,9 +23,9 @@ from websockets.exceptions import WebSocketException
 
 CLIENT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(CLIENT_DIR))
-sys.path.insert(0, str(CLIENT_DIR.parent))
+sys.path.insert(0, str(CLIENT_DIR.parents[1]))
 
-from realityapi_pb2 import Response
+from realityapi_pb2 import Response, Transform3
 from dog_protocol import (
     DEVICE_ID,
     LIDAR_TOPIC,
@@ -33,6 +33,7 @@ from dog_protocol import (
     cloud_request,
     heartbeat_request,
     pose_request,
+    ros_pose,
 )
 
 
@@ -73,9 +74,9 @@ class PoseSubscriber(Node):
         super().__init__("realityapi_pose_subscriber")
         self._poses = poses
         self._clouds = clouds
-        # Latest valid dog pose (x, y, z, yaw) in raw ROS axes. Every cloud is
+        # Latest valid dog pose in raw ROS axes (see ros_pose). Every cloud is
         # sent together with the pose it arrived with.
-        self._origin: Optional[tuple[float, float, float, float]] = None
+        self._origin: Optional[Transform3] = None
         # The slice assumes the cloud and the pose share a frame. Compare their
         # frame_ids once so a mismatch shows up in the log instead of as a
         # misplaced scan.
@@ -93,13 +94,12 @@ class PoseSubscriber(Node):
 
     def _pose_callback(self, message: PoseStamped) -> None:
         try:
-            request = pose_request(message)
+            pose = ros_pose(message)
+            request = pose_request(pose)
         except (AttributeError, TypeError, ValueError) as error:
             self.get_logger().warning("Ignoring invalid ROS pose: %s" % error)
             return
-        position = message.pose.position
-        yaw = request.post_device_info.transform.rotation.z
-        self._origin = (position.x, position.y, position.z, yaw)
+        self._origin = pose
         self._pose_frame = message.header.frame_id
         self._poses.put(request)
 
@@ -146,7 +146,7 @@ async def send_poses(websocket: Any, poses: Latest) -> None:
         await websocket.send(request.SerializeToString())
         sent_positions += 1
         if sent_positions == 1 or sent_positions % LOG_EVERY == 0:
-            position = request.post_device_info.transform.position
+            position = request.post_device_info.transform3.position
             log.info(
                 "Sent dog position #%d for %s: x=%.3f y=%.3f z=%.3f",
                 sent_positions,
@@ -180,7 +180,7 @@ async def send_lidar(websocket: Any, clouds: Latest) -> None:
             log.info(
                 "Sent point cloud #%d: %d points, %.1f Hz",
                 sent_clouds,
-                len(request.post_raw_point_cloud.xyz) // 12,
+                len(request.post_device_info.raw_point_cloud.xyz) // 12,
                 LIDAR_LOG_EVERY / (now - window_start),
             )
             window_start = now

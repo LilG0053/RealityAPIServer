@@ -13,33 +13,56 @@ from pathlib import Path
 from time import perf_counter
 
 import numpy as np
+from client_test import URI, build_device_info, exchange
 from websockets.sync.client import connect
 
-from client_test import URI, build_device_info, exchange
-from map.lidar import simplify_lidar_2d
-from realityapi_pb2 import Lidar, ServerRequest, Vector3
-
+from map.algorithms.lidar import simplify_points
+from realityapi_pb2 import (
+    DeviceInfo,
+    DeviceType,
+    Lidar2,
+    Lidar3,
+    ServerRequest,
+    Vector2,
+    Vector3,
+)
 
 POINT_COUNT = 550
 
-# Epsilon 0 sends the raw scan. Larger values run simplify_lidar_2d first.
+# Epsilon 0 sends the raw scan. Larger values run simplify_points first.
 LATENCY_EPSILONS = np.round(np.linspace(0.0, 0.1, 11), 2)
 LATENCY_PLOT = Path(__file__).resolve().parent / "lidar_simplification_latency.png"
 
 
-def build_lidar_scan(transform, scan_number: int, point_count: int = POINT_COUNT) -> Lidar:
-    """Create points around the robot in the same coordinate frame as its pose."""
+def device_pose(device: DeviceInfo) -> tuple[float, float, float, float]:
+    """(x, height, z, heading) of a recorded server-coordinate pose."""
+    if device.HasField("transform2"):
+        t = device.transform2
+        return t.position.x, 0.0, t.position.y, t.rotation
+    t = device.transform3
+    return t.position.x, t.position.y, t.position.z, t.rotation.y
+
+
+def build_lidar_scan(device: DeviceInfo, scan_number: int, point_count: int = POINT_COUNT) -> np.ndarray:
+    """Create (N, 2) server-frame X/Z points around the device's pose."""
+    x, _height, z, heading = device_pose(device)
     points = []
     for index in range(point_count):
-        angle = 2 * math.pi * index / point_count + transform.rotation.y
+        angle = 2 * math.pi * index / point_count + heading
         # Vary the distance to make a recognizable, changing test scan.
         distance = 1.5 + 0.3 * math.sin(3 * angle + scan_number * 0.1) + random.uniform(-0.05, 0.05)
-        points.append(Vector3(
-            x=transform.position.x + distance * math.cos(angle),
-            y=transform.position.y,
-            z=transform.position.z + distance * math.sin(angle),
-        ))
-    return Lidar(points=points)
+        points.append((x + distance * math.cos(angle), z + distance * math.sin(angle)))
+    return np.array(points)
+
+
+def attach_scan(device: DeviceInfo, points: np.ndarray) -> int:
+    """Put the scan on the device as Lidar2 (TurtleBots) or Lidar3; return its size."""
+    if device.device_type == DeviceType.TURTLE:
+        device.lidar2.CopyFrom(Lidar2(points=[Vector2(x=float(x), y=float(z)) for x, z in points]))
+    else:
+        height = device_pose(device)[1]
+        device.lidar3.CopyFrom(Lidar3(points=[Vector3(x=float(x), y=height, z=float(z)) for x, z in points]))
+    return len(points)
 
 
 def replay() -> None:
@@ -48,15 +71,15 @@ def replay() -> None:
     latencies = []
     with connect(URI) as websocket:
         for scan_number, device in enumerate(devices):
-            scan = build_lidar_scan(device.transform, scan_number)
+            scan = build_lidar_scan(device, scan_number)
             started = perf_counter()
-            device.lidar.CopyFrom(scan)
+            sent = attach_scan(device, scan)
             reply = exchange(websocket, ServerRequest(post_device_info=device))
             latency_ms = (perf_counter() - started) * 1000
             latencies.append(latency_ms)
             print(
                 f"<<< {reply.WhichOneof('data')} | {device.id}: "
-                f"{len(device.lidar.points)} LiDAR points | {latency_ms:.1f} ms"
+                f"{sent} LiDAR points | {latency_ms:.1f} ms"
             )
     print(f"Average latency: {sum(latencies) / len(latencies):.1f} ms")
 
@@ -68,7 +91,7 @@ def measure_lidar_latency(
 ) -> Path:
     """Time simplification plus the server round trip for each epsilon.
 
-    Scan generation is excluded. Epsilon 0 does not call simplify_lidar_2d.
+    Scan generation is excluded. Epsilon 0 does not call simplify_points.
     The saved plot shows the median, 95th, and 99th percentile of those times,
     with the number of points sent on a second y-axis.
     """
@@ -88,14 +111,14 @@ def measure_lidar_latency(
             samples = []
             sent_points = []
             for scan_number, device in enumerate(devices):
-                scan = build_lidar_scan(device.transform, scan_number, point_count)
+                scan = build_lidar_scan(device, scan_number, point_count)
                 started = perf_counter()
                 if epsilon > 0:
-                    scan = simplify_lidar_2d(scan, epsilon=float(epsilon))
-                device.lidar.CopyFrom(scan)
+                    scan = simplify_points(scan, epsilon=float(epsilon))
+                sent = attach_scan(device, scan)
                 exchange(websocket, ServerRequest(post_device_info=device))
                 samples.append((perf_counter() - started) * 1000)
-                sent_points.append(len(scan.points))
+                sent_points.append(sent)
 
             samples = np.array(samples)
             median, p95, p99 = np.percentile(samples, [50, 95, 99])
