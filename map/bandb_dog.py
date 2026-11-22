@@ -42,7 +42,7 @@ from time import monotonic
 import numpy as np
 
 from map.blockout import WallGrid, load_blockout_polygons
-from map.branch_and_bound import BranchAndBound
+from map.algorithms.branch_and_bound import BranchAndBound
 from map.montecarlo import MonteCarlo, wrap_angle
 from map.room import DISPLAY_OFFSET
 

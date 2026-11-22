@@ -200,8 +200,13 @@ function createChevron(material) {
 
 // Helper function to create or update robot marker
 function updateRobotMarker(key, device) {
-  const position = device.transform.position;
-  const rotation = device.transform.rotation;
+  const transform = device.transform3 ?? (device.transform2 ? {
+    position: { x: device.transform2.position.x, y: 0, z: device.transform2.position.y },
+    rotation: { x: 0, y: device.transform2.rotation, z: 0 }
+  } : null);
+  if (!transform?.position) return;
+  const position = transform.position;
+  const rotation = transform.rotation;
 
   if (robotMarkers[key]) {
     // Update existing marker position
@@ -233,7 +238,15 @@ let lidarMarkers = null;
 let lidarCapacity = 0;
 
 function updateLidarMarkers(devices) {
-  const points = devices.flatMap(device => device.lidar3?.points ?? []);
+  const points = devices.flatMap(device => {
+    if (device.lidar3?.points) return device.lidar3.points;
+    if (device.lidar2?.points) return device.lidar2.points.map(point => ({
+      x: point.x,
+      y: 0.03,
+      z: point.y
+    }));
+    return [];
+  });
 
   console.log("LiDAR point count:", points.length, "First point:", points[0]);
 
@@ -277,7 +290,13 @@ scene.add(lidarLine);
 function updateLidarLine(devices) {
   const coordinates = [];
   devices.forEach(device => {
-    const points = device.lidar3?.points ?? [];
+    const points = device.lidar3?.points ?? (
+      device.lidar2?.points?.map(point => ({
+        x: point.x,
+        y: 0.03,
+        z: point.y
+      })) ?? []
+    );
     for (let index = 0; index + 1 < points.length; index += 1) {
       const start = points[index];
       const end = points[index + 1];
@@ -539,15 +558,19 @@ function updateDevices(devices) {
   const currentKeys = new Set();
   devices.forEach(device => {
     // Only devices that report a transform have a place on the map.
-    if (!device.transform?.position) return;
+    const transform = device.transform3 ?? (device.transform2 ? {
+      position: { x: device.transform2.position.x, y: 0, z: device.transform2.position.y },
+      rotation: { x: 0, y: device.transform2.rotation, z: 0 }
+    } : null);
+    if (!transform?.position) return;
 
     const key = `${device.id}-${device.deviceType}`;
     currentKeys.add(key);
 
-    const position = device.transform.position;
+    const position = transform.position;
     const newPos = { x: position.x, z: position.z };
 
-    const rotation = device.transform.rotation;
+    const rotation = transform.rotation;
     const newrot = { x: rotation.x, y: rotation.y, z: rotation.z };
 
     // Update 3D marker
