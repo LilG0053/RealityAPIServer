@@ -227,4 +227,4 @@ saved_scans/
 node_modules/
 
 # Vim swap file
-turtlebot/turtlebot/.coordinate_node.py.swp
+clients/turtlebot/turtlebot/.coordinate_node.py.swp

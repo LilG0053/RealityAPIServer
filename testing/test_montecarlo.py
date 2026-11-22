@@ -2,7 +2,7 @@
 
 MonteCarloTest exercises map/montecarlo.py on its own. TurtleBotHandshakeTest
 runs the whole TurtleBot flow: the robot's on-device correction
-(turtlebot/turtlebot/init_turtlebot.py) talking to the server's Map, as
+(clients/turtlebot/turtlebot/init_turtlebot.py) talking to the server's Map, as
 coordinate_node.py does, with branch and bound and Monte Carlo on the server.
 The client takes on the server's DeviceInfo in the reply to every post.
 """
@@ -16,7 +16,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "turtlebot" / "turtlebot"))
+sys.path.insert(0, str(ROOT / "clients" / "turtlebot" / "turtlebot"))
 
 import sim
 from common.transform2 import make_transform2

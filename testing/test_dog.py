@@ -1,4 +1,4 @@
-"""The robot dog: its on-device conversion (robot-dog/dog_protocol.py) and the server's Dog."""
+"""The robot dog: its on-device conversion (clients/robot-dog/dog_protocol.py) and the server's Dog."""
 
 import math
 import sys
@@ -10,7 +10,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "robot-dog"))
+sys.path.insert(0, str(ROOT / "clients" / "robot-dog"))
 
 
 import dog_protocol

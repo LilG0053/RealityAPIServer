@@ -11,7 +11,7 @@ Files in `map/` are core parts of the server in general.
 
 `common/` hosts files that are common to the clients (and possibly the server as well). This includes files for translation between coordinate systems, which should be done on the client side.
 
-`robot-dog` and `turtlebot` host client files for the robot dog and turtlebot.
+`clients/robot-dog` and `clients/turtlebot` host client files for the robot dog and turtlebot.
 
 `testing` holds unit tests.
 

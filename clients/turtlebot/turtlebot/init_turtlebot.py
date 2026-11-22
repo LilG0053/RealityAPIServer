@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 # Let any node import the common package and realityapi_pb2 from the project root.
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

@@ -23,7 +23,7 @@ from websockets.exceptions import WebSocketException
 
 CLIENT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(CLIENT_DIR))
-sys.path.insert(0, str(CLIENT_DIR.parent))
+sys.path.insert(0, str(CLIENT_DIR.parents[1]))
 
 from realityapi_pb2 import Response, Transform3
 from dog_protocol import (
