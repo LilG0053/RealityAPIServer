@@ -15,7 +15,7 @@ from time import monotonic
 
 import numpy as np
 
-from realityapi_pb2 import Lidar, RawPointCloud, Vector3
+from realityapi_pb2 import Lidar3, RawPointCloud, Vector3
 
 # Slice of the cloud kept, in meters relative to the dog's pose z. The floor
 # sits below the low edge and the ceiling above the high one. This band is above
@@ -153,7 +153,21 @@ class RingAccumulator:
         return ring_from_points(xy, origin, min_points=min_points)
 
 
-def raw_cloud_to_scan(raw: RawPointCloud, accumulator: "RingAccumulator | None" = None) -> Lidar:
+def raw_cloud_to_ring(raw: RawPointCloud) -> tuple[np.ndarray, float]:
+    """Flatten a server-coordinate 3D cloud into (ring, height).
+
+    The cloud and transform use the server's Y-up axes. The returned ring is
+    server-frame X/Z and height is the dog's Y position.
+    """
+    p = raw.transform.position
+    origin = np.array([p.x, p.z, p.y], dtype=np.float64)
+    if not np.isfinite(origin).all():
+        raise ValueError("point cloud transform has a non-finite position")
+    ring = flatten_to_scan(decode_xyz(raw.xyz)[:, [0, 2, 1]], origin)
+    return ring, float(p.y)
+
+
+def raw_cloud_to_scan(raw: RawPointCloud, accumulator: "RingAccumulator | None" = None) -> Lidar3:
     """Flatten a dog cloud into a constant-height ring in the sender's axes.
 
     The cloud and ``raw.transform.position`` must share a frame and axes (the
@@ -184,7 +198,7 @@ def raw_cloud_to_scan(raw: RawPointCloud, accumulator: "RingAccumulator | None" 
             )
         else:
             print("[ring] empty ring: no finite points in cloud")
-    return Lidar(points=[Vector3(x=x, y=y, z=float(origin[2])) for x, y in ring.tolist()])
+    return Lidar3(points=[Vector3(x=x, y=float(origin[2]), z=y) for x, y in ring.tolist()])
 
 
 def cloud_to_points(

@@ -4,50 +4,28 @@
 
 import asyncio
 import json
-import math
 import subprocess
 import sys
 import traceback
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
-
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.message import DecodeError
 from websockets.asyncio.server import serve
 
-from map.coordinate import (
-    DOG_COORDS,
-    SERVER_COORDS,
-    TURTLEBOT_COORDS,
-    convert_lidar,
-    convert_transform,
-    get_transform_matrix,
-)
-from map.room import DISPLAY_OFFSET
-from map.lidar import scan_to_world_points
-from map.map import DASHBOARD_PATH, Map
+from map.map import Map
 from map.tunable import list_tunables, set_tunable
-from map.pointcloud import RingAccumulator, raw_cloud_to_evidence, raw_cloud_to_points, raw_cloud_to_scan
 from realityapi_pb2 import (
     Command,
     DeviceInfo,
-    DeviceType,
-    Lidar,
-    RawLidarScan,
-    RawPointCloud,
+    OccupancyGridReq,
     Response,
     ServerRequest,
-    Transform3,
-    Vector3,
 )
 
 HOST = "0.0.0.0"
 PORT = 65432
-
-# Offset added to every incoming position vector so it lands on the drawn room.
-OFFSET = DISPLAY_OFFSET
 
 # A device is dropped from the map once it has been quiet this long (seconds).
 TIMEOUT = 2.0
@@ -55,103 +33,23 @@ TIMEOUT = 2.0
 # How often the monitor task sweeps the map for timed-out devices (seconds).
 MONITOR_INTERVAL = 0.04
 
-# Where the dog starts in the room, in dashboard axes (meters, X and Z), and which
-# way it faces there (radians: 0 = toward +X, pi/2 = toward +Z). The dog's own
-# odometry always starts at (0, 0) facing "forward", so these two numbers decide
-# where that start is drawn. Change them to match where you set the dog down.
-DOG_START_POSITION = (1.0, 14.0)
-DOG_START_YAW = math.pi
-
-# Devices that send plain pose updates in their own axes. Value("DOG") instead of
-# DeviceType.DOG so this also works on older protobuf runtimes.
-SENDER_COORDS = {DeviceType.Value("DOG"): DOG_COORDS}
+# How often the occupancy grid is saved while it keeps changing (seconds).
+OCCUPANCY_SAVE_INTERVAL = 1.0
 
 server_map = Map()
-
-# One ring accumulator per dog, so each ring is built from that dog's last few clouds.
-ring_accumulators: dict[str, RingAccumulator] = {}
-
-
-def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
-    """Return a new Vector3 shifted by the offset."""
-    return Vector3(
-        x=vec.x + offset[0],
-        y=vec.y + offset[1],
-        z=vec.z + offset[2],
-    )
-
-
-
-def translate_transform(transform: Transform3, offset=OFFSET) -> Transform3:
-    """Return a new Transform3 with its position shifted by the offset."""
-    return Transform3(
-        position=translate_vec3(transform.position, offset),
-        rotation=transform.rotation,
-    )
-
-
-def translate_lidar(lidar: Lidar, offset=OFFSET) -> Lidar:
-    """Return a new Lidar with every point shifted by the offset."""
-    return Lidar(points=[translate_vec3(point, offset) for point in lidar.points])
-
-
-def place_dog_vec3(vec: Vector3) -> Vector3:
-    """Rotate a dog-start-relative point by the start heading, then move it to the start."""
-    c, s = math.cos(DOG_START_YAW), math.sin(DOG_START_YAW)
-    return Vector3(
-        x=c * vec.x - s * vec.z + DOG_START_POSITION[0],
-        y=vec.y + OFFSET[1],
-        z=s * vec.x + c * vec.z + DOG_START_POSITION[1],
-    )
-
-
-def place_dog_transform(transform: Transform3) -> Transform3:
-    """Put a dog pose (already in server axes) at the dog's start in the room."""
-    r = transform.rotation
-    return Transform3(
-        position=place_dog_vec3(transform.position),
-        rotation=Vector3(x=r.x, y=r.y + DOG_START_YAW, z=r.z),
-    )
-
-
-# Dog axes -> server axes as one matrix, so a whole 3D cloud converts in one step.
-DOG_TO_SERVER = get_transform_matrix(DOG_COORDS, SERVER_COORDS).astype(float)
-
-
-def place_dog_points(points: np.ndarray) -> np.ndarray:
-    """Same conversion and placement as the Vector3 helpers above, for an (N, 3) array."""
-    p = points @ DOG_TO_SERVER.T
-    c, s = math.cos(DOG_START_YAW), math.sin(DOG_START_YAW)
-    return np.column_stack((
-        c * p[:, 0] - s * p[:, 2] + DOG_START_POSITION[0],
-        p[:, 1] + OFFSET[1],
-        s * p[:, 0] + c * p[:, 2] + DOG_START_POSITION[1],
-    ))
-
-
-def place_dog_lidar(lidar: Lidar) -> Lidar:
-    return Lidar(points=[place_dog_vec3(point) for point in lidar.points])
 
 
 # Handlers for each ServerRequest.data case.
 
 def post_device_info(info: DeviceInfo) -> Response:
-    # Devices with their own axes (the dog) are converted to server axes first.
-    sender = SENDER_COORDS.get(info.device_type)
-    if info.HasField("transform"):
-        if sender is not None:
-            converted = convert_transform(info.transform, sender, SERVER_COORDS)
-            info.transform.CopyFrom(place_dog_transform(converted))
-        else:
-            # The transform and the lidar are shifted together, otherwise scan
-            # points drift away from the robot that produced them.
-            info.transform.CopyFrom(translate_transform(info.transform))
-    if info.HasField("lidar"):
-        info.lidar.CopyFrom(translate_lidar(info.lidar))
+    # Clients send everything in server coordinates; the map localizes and
+    # merges any lidar in the post.
+    print(f"<<< device info from {info.id}")
     return server_map.handle_device_info(info)
 
 
 def post_heartbeat(device_id: str) -> Response:
+    print(f"<<< heartbeat from {device_id}")
     return server_map.handle_heartbeat(device_id)
 
 
@@ -171,50 +69,12 @@ def clear_accumulated_scan(_: Empty) -> Response:
     return server_map.clear_accumulated_scan()
 
 
-def set_dog_rmse_limit(limit: float) -> Response:
-    return server_map.set_rmse_limit(DeviceType.Value("DOG"), limit)
+def fetch_room_bounds(_: Empty) -> Response:
+    return server_map.get_room_bounds()
 
 
-def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
-    if not server_map.exists(raw_scan.id):
-        return Response(err_id_not_found={})
-
-    # Goes through Map.handle_lidar_scan so the scan is run through the
-    # localizer. post_device_info would skip it.
-    lidar = scan_to_world_points(raw_scan)
-    transform = convert_transform(raw_scan.transform, TURTLEBOT_COORDS, SERVER_COORDS)
-    return server_map.handle_lidar_scan(
-        raw_scan.id,
-        translate_transform(transform),
-        translate_lidar(convert_lidar(lidar, TURTLEBOT_COORDS, SERVER_COORDS)),
-    )
-
-#This method is specifically for the dog, whose raw LIDAR data is in three dimensions.
-def handle_raw_point_cloud(raw: RawPointCloud) -> Response:
-    # Like a raw scan, a cloud can update an existing device but not create one.
-    if not server_map.exists(raw.id):
-        return Response(err_id_not_found={})
-
-    # Flatten the 3D cloud to a ring, then convert it and the pose to server
-    # axes. Map.handle_lidar_scan runs the localizer, so this skips
-    # post_device_info (which would convert the pose a second time).
-    scan = raw_cloud_to_scan(raw, ring_accumulators.setdefault(raw.id, RingAccumulator()))
-    lidar = convert_lidar(scan, DOG_COORDS, SERVER_COORDS)
-    transform = place_dog_transform(convert_transform(raw.transform, DOG_COORDS, SERVER_COORDS))
-    if not lidar.points:
-        # Nothing in range: update the pose but keep the last scan on the map.
-        return server_map.handle_device_info(DeviceInfo(id=raw.id, transform=transform))
-    # The same cloud, kept in 3D (cropped and thinned), goes to the 3D map.
-    cloud = place_dog_points(raw_cloud_to_points(raw))
-    # The uncropped cloud, only used to find old points this scan sees through.
-    evidence = place_dog_points(raw_cloud_to_evidence(raw))
-    return server_map.handle_lidar_scan(
-        raw.id,
-        transform,
-        place_dog_lidar(lidar),
-        cloud=cloud,
-        evidence=evidence,
-    )
+def fetch_occupancy_grid(request: OccupancyGridReq) -> Response:
+    return server_map.get_occupancy_grid(request.device_type, request.since_revision)
 
 
 def send_command(command: Command) -> Response:
@@ -234,10 +94,9 @@ HANDLERS = {
     "fetch_single_device_info": fetch_single_device_info,
     "send_command": send_command,
     "fetch_lidar_data": fetch_lidar_data,
-    "post_raw_lidar_scan": handle_raw_lidar_scan,
-    "post_raw_point_cloud": handle_raw_point_cloud,
     "clear_accumulated_scan": clear_accumulated_scan,
-    "set_dog_rmse_limit": set_dog_rmse_limit,
+    "fetch_room_bounds": fetch_room_bounds,
+    "fetch_occupancy_grid": fetch_occupancy_grid,
 }
 
 
@@ -333,17 +192,30 @@ async def monitor(device_map: Map):
         await asyncio.sleep(MONITOR_INTERVAL)
 
 
+async def save_occupancy(device_map: Map):
+    """Save the occupancy grids at most once per interval, only when they changed."""
+    while True:
+        try:
+            for grid in device_map.occupancy_grids():
+                grid.save()
+        except Exception:
+            traceback.print_exc()
+        await asyncio.sleep(OCCUPANCY_SAVE_INTERVAL)
+
+
 async def main():
-    server_map.load_from_json(DASHBOARD_PATH)
-    # Fresh process: wipe any colors left from a previous server run.
-    server_map.occupancy.export(reset=True)
     monitor_task = asyncio.create_task(monitor(server_map))
+    save_task = asyncio.create_task(save_occupancy(server_map))
     try:
         async with serve(handler, HOST, PORT, compression=None) as server:
             print(f"realityapi server on ws://{HOST}:{PORT}")
             await server.serve_forever()
     finally:
         monitor_task.cancel()
+        save_task.cancel()
+        # Keep whatever changed since the last periodic save.
+        for grid in server_map.occupancy_grids():
+            grid.save()
 
 
 if __name__ == "__main__":

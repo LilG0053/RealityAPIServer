@@ -9,6 +9,12 @@ message Vector2 {
     float y = 2;
 }
 
+message Transform2 {
+    Vector2 position = 1;
+    // in radians
+    float rotation = 2;
+}
+
 message Polygon2 {
     repeated Vector2 vertices = 1;
 }
@@ -24,25 +30,26 @@ message Transform3 {
   Vector3 rotation = 2;
 }
 
-message Lidar {
+message Lidar2 {
+    repeated Vector2 points = 1;
+}
+
+message Lidar3 {
   repeated Vector3 points = 1;
 }
 
-message RawLidarScan {
-  string id = 1;
-  Transform3 transform = 2; // snapshot of the robot pose when the scan was read
-
-  repeated float ranges = 3; // raw LaserScan distances
-  float range_min = 4;
-  float range_max = 5;
-  float angle_min = 6;
-  float angle_increment = 7;
+message RawLidar2Scan {
+  repeated float ranges = 1; // raw LaserScan distances
+  float range_min = 2;
+  float range_max = 3;
+  float angle_min = 4;
+  float angle_increment = 5;
 }
 
 // A raw 3D point cloud (the dog). The server crops, downsamples and converts it.
 message RawPointCloud {
   string id = 1;
-  // Pose of the robot when the cloud was read, in the SENDER's own axes
+  // Pose of the robot when the cloud was read, in the SERVER's own axes
   // (ROS x/y/z for the dog). The server uses its position as the crop centre.
   Transform3 transform = 2;
 
@@ -68,8 +75,6 @@ message OccupancyCell {
 // occupancy grid (2d)
 message OccupancyGrid {
     float cell_size = 1;
-    Vector2 origin = 2; // where server (0, 0) is drawn, like RoomBounds.origin
-    // send this back in fetch_occupancy_grid to get only the cells changed since
     uint64 revision = 3;
     // wipe every cell back to unknown (0.5) before applying cells
     bool reset = 4;
@@ -92,8 +97,12 @@ message DeviceInfo {
   DeviceType device_type = 2;
   float timestamp = 3;
 
-  optional Transform3 transform = 4;
-  optional Lidar lidar = 5;
+  optional Transform3 transform3 = 4;
+  optional Lidar3 lidar3 = 5;
+  optional Transform2 transform2 = 6;
+  optional Lidar2 lidar2 = 7;
+  optional RawLidar2Scan raw_lidar2_scan = 8;
+  optional RawPointCloud raw_point_cloud = 9;
 }
 
 message AllDeviceInfo {
@@ -119,7 +128,7 @@ message Response {
     // actual responses
     AllDeviceInfo all_device_info = 20;
     DeviceInfo device_info = 21;
-    Lidar lidar_data = 22;
+    Lidar3 lidar_data = 22;
     RoomBounds room_bounds = 23;
     OccupancyGrid occupancy_grid = 24;
   }
@@ -130,7 +139,13 @@ message Command {
   string target_id = 1;
 
   // multiple demands can be packaged into one command
-  optional Transform3 transform = 2;
+  optional Transform3 transform3 = 2;
+  optional Transform2 transform2 = 3;
+}
+
+message OccupancyGridReq {
+    DeviceType device_type = 1;
+    uint64 since_revision = 2;
 }
 
 message ServerRequest {
@@ -144,14 +159,9 @@ message ServerRequest {
     string fetch_single_device_info = 7;
     Command send_command = 8;
     google.protobuf.Empty fetch_lidar_data = 9;
-    RawLidarScan post_raw_lidar_scan = 10;
     google.protobuf.Empty clear_accumulated_scan = 11;
-    RawPointCloud post_raw_point_cloud = 12;
     google.protobuf.Empty fetch_room_bounds = 13;
-    uint64 fetch_occupancy_grid = 14; // revision already applied; 0 for everything
-    // Dashboard slider: closest-point RMSE cutoff (metres) for the dog's scans.
-    // 0 turns the check off. 15, because 13 and 14 are taken above.
-    float set_dog_rmse_limit = 15;
+    OccupancyGridReq fetch_occupancy_grid = 14; // revision already applied; 0 for everything
   }
 }
 

@@ -233,7 +233,7 @@ let lidarMarkers = null;
 let lidarCapacity = 0;
 
 function updateLidarMarkers(devices) {
-  const points = devices.flatMap(device => device.lidar?.points ?? []);
+  const points = devices.flatMap(device => device.lidar3?.points ?? []);
 
   console.log("LiDAR point count:", points.length, "First point:", points[0]);
 
@@ -277,7 +277,7 @@ scene.add(lidarLine);
 function updateLidarLine(devices) {
   const coordinates = [];
   devices.forEach(device => {
-    const points = device.lidar?.points ?? [];
+    const points = device.lidar3?.points ?? [];
     for (let index = 0; index + 1 < points.length; index += 1) {
       const start = points[index];
       const end = points[index + 1];
