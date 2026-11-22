@@ -4,7 +4,7 @@
 
 ## Checklist
 
-- [ ] `lint-imports` passes (code follows the layers in `AGENTS.md`)
+- [ ] `lint-imports` passes
 - [ ] `python -m pytest testing` passes, so nothing broke
 - [ ] If `realityapi.proto` changed: `realityapi_pb2.py`, `realityapi_pb2.pyi` and `dashboard/gen/` are regenerated
 - [ ] New behavior has a test in `testing/`
