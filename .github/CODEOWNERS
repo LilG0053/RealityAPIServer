@@ -1,0 +1,8 @@
+# A maintainer must approve changes to the project's structure and protocol.
+# Replace with the GitHub usernames who should review these.
+/realityapi.proto        @LilG0053 @zeroxoneafour
+/map/map.py              @LilG0053 @zeroxoneafour
+/map/device/device.py    @LilG0053 @zeroxoneafour
+/.importlinter           @LilG0053 @zeroxoneafour
+/AGENTS.md               @LilG0053 @zeroxoneafour
+/.github/                @LilG0053 @zeroxoneafour

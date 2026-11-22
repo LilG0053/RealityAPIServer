@@ -1,0 +1,40 @@
+[importlinter]
+root_packages =
+    map
+    common
+include_external_packages = True
+
+[importlinter:contract:layers]
+name = Server layers (higher layers may import lower ones, never the reverse)
+type = layers
+layers =
+    map.map
+    map.device
+    map.wallgrid : map.occupancy : map.room : map.tunable
+    map.algorithms
+containers =
+
+[importlinter:contract:pure-algorithms]
+name = map/algorithms is pure: external packages and protobuf types only
+type = forbidden
+source_modules =
+    map.algorithms
+forbidden_modules =
+    map.device
+    map.map
+    map.wallgrid
+    map.occupancy
+    map.room
+    map.tunable
+    common
+ignore_imports =
+    # Existing exception, predates this rule. Fix or justify before adding more.
+    map.algorithms.localization -> common.transform2
+
+[importlinter:contract:common-standalone]
+name = common/ is shared with clients, so it cannot depend on the server
+type = forbidden
+source_modules =
+    common
+forbidden_modules =
+    map
