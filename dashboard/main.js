@@ -22,6 +22,9 @@ const roomCorners = [
   { x: 9.07, z: 0 }
 ];
 
+// Keep this aligned with server.py's DOG_START_POSITION.
+const dogStartPosition = { x: 1.0, z: 14.0 };
+
 // Scene, camera, and renderer
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x20232a);
@@ -122,6 +125,15 @@ function createMapLabel(text, color, position, size = 0.45) {
 createMapLabel("X", "#ff5555", [2.3, 0.15, 0]);
 createMapLabel("Y", "#65dc65", [0, 2.3, 0]);
 createMapLabel("Z", "#6fa8ff", [0, 0.15, 2.3]);
+createMapLabel("Dog start", "#ffd54f", [dogStartPosition.x, 0.5, dogStartPosition.z], 0.35);
+
+const dogStartMarker = new THREE.Mesh(
+  new THREE.RingGeometry(0.25, 0.35, 32),
+  new THREE.MeshBasicMaterial({ color: 0xffd54f, side: THREE.DoubleSide })
+);
+dogStartMarker.rotation.x = -Math.PI / 2;
+dogStartMarker.position.set(dogStartPosition.x, 0.04, dogStartPosition.z);
+scene.add(dogStartMarker);
 
 // Room walls
 function createWallBetween(start, end) {

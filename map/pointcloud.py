@@ -18,7 +18,10 @@ import numpy as np
 from realityapi_pb2 import Lidar, RawPointCloud, Vector3
 
 # Slice of the cloud kept, in meters relative to the dog's pose z. The floor
-# sits below the low edge and the ceiling above the high one.
+# sits below the low edge and the ceiling above the high one. This band is above
+# table tops and chair seats, so the ring is mostly walls and pillars, which is
+# what the room-blockout localizer matches against. (The old band, -0.15 to 0.25,
+# saw chair bases, table legs and bags near the floor.)
 DOG_SCAN_Z_MIN = -0.15
 DOG_SCAN_Z_MAX = 0.25
 # Horizontal range kept around the dog (meters).
@@ -164,10 +167,23 @@ def raw_cloud_to_scan(raw: RawPointCloud, accumulator: "RingAccumulator | None" 
     if not np.isfinite(origin).all():
         raise ValueError("point cloud transform has a non-finite position")
 
+    cloud = decode_xyz(raw.xyz)
     if accumulator is None:
-        ring = flatten_to_scan(decode_xyz(raw.xyz), origin)
+        ring = flatten_to_scan(cloud, origin)
     else:
-        ring = accumulator.update(decode_xyz(raw.xyz), origin)
+        ring = accumulator.update(cloud, origin)
+    if len(ring) == 0:
+        finite_z = cloud[np.isfinite(cloud).all(axis=1), 2] - origin[2]
+        if len(finite_z):
+            percentiles = np.percentile(finite_z, [10, 50, 90])
+            print(
+                "[ring] empty ring: "
+                f"pose_z={origin[2]:.2f} m, "
+                f"relative_z_p10/p50/p90={percentiles[0]:.2f}/"
+                f"{percentiles[1]:.2f}/{percentiles[2]:.2f} m"
+            )
+        else:
+            print("[ring] empty ring: no finite points in cloud")
     return Lidar(points=[Vector3(x=x, y=y, z=float(origin[2])) for x, y in ring.tolist()])
 
 

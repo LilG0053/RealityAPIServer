@@ -59,7 +59,7 @@ MONITOR_INTERVAL = 0.04
 # way it faces there (radians: 0 = toward +X, pi/2 = toward +Z). The dog's own
 # odometry always starts at (0, 0) facing "forward", so these two numbers decide
 # where that start is drawn. Change them to match where you set the dog down.
-DOG_START_POSITION = (1.0, 6.5)
+DOG_START_POSITION = (1.0, 14.0)
 DOG_START_YAW = math.pi
 
 # Devices that send plain pose updates in their own axes. Value("DOG") instead of
@@ -148,12 +148,10 @@ def post_device_info(info: DeviceInfo) -> Response:
             info.transform.CopyFrom(translate_transform(info.transform))
     if info.HasField("lidar"):
         info.lidar.CopyFrom(translate_lidar(info.lidar))
-    print(f"<<< device info from {info.id}")
     return server_map.handle_device_info(info)
 
 
 def post_heartbeat(device_id: str) -> Response:
-    print(f"<<< heartbeat from {device_id}")
     return server_map.handle_heartbeat(device_id)
 
 

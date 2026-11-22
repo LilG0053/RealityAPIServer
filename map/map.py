@@ -12,7 +12,7 @@ from map.occupancy import OccupancyGrid  # <- use the exact import line main has
 from realityapi_pb2 import AllDeviceInfo, DeviceInfo, DeviceType, Lidar, Response, Transform3, Vector3
 import json, os
 from map.localization import ScanLocalizer, apply
-from map.static_localizer import StaticLocalizer
+from map.bandb_dog import StaticLocalizer
 from map.lidar import simplify_lidar_2d, LIDAR_EPSILON
 
 # File the visual dashboard polls.
@@ -25,7 +25,7 @@ SCAN_RMSE_LIMIT = 2000
 # Starting RMSE cutoff for the dog (metres). The dashboard slider changes it at
 # runtime. A scan whose closest-point RMSE is above the cutoff is not merged, so
 # it cannot move the correction. TurtleBot keeps TurtleBot.RMSE_LIMIT.
-DOG_RMSE_LIMIT = 0.10
+DOG_RMSE_LIMIT = 0.30
 # Per-device RMSE history used to print stats when the limit changes.
 RECENT_RMSE_COUNT = 200
 
@@ -34,8 +34,8 @@ RECENT_RMSE_COUNT = 200
 MAX_MAP_POINTS_SENT = 30000
 
 # Match the dog's ring against the room blockout (map/static_localizer.py). The
-# correction then comes from the walls instead of from earlier scans, and no map
-# is built until the dog has been located. False keeps the old behaviour.
+# correction then comes from the walls as well as from earlier scans. Maps are
+# built whether or not the dog is located yet. False keeps the old behaviour.
 DOG_STATIC_LOCALIZATION = True
 # A whole-room fix that moves the dog farther than this (or turns it more) means
 # the maps built so far are in the wrong place, so they are cleared.
@@ -49,6 +49,7 @@ class Map:
         self._last_export = 0.0
         self._localizers: dict[str, ScanLocalizer] = {}
         self._last_map_size = -1
+        self._last_stat = 0.0
         # Finite closest-point RMSE of each scan after the first, oldest first.
         self.scan_rmses: list[float] = []
         self.occupancy = OccupancyGrid()
@@ -128,14 +129,8 @@ class Map:
 
         localizer = self._localizers.setdefault(device_id, ScanLocalizer())
         static = self._static_localizer_for(device)
-        if static is not None and not self._anchor_to_room(device_id, localizer, static, transform, lidar):
-            # Not located in the room yet. The pose and ring are still reported,
-            # but nothing is added to the maps until the dog knows where it is.
-            return self.handle_device_info(DeviceInfo(
-                id=device_id,
-                transform=transform,
-                lidar=simplify_lidar_2d(localizer.correct_lidar(lidar), epsilon=LIDAR_EPSILON),
-            ))
+        if static is not None:
+            self._anchor_to_room(device_id, localizer, static, transform, lidar)
         had_map = localizer.accumulated_scan is not None
         accepted = localizer.update(lidar, rmse_limit=self.rmse_limit_for(device_id))
         if localizer.last_rmse is not None:
@@ -148,6 +143,10 @@ class Map:
         # update() accepts them. A rejected scan stays at the predicted pose
         # and must not change the grid.
         kept = accepted or (not had_map and localizer.accumulated_scan is not None)
+        if time() - self._last_stat > 1.0:
+            self._last_stat = time()
+            loc = static.located if static is not None else None
+            print(f"[stat] ring={len(lidar.points)} loc={loc} acc={accepted} rmse={localizer.last_rmse} kept={kept}")
         if kept and corrected.points:
             pose = localizer.correct_transform(transform)
             points = np.array([[point.x, point.y, point.z] for point in corrected.points])
@@ -196,11 +195,14 @@ class Map:
                 localizer.correction,
                 np.array([[transform.position.x, transform.position.z]]),
             )[0]
-            fix = static.locate(ring, position)
+            t0 = time()
+            fix = static.locate(ring, position, correction=localizer.correction)
+            dt = time() - t0
+            if dt > 0.25:
+                print(f"[static] locate took {dt:.2f}s")
             if fix is not None:
                 # Maps built before this fix sit in the old frame. After a big
-                # relocation they would smear, so start them over. (The very first
-                # fix needs no clearing: nothing is built before it.)
+                # relocation they would smear, so start them over.
                 if fix.global_search and (
                     fix.shift > RELOCATE_CLEAR_DISTANCE or abs(fix.turn) > RELOCATE_CLEAR_TURN
                 ):
