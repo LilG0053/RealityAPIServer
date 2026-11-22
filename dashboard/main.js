@@ -668,26 +668,50 @@ async function pollMap() {
 }
 
 // Pending cell deltas are flushed about once a second, on the same cadence as the pose export.
+// Which device type's grid is drawn, and the last revision applied for it.
+let occupancyType = DeviceType.TURTLE;
+let occupancyRevision = 0n;
+
 async function pollOccupancyGrid() {
   while (true) {
-    try {
-      const response = await fetch("./occupancy_grid.json", { cache: "no-store" });
-      const status = document.getElementById("occupancy-status");
-      if (response.ok) {
-        updateOccupancyGrid(await response.json());
-        if (status) status.textContent = "Occupancy grid loaded";
-      } else {
-        if (status) status.textContent = "Waiting for occupancy grid";
-        if (response.status !== 404) console.error("Could not load occupancy grid:", response.status);
+    const status = document.getElementById("occupancy-status");
+    if (socket.readyState === WebSocket.OPEN) {
+      const type = occupancyType;
+      try {
+        const response = await request({
+          case: "fetchOccupancyGrid",
+          value: { deviceType: type, sinceRevision: occupancyRevision },
+        });
+        // Ignore a reply for a type that was deselected while it was in flight.
+        if (type === occupancyType) {
+          if (response.data.case === "occupancyGrid") {
+            const grid = response.data.value;
+            updateOccupancyGrid({
+              cell_size: grid.cellSize,
+              origin_x: serverGroup.position.x,
+              origin_z: serverGroup.position.z,
+              reset: grid.reset,
+              cells: grid.cells,
+            });
+            occupancyRevision = grid.revision;
+            if (status) status.textContent = "Occupancy grid loaded";
+          } else if (status) {
+            status.textContent = "No occupancy grid for this device type";
+          }
+        }
+      } catch (error) {
+        if (status) status.textContent = "Occupancy grid unavailable";
+        console.error("Error loading occupancy grid:", error);
       }
-    } catch (error) {
-      const status = document.getElementById("occupancy-status");
-      if (status) status.textContent = "Occupancy grid unavailable";
-      console.error("Error loading occupancy grid:", error);
     }
     await sleep(1000);
   }
 }
+
+document.getElementById("occupancy-device-type")?.addEventListener("change", (event) => {
+  occupancyType = Number(event.target.value);
+  occupancyRevision = 0n;
+});
 
 // Fetch the server's accumulated map and save it as a JSON file of {x, y, z} points.
 async function downloadPointCloud() {
@@ -738,12 +762,8 @@ async function clearAccumulatedScan() {
     if (response.data.case === "ok") {
       console.log("Clear accumulated scan: server accepted");
       updateMapMarkers([]);
-      try {
-        const gridResponse = await fetch("./occupancy_grid.json", { cache: "no-store" });
-        if (gridResponse.ok) updateOccupancyGrid(await gridResponse.json());
-      } catch (error) {
-        console.error("Error reloading occupancy grid:", error);
-      }
+      // The next poll gets reset=true and redraws from the cleared grid.
+      occupancyRevision = 0n;
     } else {
       console.warn("Clear accumulated scan was not accepted; server replied:", response.data.case);
     }

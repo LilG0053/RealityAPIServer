@@ -8,26 +8,31 @@ the ICP correction, which is applied to the ring and to the pose.
 
 from __future__ import annotations
 
+from time import monotonic
 from typing import Any, ClassVar
 
 import numpy as np
 from google.protobuf.json_format import ParseDict
 
-from common.transform2 import transform2_from_transform3
+from common.transform2 import make_transform2, transform2_from_transform3
 from map.bandb_dog import StaticLocalizer
 from map.algorithms.lidar import simplify_points
 from map.algorithms.localization import ScanLocalizer, apply
 from map.algorithms.pointcloud import RingAccumulator, raw_cloud_to_ring
 from map.device.device import Device, _message_dict
+from map.occupancy import OccupancyGrid
 from map.room import polygon_array
 from map.wallgrid import WallGrid
 from realityapi_pb2 import DeviceInfo, DeviceType, Lidar3, Response, Transform3, Vector3
+
+# Seconds between ring updates to the occupancy grid (each one walks every ray in Python).
+OCCUPANCY_INTERVAL = 1.0
 
 
 class Dog(Device):
     DEVICE_TYPE: ClassVar[int] = DeviceType.DOG
 
-    def __init__(self, id: str, wall_grid: WallGrid, timestamp: float = 0.0) -> None:
+    def __init__(self, id: str, wall_grid: WallGrid, occupancy: OccupancyGrid, timestamp: float = 0.0) -> None:
         super().__init__(id, timestamp)
         self.transform3 = Transform3()
         self.lidar3 = Lidar3()
@@ -37,6 +42,9 @@ class Dog(Device):
         self.static = StaticLocalizer(wall_grid, room, obstacles)
         # Set after a whole-room fix; Map clears the 3D cloud map once and resets it.
         self.reset_cloud = False
+        # Display-only grid of the placed ring; never blended into localization.
+        self.occupancy = occupancy
+        self._mapped_at = -OCCUPANCY_INTERVAL
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], **kwargs: Any) -> Dog:
@@ -53,6 +61,7 @@ class Dog(Device):
             if len(ring):
                 self.localizer.update(ring)
                 self._locate(ring, raw.transform)
+                self._map_ring(ring, raw.transform)
                 pts = simplify_points(self.localizer.correct_points(ring))
                 self.lidar3 = Lidar3(points=[Vector3(x=float(x), y=height, z=float(z)) for x, z in pts])
         elif device_info.HasField("lidar3"):
@@ -76,6 +85,16 @@ class Dog(Device):
             loc.accumulated_scan = apply(fix.delta, loc.accumulated_scan)
         if fix.global_search:
             self.reset_cloud = True
+
+    def _map_ring(self, ring: np.ndarray, transform: Transform3) -> None:
+        now = monotonic()
+        if not self.static.located or now - self._mapped_at < OCCUPANCY_INTERVAL:
+            return
+        self._mapped_at = now
+        loc = self.localizer
+        p = transform.position
+        x, z = loc.correct_points(np.array([[p.x, p.z]]))[0]
+        self.occupancy.update(make_transform2(float(x), float(z), 0.0), loc.correct_points(ring))
 
     def _corrected(self, transform: Transform3) -> Transform3:
         pose = transform2_from_transform3(transform)

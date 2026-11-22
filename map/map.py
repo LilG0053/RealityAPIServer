@@ -24,6 +24,8 @@ from realityapi_pb2 import (
 
 # Where the TurtleBots' shared occupancy grid is kept between server runs.
 TURTLEBOT_OCCUPANCY_PATH = Path(__file__).resolve().parents[1] / "assets" / "occupancy_grid_turtlebot.json"
+# The dog's occupancy grid.
+DOG_OCCUPANCY_PATH = Path(__file__).resolve().parents[1] / "assets" / "occupancy_grid_dog.json"
 
 # The class for each device type a client can register as.
 _DEVICE_CLASSES: dict[int, type[Device]] = {
@@ -40,12 +42,17 @@ class Map:
         self._cloud_points_cache: dict[str, tuple[int, list[Vector3]]] = {}
         self._last_map_size3d = -1
         self._room = Room.from_json(blockout_path)
-        # The wall grid each device type localizes against: the shared room and,
-        # for types that map into an occupancy grid, that grid too. Devices of a
-        # type share theirs; dashboards fetch the occupancy grid per type. The
-        # dog localizes against the room walls only.
+        # One occupancy grid per device type; devices of a type share theirs and
+        # dashboards fetch them per type.
+        self.occupancy: dict[int, OccupancyGrid] = {
+            DeviceType.TURTLE: OccupancyGrid(self._room, TURTLEBOT_OCCUPANCY_PATH),
+            DeviceType.DOG: OccupancyGrid(self._room, DOG_OCCUPANCY_PATH),
+        }
+        # The wall grid each device type localizes against. The TurtleBots blend
+        # their occupancy grid in; the dog localizes against the room walls only,
+        # so its occupancy grid is drawn but never fed back into its fixes.
         self.wall_grids: dict[int, WallGrid] = {
-            DeviceType.TURTLE: WallGrid(self._room, OccupancyGrid(self._room, TURTLEBOT_OCCUPANCY_PATH)),
+            DeviceType.TURTLE: WallGrid(self._room, self.occupancy[DeviceType.TURTLE]),
             DeviceType.DOG: WallGrid(self._room),
         }
 
@@ -56,8 +63,10 @@ class Map:
 
     def _device_kwargs(self, cls: type[Device], device_type: int) -> dict[str, Any]:
         """What a device class's constructor needs beyond its id."""
-        if issubclass(cls, (Device2D, Dog)):
+        if issubclass(cls, Device2D):
             return {"wall_grid": self.wall_grids[device_type]}
+        if issubclass(cls, Dog):
+            return {"wall_grid": self.wall_grids[device_type], "occupancy": self.occupancy[device_type]}
         return {}
 
     def _new_device(self, device_info: DeviceInfo) -> Device | None:
@@ -68,11 +77,7 @@ class Map:
 
     def occupancy_grids(self) -> list[OccupancyGrid]:
         """Every device type's occupancy grid, once each."""
-        grids = []
-        for wall_grid in self.wall_grids.values():
-            if wall_grid.occupancy is not None and wall_grid.occupancy not in grids:
-                grids.append(wall_grid.occupancy)
-        return grids
+        return list(self.occupancy.values())
 
     def get_room_bounds(self) -> Response:
         """The room every device shares."""
@@ -80,10 +85,10 @@ class Map:
 
     def get_occupancy_grid(self, device_type: int, since_revision: int) -> Response:
         """A device type's occupancy grid: cells changed after since_revision (see OccupancyGrid.snapshot)."""
-        wall_grid = self.wall_grids.get(device_type)
-        if wall_grid is None or wall_grid.occupancy is None:
+        grid = self.occupancy.get(device_type)
+        if grid is None:
             return Response(err_not_supported={})
-        return Response(occupancy_grid=wall_grid.occupancy.snapshot(since_revision))
+        return Response(occupancy_grid=grid.snapshot(since_revision))
 
     @property
     def scan_rmses(self) -> list[float]:
