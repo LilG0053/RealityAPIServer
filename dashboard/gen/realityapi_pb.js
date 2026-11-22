@@ -9,84 +9,140 @@ import { file_google_protobuf_empty } from "@bufbuild/protobuf/wkt";
  * Describes the file realityapi.proto.
  */
 export const file_realityapi = /*@__PURE__*/
-  fileDesc("ChByZWFsaXR5YXBpLnByb3RvEgpyZWFsaXR5YXBpIioKB1ZlY3RvcjMSCQoBeBgBIAEoAhIJCgF5GAIgASgCEgkKAXoYAyABKAIiWQoJVHJhbnNmb3JtEiUKCHBvc2l0aW9uGAEgASgLMhMucmVhbGl0eWFwaS5WZWN0b3IzEiUKCHJvdGF0aW9uGAIgASgLMhMucmVhbGl0eWFwaS5WZWN0b3IzIiwKBUxpZGFyEiMKBnBvaW50cxgBIAMoCzITLnJlYWxpdHlhcGkuVmVjdG9yMyKmAQoMUmF3TGlkYXJTY2FuEgoKAmlkGAEgASgJEigKCXRyYW5zZm9ybRgCIAEoCzIVLnJlYWxpdHlhcGkuVHJhbnNmb3JtEg4KBnJhbmdlcxgDIAMoAhIRCglyYW5nZV9taW4YBCABKAISEQoJcmFuZ2VfbWF4GAUgASgCEhEKCWFuZ2xlX21pbhgGIAEoAhIXCg9hbmdsZV9pbmNyZW1lbnQYByABKAIiUgoNUmF3UG9pbnRDbG91ZBIKCgJpZBgBIAEoCRIoCgl0cmFuc2Zvcm0YAiABKAsyFS5yZWFsaXR5YXBpLlRyYW5zZm9ybRILCgN4eXoYAyABKAwixgEKCkRldmljZUluZm8SCgoCaWQYASABKAkSKwoLZGV2aWNlX3R5cGUYAiABKA4yFi5yZWFsaXR5YXBpLkRldmljZVR5cGUSEQoJdGltZXN0YW1wGAMgASgCEi0KCXRyYW5zZm9ybRgEIAEoCzIVLnJlYWxpdHlhcGkuVHJhbnNmb3JtSACIAQESJQoFbGlkYXIYBSABKAsyES5yZWFsaXR5YXBpLkxpZGFySAGIAQFCDAoKX3RyYW5zZm9ybUIICgZfbGlkYXIiOAoNQWxsRGV2aWNlSW5mbxInCgdkZXZpY2VzGAEgAygLMhYucmVhbGl0eWFwaS5EZXZpY2VJbmZvIq0DCghSZXNwb25zZRIQCghyZXFfdXVpZBgBIAEoCRIkCgJvaxgEIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEjIKEGVycl9pZF9ub3RfZm91bmQYBSABKAsyFi5nb29nbGUucHJvdG9idWYuRW1wdHlIABIzChFlcnJfbm90X3N1cHBvcnRlZBgGIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEjQKEmVycl9jYW5ub3RfZXhlY3V0ZRgHIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEjQKEmVycl9mYWlsZWRfZXhlY3V0ZRgIIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEjQKD2FsbF9kZXZpY2VfaW5mbxgUIAEoCzIZLnJlYWxpdHlhcGkuQWxsRGV2aWNlSW5mb0gAEi0KC2RldmljZV9pbmZvGBUgASgLMhYucmVhbGl0eWFwaS5EZXZpY2VJbmZvSAASJwoKbGlkYXJfZGF0YRgWIAEoCzIRLnJlYWxpdHlhcGkuTGlkYXJIAEIGCgRkYXRhIlkKB0NvbW1hbmQSEQoJdGFyZ2V0X2lkGAEgASgJEi0KCXRyYW5zZm9ybRgCIAEoCzIVLnJlYWxpdHlhcGkuVHJhbnNmb3JtSACIAQFCDAoKX3RyYW5zZm9ybSLjAwoNU2VydmVyUmVxdWVzdBIQCghyZXFfdXVpZBgBIAEoCRIyChBwb3N0X2RldmljZV9pbmZvGAQgASgLMhYucmVhbGl0eWFwaS5EZXZpY2VJbmZvSAASGAoOcG9zdF9oZWFydGJlYXQYBSABKAlIABI3ChVmZXRjaF9hbGxfZGV2aWNlX2luZm8YBiABKAsyFi5nb29nbGUucHJvdG9idWYuRW1wdHlIABIiChhmZXRjaF9zaW5nbGVfZGV2aWNlX2luZm8YByABKAlIABIrCgxzZW5kX2NvbW1hbmQYCCABKAsyEy5yZWFsaXR5YXBpLkNvbW1hbmRIABIyChBmZXRjaF9saWRhcl9kYXRhGAkgASgLMhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5SAASNwoTcG9zdF9yYXdfbGlkYXJfc2NhbhgKIAEoCzIYLnJlYWxpdHlhcGkuUmF3TGlkYXJTY2FuSAASOAoWY2xlYXJfYWNjdW11bGF0ZWRfc2NhbhgLIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEjkKFHBvc3RfcmF3X3BvaW50X2Nsb3VkGAwgASgLMhkucmVhbGl0eWFwaS5SYXdQb2ludENsb3VkSABCBgoEZGF0YSKLAQoNQ2xpZW50UmVxdWVzdBIQCghyZXFfdXVpZBgBIAEoCRIzChFmZXRjaF9kZXZpY2VfaW5mbxgEIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEisKDHBvc3RfY29tbWFuZBgFIAEoCzITLnJlYWxpdHlhcGkuQ29tbWFuZEgAQgYKBGRhdGEqRAoKRGV2aWNlVHlwZRIICgROT05FEAASBgoCVlIQARIGCgJBUhACEgcKA0RPRxADEgcKA0FSTRAEEgoKBlRVUlRMRRAFYgZwcm90bzM", [file_google_protobuf_empty]);
+  fileDesc("ChByZWFsaXR5YXBpLnByb3RvEgpyZWFsaXR5YXBpIh8KB1ZlY3RvcjISCQoBeBgBIAEoAhIJCgF5GAIgASgCIkUKClRyYW5zZm9ybTISJQoIcG9zaXRpb24YASABKAsyEy5yZWFsaXR5YXBpLlZlY3RvcjISEAoIcm90YXRpb24YAiABKAIiMQoIUG9seWdvbjISJQoIdmVydGljZXMYASADKAsyEy5yZWFsaXR5YXBpLlZlY3RvcjIiKgoHVmVjdG9yMxIJCgF4GAEgASgCEgkKAXkYAiABKAISCQoBehgDIAEoAiJaCgpUcmFuc2Zvcm0zEiUKCHBvc2l0aW9uGAEgASgLMhMucmVhbGl0eWFwaS5WZWN0b3IzEiUKCHJvdGF0aW9uGAIgASgLMhMucmVhbGl0eWFwaS5WZWN0b3IzIi0KBkxpZGFyMhIjCgZwb2ludHMYASADKAsyEy5yZWFsaXR5YXBpLlZlY3RvcjIiLQoGTGlkYXIzEiMKBnBvaW50cxgBIAMoCzITLnJlYWxpdHlhcGkuVmVjdG9yMyJxCg1SYXdMaWRhcjJTY2FuEg4KBnJhbmdlcxgBIAMoAhIRCglyYW5nZV9taW4YAiABKAISEQoJcmFuZ2VfbWF4GAMgASgCEhEKCWFuZ2xlX21pbhgEIAEoAhIXCg9hbmdsZV9pbmNyZW1lbnQYBSABKAIiUwoNUmF3UG9pbnRDbG91ZBIKCgJpZBgBIAEoCRIpCgl0cmFuc2Zvcm0YAiABKAsyFi5yZWFsaXR5YXBpLlRyYW5zZm9ybTMSCwoDeHl6GAMgASgMIn4KClJvb21Cb3VuZHMSIwoGb3JpZ2luGAEgASgLMhMucmVhbGl0eWFwaS5WZWN0b3IyEiIKBHJvb20YAiABKAsyFC5yZWFsaXR5YXBpLlBvbHlnb24yEicKCW9ic3RhY2xlcxgDIAMoCzIULnJlYWxpdHlhcGkuUG9seWdvbjIiMAoNT2NjdXBhbmN5Q2VsbBIJCgF4GAEgASgFEgkKAXoYAiABKAUSCQoBcBgDIAEoAiJtCg1PY2N1cGFuY3lHcmlkEhEKCWNlbGxfc2l6ZRgBIAEoAhIQCghyZXZpc2lvbhgDIAEoBBINCgVyZXNldBgEIAEoCBIoCgVjZWxscxgFIAMoCzIZLnJlYWxpdHlhcGkuT2NjdXBhbmN5Q2VsbCLaAwoKRGV2aWNlSW5mbxIKCgJpZBgBIAEoCRIrCgtkZXZpY2VfdHlwZRgCIAEoDjIWLnJlYWxpdHlhcGkuRGV2aWNlVHlwZRIRCgl0aW1lc3RhbXAYAyABKAISLwoKdHJhbnNmb3JtMxgEIAEoCzIWLnJlYWxpdHlhcGkuVHJhbnNmb3JtM0gAiAEBEicKBmxpZGFyMxgFIAEoCzISLnJlYWxpdHlhcGkuTGlkYXIzSAGIAQESLwoKdHJhbnNmb3JtMhgGIAEoCzIWLnJlYWxpdHlhcGkuVHJhbnNmb3JtMkgCiAEBEicKBmxpZGFyMhgHIAEoCzISLnJlYWxpdHlhcGkuTGlkYXIySAOIAQESNwoPcmF3X2xpZGFyMl9zY2FuGAggASgLMhkucmVhbGl0eWFwaS5SYXdMaWRhcjJTY2FuSASIAQESNwoPcmF3X3BvaW50X2Nsb3VkGAkgASgLMhkucmVhbGl0eWFwaS5SYXdQb2ludENsb3VkSAWIAQFCDQoLX3RyYW5zZm9ybTNCCQoHX2xpZGFyM0INCgtfdHJhbnNmb3JtMkIJCgdfbGlkYXIyQhIKEF9yYXdfbGlkYXIyX3NjYW5CEgoQX3Jhd19wb2ludF9jbG91ZCI4Cg1BbGxEZXZpY2VJbmZvEicKB2RldmljZXMYASADKAsyFi5yZWFsaXR5YXBpLkRldmljZUluZm8ikgQKCFJlc3BvbnNlEhAKCHJlcV91dWlkGAEgASgJEiQKAm9rGAQgASgLMhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5SAASMgoQZXJyX2lkX25vdF9mb3VuZBgFIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEjMKEWVycl9ub3Rfc3VwcG9ydGVkGAYgASgLMhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5SAASNAoSZXJyX2Nhbm5vdF9leGVjdXRlGAcgASgLMhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5SAASNAoSZXJyX2ZhaWxlZF9leGVjdXRlGAggASgLMhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5SAASNAoPYWxsX2RldmljZV9pbmZvGBQgASgLMhkucmVhbGl0eWFwaS5BbGxEZXZpY2VJbmZvSAASLQoLZGV2aWNlX2luZm8YFSABKAsyFi5yZWFsaXR5YXBpLkRldmljZUluZm9IABIoCgpsaWRhcl9kYXRhGBYgASgLMhIucmVhbGl0eWFwaS5MaWRhcjJIABItCgtyb29tX2JvdW5kcxgXIAEoCzIWLnJlYWxpdHlhcGkuUm9vbUJvdW5kc0gAEjMKDm9jY3VwYW5jeV9ncmlkGBggASgLMhkucmVhbGl0eWFwaS5PY2N1cGFuY3lHcmlkSABCBgoEZGF0YSKcAQoHQ29tbWFuZBIRCgl0YXJnZXRfaWQYASABKAkSLwoKdHJhbnNmb3JtMxgCIAEoCzIWLnJlYWxpdHlhcGkuVHJhbnNmb3JtM0gAiAEBEi8KCnRyYW5zZm9ybTIYAyABKAsyFi5yZWFsaXR5YXBpLlRyYW5zZm9ybTJIAYgBAUINCgtfdHJhbnNmb3JtM0INCgtfdHJhbnNmb3JtMiJXChBPY2N1cGFuY3lHcmlkUmVxEisKC2RldmljZV90eXBlGAEgASgOMhYucmVhbGl0eWFwaS5EZXZpY2VUeXBlEhYKDnNpbmNlX3JldmlzaW9uGAIgASgEIuIDCg1TZXJ2ZXJSZXF1ZXN0EhAKCHJlcV91dWlkGAEgASgJEjIKEHBvc3RfZGV2aWNlX2luZm8YBCABKAsyFi5yZWFsaXR5YXBpLkRldmljZUluZm9IABIYCg5wb3N0X2hlYXJ0YmVhdBgFIAEoCUgAEjcKFWZldGNoX2FsbF9kZXZpY2VfaW5mbxgGIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEiIKGGZldGNoX3NpbmdsZV9kZXZpY2VfaW5mbxgHIAEoCUgAEisKDHNlbmRfY29tbWFuZBgIIAEoCzITLnJlYWxpdHlhcGkuQ29tbWFuZEgAEjIKEGZldGNoX2xpZGFyX2RhdGEYCSABKAsyFi5nb29nbGUucHJvdG9idWYuRW1wdHlIABI4ChZjbGVhcl9hY2N1bXVsYXRlZF9zY2FuGAsgASgLMhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5SAASMwoRZmV0Y2hfcm9vbV9ib3VuZHMYDSABKAsyFi5nb29nbGUucHJvdG9idWYuRW1wdHlIABI8ChRmZXRjaF9vY2N1cGFuY3lfZ3JpZBgOIAEoCzIcLnJlYWxpdHlhcGkuT2NjdXBhbmN5R3JpZFJlcUgAQgYKBGRhdGEiiwEKDUNsaWVudFJlcXVlc3QSEAoIcmVxX3V1aWQYASABKAkSMwoRZmV0Y2hfZGV2aWNlX2luZm8YBCABKAsyFi5nb29nbGUucHJvdG9idWYuRW1wdHlIABIrCgxwb3N0X2NvbW1hbmQYBSABKAsyEy5yZWFsaXR5YXBpLkNvbW1hbmRIAEIGCgRkYXRhKkQKCkRldmljZVR5cGUSCAoETk9ORRAAEgYKAlZSEAESBgoCQVIQAhIHCgNET0cQAxIHCgNBUk0QBBIKCgZUVVJUTEUQBWIGcHJvdG8z", [file_google_protobuf_empty]);
+
+/**
+ * Describes the message realityapi.Vector2.
+ * Use `create(Vector2Schema)` to create a new message.
+ */
+export const Vector2Schema = /*@__PURE__*/
+  messageDesc(file_realityapi, 0);
+
+/**
+ * Describes the message realityapi.Transform2.
+ * Use `create(Transform2Schema)` to create a new message.
+ */
+export const Transform2Schema = /*@__PURE__*/
+  messageDesc(file_realityapi, 1);
+
+/**
+ * Describes the message realityapi.Polygon2.
+ * Use `create(Polygon2Schema)` to create a new message.
+ */
+export const Polygon2Schema = /*@__PURE__*/
+  messageDesc(file_realityapi, 2);
 
 /**
  * Describes the message realityapi.Vector3.
  * Use `create(Vector3Schema)` to create a new message.
  */
 export const Vector3Schema = /*@__PURE__*/
-  messageDesc(file_realityapi, 0);
-
-/**
- * Describes the message realityapi.Transform.
- * Use `create(TransformSchema)` to create a new message.
- */
-export const TransformSchema = /*@__PURE__*/
-  messageDesc(file_realityapi, 1);
-
-/**
- * Describes the message realityapi.Lidar.
- * Use `create(LidarSchema)` to create a new message.
- */
-export const LidarSchema = /*@__PURE__*/
-  messageDesc(file_realityapi, 2);
-
-/**
- * Describes the message realityapi.RawLidarScan.
- * Use `create(RawLidarScanSchema)` to create a new message.
- */
-export const RawLidarScanSchema = /*@__PURE__*/
   messageDesc(file_realityapi, 3);
+
+/**
+ * Describes the message realityapi.Transform3.
+ * Use `create(Transform3Schema)` to create a new message.
+ */
+export const Transform3Schema = /*@__PURE__*/
+  messageDesc(file_realityapi, 4);
+
+/**
+ * Describes the message realityapi.Lidar2.
+ * Use `create(Lidar2Schema)` to create a new message.
+ */
+export const Lidar2Schema = /*@__PURE__*/
+  messageDesc(file_realityapi, 5);
+
+/**
+ * Describes the message realityapi.Lidar3.
+ * Use `create(Lidar3Schema)` to create a new message.
+ */
+export const Lidar3Schema = /*@__PURE__*/
+  messageDesc(file_realityapi, 6);
+
+/**
+ * Describes the message realityapi.RawLidar2Scan.
+ * Use `create(RawLidar2ScanSchema)` to create a new message.
+ */
+export const RawLidar2ScanSchema = /*@__PURE__*/
+  messageDesc(file_realityapi, 7);
 
 /**
  * Describes the message realityapi.RawPointCloud.
  * Use `create(RawPointCloudSchema)` to create a new message.
  */
 export const RawPointCloudSchema = /*@__PURE__*/
-  messageDesc(file_realityapi, 4);
+  messageDesc(file_realityapi, 8);
+
+/**
+ * Describes the message realityapi.RoomBounds.
+ * Use `create(RoomBoundsSchema)` to create a new message.
+ */
+export const RoomBoundsSchema = /*@__PURE__*/
+  messageDesc(file_realityapi, 9);
+
+/**
+ * Describes the message realityapi.OccupancyCell.
+ * Use `create(OccupancyCellSchema)` to create a new message.
+ */
+export const OccupancyCellSchema = /*@__PURE__*/
+  messageDesc(file_realityapi, 10);
+
+/**
+ * Describes the message realityapi.OccupancyGrid.
+ * Use `create(OccupancyGridSchema)` to create a new message.
+ */
+export const OccupancyGridSchema = /*@__PURE__*/
+  messageDesc(file_realityapi, 11);
 
 /**
  * Describes the message realityapi.DeviceInfo.
  * Use `create(DeviceInfoSchema)` to create a new message.
  */
 export const DeviceInfoSchema = /*@__PURE__*/
-  messageDesc(file_realityapi, 5);
+  messageDesc(file_realityapi, 12);
 
 /**
  * Describes the message realityapi.AllDeviceInfo.
  * Use `create(AllDeviceInfoSchema)` to create a new message.
  */
 export const AllDeviceInfoSchema = /*@__PURE__*/
-  messageDesc(file_realityapi, 6);
+  messageDesc(file_realityapi, 13);
 
 /**
  * Describes the message realityapi.Response.
  * Use `create(ResponseSchema)` to create a new message.
  */
 export const ResponseSchema = /*@__PURE__*/
-  messageDesc(file_realityapi, 7);
+  messageDesc(file_realityapi, 14);
 
 /**
  * Describes the message realityapi.Command.
  * Use `create(CommandSchema)` to create a new message.
  */
 export const CommandSchema = /*@__PURE__*/
-  messageDesc(file_realityapi, 8);
+  messageDesc(file_realityapi, 15);
+
+/**
+ * Describes the message realityapi.OccupancyGridReq.
+ * Use `create(OccupancyGridReqSchema)` to create a new message.
+ */
+export const OccupancyGridReqSchema = /*@__PURE__*/
+  messageDesc(file_realityapi, 16);
 
 /**
  * Describes the message realityapi.ServerRequest.
  * Use `create(ServerRequestSchema)` to create a new message.
  */
 export const ServerRequestSchema = /*@__PURE__*/
-  messageDesc(file_realityapi, 9);
+  messageDesc(file_realityapi, 17);
 
 /**
  * Describes the message realityapi.ClientRequest.
  * Use `create(ClientRequestSchema)` to create a new message.
  */
 export const ClientRequestSchema = /*@__PURE__*/
-  messageDesc(file_realityapi, 10);
+  messageDesc(file_realityapi, 18);
 
 /**
  * Describes the enum realityapi.DeviceType.

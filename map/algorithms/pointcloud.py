@@ -4,18 +4,19 @@ numpy only (no ROS, OpenCV or extra protobuf classes), so it can be tested
 without the robot.
 
 The server's localizer and dashboard work on a flat ring of points, like the
-TurtleBot's. The dog sends a full 3D cloud, so we keep a horizontal slice around
-the dog's body, keep the nearest return per bearing, and hand back at most
-DOG_SCAN_BINS points at a constant height.
+TurtleBot's. The dog sends a full 3D cloud, already in server coordinates (the
+dog converts it on-device), so we keep a horizontal slice around the dog's
+body, keep the nearest return per bearing, and hand back at most DOG_SCAN_BINS
+points at a constant height.
 """
 
 import math
 
 import numpy as np
 
-from realityapi_pb2 import Lidar, RawPointCloud, Vector3
+from realityapi_pb2 import RawPointCloud
 
-# Slice of the cloud kept, in meters relative to the dog's pose z. The floor
+# Slice of the cloud kept, in meters relative to the dog's height. The floor
 # sits below the low edge and the ceiling above the high one.
 DOG_SCAN_Z_MIN = -0.15
 DOG_SCAN_Z_MAX = 0.25
@@ -47,7 +48,10 @@ def flatten_to_scan(
     range_max: float = DOG_SCAN_RANGE_MAX,
     bins: int = DOG_SCAN_BINS,
 ) -> np.ndarray:
-    """Return an (M, 2) array of x/y points: nearest return per bearing bin."""
+    """Return an (M, 2) array of points on the first two axes: nearest return per bearing bin.
+
+    The third axis is height; points and origin are (plane, plane, height).
+    """
     points = points[np.isfinite(points).all(axis=1)]
     rel = points - origin
     rel = rel[(rel[:, 2] >= z_min) & (rel[:, 2] <= z_max)]
@@ -66,19 +70,18 @@ def flatten_to_scan(
     return rel[nearest, :2] + origin[:2]
 
 
-def raw_cloud_to_scan(raw: RawPointCloud) -> Lidar:
-    """Flatten a dog cloud into a constant-height ring in the sender's axes.
+def raw_cloud_to_ring(raw: RawPointCloud) -> tuple[np.ndarray, float]:
+    """Flatten a dog cloud into (ring, height).
 
-    The cloud and ``raw.transform.position`` must share a frame and axes (the
-    dog sends raw ROS odom axes for both). Output points stay in that world
-    frame at z = the dog's z, so the caller converts them with
-    ``convert_lidar(scan, DOG_COORDS, SERVER_COORDS)``. An empty Lidar means
-    nothing was in range.
+    The cloud and ``raw.transform`` are in server coordinates (Y up). ring is an
+    (M, 2) array of server-frame X/Z points and height is the dog's Y. An empty
+    ring means nothing was in range.
     """
     p = raw.transform.position
-    origin = np.array([p.x, p.y, p.z], dtype=np.float64)
+    # Reorder to (X, Z, Y) so the ground plane comes first and height last.
+    origin = np.array([p.x, p.z, p.y], dtype=np.float64)
     if not np.isfinite(origin).all():
         raise ValueError("point cloud transform has a non-finite position")
 
-    ring = flatten_to_scan(decode_xyz(raw.xyz), origin)
-    return Lidar(points=[Vector3(x=x, y=y, z=float(origin[2])) for x, y in ring.tolist()])
+    ring = flatten_to_scan(decode_xyz(raw.xyz)[:, [0, 2, 1]], origin)
+    return ring, float(p.y)

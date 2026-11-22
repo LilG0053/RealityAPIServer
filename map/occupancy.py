@@ -9,25 +9,31 @@ occupied uses the hit-to-center distance, free uses the line-to-center distance.
 A feature through the center keeps full scan log-odds; toward the cell edge the
 update fades to zero.
 
-Exports list every cell touched since the last clear, with current p. That way
-a missed poll still catches up on the next file. clear() writes an empty list
-with reset=true so the dashboard can wipe its colors.
+Dashboards fetch the grid over the websocket. Every cell change gets a new
+revision number; a dashboard sends back the revision it has applied and gets
+only the cells changed since. After clear(), or when the dashboard's revision
+is from an earlier server run, the reply has reset=true and every observed cell.
+
+A grid made with a file path loads from that file when it is created and
+save() writes back to it (the server saves at most once a second while it
+changes). A grid made without a path never touches the disk.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import math
 import os
+import time
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
-from map.room import DISPLAY_OFFSET, cells_covering_room, server_room_corners
+from map.room import Room, cells_covering_room
 from map.tunable import TunableParameter
-from realityapi_pb2 import Transform, Vector3
-
-OCCUPANCY_PATH = "dashboard/occupancy_grid.json"
+from realityapi_pb2 import OccupancyCell, Transform2
+from realityapi_pb2 import OccupancyGrid as OccupancyGridMessage
 
 INITIAL_PROBABILITY = 0.5
 FREE_SCAN_PROBABILITY = 0.2
@@ -35,11 +41,10 @@ OCCUPIED_SCAN_PROBABILITY = 0.8
 LOG_ODDS_BOUNDS = (-3.5, 3.5)
 # Stored p is rounded to this many decimals.
 PROBABILITY_DECIMALS = 2
-# Skip the sigmoid (exp) that refreshes p_occupied until cumulative log-odds has
-# moved enough that a two-decimal probability *could* change.
-# At p=0.5, |dp/dL| peaks at 0.25, so |ΔL| < 0.005 / 0.25 = 0.02 cannot change
-# a value rounded to 0.01. This threshold is compared to L since the last p
-# refresh — not to the size of the latest single update.
+# Skip the sigmoid (exp) that refreshes p_occupied until log-odds has moved this
+# far since the last refresh. At p=0.5, |dp/dL| peaks at 0.25, so |ΔL| < 0.02
+# cannot change a value rounded to 0.01. Measured from the last refresh, not per
+# update, so many tiny updates still refresh p once they add up.
 LOG_ODDS_P_REFRESH_THRESHOLD = 0.02
 
 CellIndex = tuple[int, int]
@@ -124,53 +129,35 @@ class GridCell:
 
     def __post_init__(self) -> None:
         self.p_initial = self.p_occupied
-        # Prior log-odds for this cell (from p_initial). Fixed for the cell's life.
         self.l_initial = log_odds(self.p_initial)
-        # Current belief in log-odds. Updated on every scan that hits this cell.
         self.l_occupied = self.l_initial
-        # Log-odds value the last time we ran the expensive L→p conversion and
-        # possibly changed p_occupied. Used only by the skip-exp optimization
-        # below — not part of the Bayesian update itself.
+        # l_occupied when p_occupied was last recomputed (skip-exp optimization only).
         self.l_at_last_p_refresh = self.l_occupied
 
     def update(self, l_scan: float, weight: float, gamma: float) -> bool:
-        """Update log-odds; refresh rounded p only when cumulative L moved enough.
+        """Update log-odds; refresh rounded p only once L has drifted enough since the last refresh.
 
         weight scales how much of l_scan is applied (1 at cell center, 0 at the edge).
-
-        Always writes the new total into l_occupied. The displayed probability
-        p_occupied is rounded to PROBABILITY_DECIMALS, so converting L→p (a
-        sigmoid / exp) is skipped until |l_occupied - l_at_last_p_refresh| reaches
-        LOG_ODDS_P_REFRESH_THRESHOLD. Comparing against l_at_last_p_refresh — not
-        against the previous step's ΔL — means many tiny updates still refresh p
-        once their combined drift is large enough.
-
-        Returns True when p_occupied changed (caller may queue an export).
+        Returns True when p_occupied changed (the grid then gives it a new revision).
         """
         self.l_occupied = clamp_log_odds(
             self.l_initial
             + weight * (l_scan - self.l_initial)
             + gamma * (self.l_occupied - self.l_initial)
         )
-
-        # Optimization: skip exp until cumulative L since the last p refresh
-        # could change a two-decimal probability.
-        cumulative_delta_l = self.l_occupied - self.l_at_last_p_refresh
-        if abs(cumulative_delta_l) < LOG_ODDS_P_REFRESH_THRESHOLD:
+        if abs(self.l_occupied - self.l_at_last_p_refresh) < LOG_ODDS_P_REFRESH_THRESHOLD:
             return False
 
         new_probability = probability_from_log_odds(self.l_occupied)
-        # Advance the refresh anchor even when rounded p is unchanged, so the
-        # next checks measure drift from this L rather than re-running exp every
-        # scan after the threshold was crossed once.
+        # Move the anchor even if rounded p is unchanged, so drift is measured from here.
         self.l_at_last_p_refresh = self.l_occupied
         if new_probability == self.p_occupied:
             return False
         self.p_occupied = new_probability
         return True
 
-    def as_export(self) -> dict:
-        return {"x": self.x, "z": self.z, "p": self.p_occupied}
+    def as_message(self) -> OccupancyCell:
+        return OccupancyCell(x=self.x, z=self.z, p=self.p_occupied)
 
 
 class _CellMap(dict[CellIndex, GridCell]):
@@ -196,16 +183,24 @@ class OccupancyGrid:
         0.5, minimum=0.01, maximum=4.0, step=0.01, label="Occupancy center-weight b",
     )
 
-    def __init__(self, path: str = OCCUPANCY_PATH) -> None:
+    def __init__(self, room: Room, path: str | Path | None = None) -> None:
+        """room: the room the grid covers.
+        path: file to load the grid from now and save it to later; None for no disk.
+        """
+        self.room = room
         self.path = path
         self.cell_size = 0.10
-        self.room_corners = server_room_corners()
-        self.room_cells = cells_covering_room(self.room_corners, self.cell_size)
+        self.room_cells = cells_covering_room(room.corners, self.cell_size)
         self.cells: dict[CellIndex, GridCell] = _CellMap(self.room_cells)
-        # Cells whose p changed since the last clear; rewritten on every export.
-        self._touched_cells: set[CellIndex] = set()
-        # Subset of _touched_cells that changed since the last successful write.
-        self._pending_export_cells: set[CellIndex] = set()
+        # Revisions start at the wall clock so every revision from this run is
+        # newer than any a dashboard kept from an earlier run.
+        self.revision = time.time_ns()
+        self._reset_revision = self.revision
+        self._cell_revisions: dict[CellIndex, int] = {}
+        # Revision last written by save(); nothing to write until it moves.
+        self._saved_revision = self.revision
+        if path is not None:
+            print(f"occupancy grid: {self._load()} cells loaded from {path}")
 
     def world_to_cell(self, x: float, z: float) -> CellIndex:
         return (math.floor(x / self.cell_size), math.floor(z / self.cell_size))
@@ -254,15 +249,15 @@ class OccupancyGrid:
             if weight <= 0.0:
                 continue
             if self.cells[cell].update(l_scan, weight, gamma):
-                self._touched_cells.add(cell)
-                self._pending_export_cells.add(cell)
+                self.revision += 1
+                self._cell_revisions[cell] = self.revision
 
     def update(
         self,
-        robot_pos: Transform,
+        robot_pose: Transform2,
         corrected_points: np.ndarray,
     ) -> None:
-        """Incorporate server-frame LiDAR hits into the room grid.
+        """Incorporate server-frame LiDAR hits, an (N, 2) X/Z array, into the room grid.
 
         Each hit walks Bresenham to its cell. Free cells store the distance from
         the continuous ray to the cell center; the hit cell stores the distance
@@ -270,14 +265,14 @@ class OccupancyGrid:
         Occupied overrides free. Out-of-room cells are skipped.
         """
         gamma = self.GAMMA
-        robot_x = robot_pos.position.x
-        robot_z = robot_pos.position.z
+        # Transform2: Vector2.y carries the server's Z.
+        robot_x, robot_z = robot_pose.position.x, robot_pose.position.y
         robot_cell = self.world_to_cell(robot_x, robot_z)
 
         free_offsets: dict[CellIndex, float] = {}
         occupied_offsets: dict[CellIndex, float] = {}
 
-        for hit_x, _hit_y, hit_z in corrected_points:
+        for hit_x, hit_z in np.asarray(corrected_points, dtype=float).reshape(-1, 2):
             hit_x = float(hit_x)
             hit_z = float(hit_z)
             hit_cell = self.world_to_cell(hit_x, hit_z)
@@ -299,58 +294,114 @@ class OccupancyGrid:
         self._apply_evidence(free_offsets, FREE_SCAN_ODDS, gamma)
         self._apply_evidence(occupied_offsets, OCCUPIED_SCAN_ODDS, gamma)
 
-    def update_dashboard(
-        self,
-        robot_pos: Transform,
-        corrected_points: np.ndarray,
-    ) -> None:
-        """Shift dashboard-frame pose/cloud into the server frame, then update."""
-        origin_x, origin_z = DISPLAY_OFFSET[0], DISPLAY_OFFSET[2]
-        server_pose = Transform(
-            position=Vector3(
-                x=robot_pos.position.x - origin_x,
-                y=robot_pos.position.y,
-                z=robot_pos.position.z - origin_z,
-            ),
-            rotation=robot_pos.rotation,
-        )
-        points = np.array(corrected_points, dtype=float, copy=True)
-        points[:, 0] -= origin_x
-        points[:, 2] -= origin_z
-        self.update(server_pose, points)
+    def snapshot(self, since: int = 0) -> OccupancyGridMessage:
+        """Cells changed after revision `since`, or every observed cell with reset=True.
 
-    def export(self, filepath: str | None = None, *, reset: bool = False) -> None:
-        """Write touched cells (or an empty reset) and clear the pending-write set.
-
-        Each non-reset write includes every cell touched since clear(), so a
-        dashboard poll that skipped an intermediate file still gets current colors.
+        A dashboard that applied revision R sends R back. It needs a reset when
+        R is from before the last clear(), or from a different server run.
         """
-        cells = [] if reset else [self.cells[cell].as_export() for cell in self._touched_cells]
+        reset = since < self._reset_revision or since > self.revision
+        # Every cell that changed since clear() has a revision; the rest are
+        # still at the prior. (Reading self.cells can create prior cells.)
+        cells = [
+            self.cells[index].as_message()
+            for index, revision in self._cell_revisions.items()
+            if reset or revision > since
+        ]
+        return OccupancyGridMessage(
+            cell_size=self.cell_size,
+            revision=self.revision,
+            reset=reset,
+            cells=cells,
+        )
+
+    def clear(self) -> None:
+        """Drop observed cells; dashboards get reset=True on their next fetch."""
+        self.cells.clear()
+        self._cell_revisions.clear()
+        self.revision += 1
+        self._reset_revision = self.revision
+
+    def save(self) -> bool:
+        """Write every changed cell to the grid's file if the grid moved since the last save."""
+        if self.path is None or self.revision == self._saved_revision:
+            return False
         payload = {
             "frame": "server",
             "cell_size": self.cell_size,
-            "origin_x": DISPLAY_OFFSET[0],
-            "origin_z": DISPLAY_OFFSET[2],
-            "reset": reset,
-            "cells": cells,
+            "origin_x": self.room.offset.x,
+            "origin_z": self.room.offset.z,
+            # [x, z, p] per changed cell: server-frame cell index and probability filled.
+            "cells": [
+                [cell.x, cell.z, cell.p_occupied]
+                for cell in (self.cells[index] for index in self._cell_revisions)
+            ],
         }
-        destination = filepath if filepath is not None else self.path
-        temporary_path = destination + ".tmp"
+        path = str(self.path)
+        temporary_path = path + ".tmp"
         try:
             with open(temporary_path, "w") as file:
                 file.write(json.dumps(payload))
-            os.replace(temporary_path, destination)
-            self._pending_export_cells.clear()
+            # Swap the file in whole, so a crash never leaves half a grid.
+            os.replace(temporary_path, path)
         except OSError as error:
-            print(f"[!] could not write {destination}: {error}")
+            print(f"[!] could not save occupancy grid to {path}: {error}")
+            return False
+        self._saved_revision = self.revision
+        return True
 
-    def export_pending_updates(self) -> None:
-        if self._pending_export_cells:
-            self.export()
+    def _load(self) -> int:
+        """Restore cells saved by save(). Returns how many cells were loaded."""
+        path = self.path
+        try:
+            with open(path) as file:
+                payload = json.load(file)
+        except FileNotFoundError:
+            return 0
+        except (OSError, json.JSONDecodeError) as error:
+            print(f"[!] could not load occupancy grid from {path}: {error}")
+            return 0
+        if not math.isclose(payload.get("cell_size", 0.0), self.cell_size):
+            print(f"[!] {path} uses cell size {payload.get('cell_size')}, not {self.cell_size}; not loaded")
+            return 0
 
-    def clear(self) -> None:
-        """Drop observed cells and tell the dashboard to wipe its colors."""
-        self.cells.clear()
-        self._touched_cells.clear()
-        self._pending_export_cells.clear()
-        self.export(reset=True)
+        # Parse every cell before touching the grid, so a bad file loads nothing.
+        try:
+            entries = [(int(x), int(z), float(p)) for x, z, p in payload.get("cells", [])]
+        except (TypeError, ValueError) as error:
+            # A cell that is not [x, z, p], such as the old {"x", "z", "p"} objects.
+            print(f"[!] {path} has a cell that is not [x, z, p] ({error}); not loaded")
+            return 0
+
+        loaded = 0
+        for x, z, p in entries:
+            index = (x, z)
+            if index not in self.room_cells:
+                continue
+            cell = self.cells[index]
+            # Only the rounded probability is saved, so the log-odds restart from it.
+            cell.l_occupied = log_odds(p)
+            cell.p_occupied = probability_from_log_odds(cell.l_occupied)
+            self.revision += 1
+            self._cell_revisions[index] = self.revision
+            loaded += 1
+        # Just loaded, so the file already matches.
+        self._saved_revision = self.revision
+        return loaded
+
+    def probabilities_at(self, points: np.ndarray) -> np.ndarray:
+        """Probability each server-frame (N, 2) X/Z point is filled; INITIAL_PROBABILITY if unobserved."""
+        points = np.asarray(points, dtype=float).reshape(-1, 2)
+        values = np.full(len(points), INITIAL_PROBABILITY)
+        if not self._cell_revisions:
+            return values
+        keys = np.array(list(self._cell_revisions))
+        low = keys.min(axis=0)
+        dense = np.full(keys.max(axis=0) - low + 1, INITIAL_PROBABILITY)
+        dense[keys[:, 0] - low[0], keys[:, 1] - low[1]] = [
+            self.cells[index].p_occupied for index in self._cell_revisions
+        ]
+        index = np.floor(points / self.cell_size).astype(int) - low
+        inside = (index >= 0).all(axis=1) & (index < dense.shape).all(axis=1)
+        values[inside] = dense[index[inside, 0], index[inside, 1]]
+        return values
