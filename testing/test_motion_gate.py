@@ -3,6 +3,7 @@ import math
 from unittest.mock import patch
 
 from map.localization import ScanLocalizer
+from map.pose_graph import PoseGraph
 from map.kiss_icp_2d import OdometryICP2D
 from map.scan_pipeline import register_scan
 from server import SERVER_COORDS, TURTLEBOT_COORDS
@@ -12,8 +13,9 @@ from testing.test_odometry_icp_2d import scan
 class MotionGateTest(unittest.TestCase):
     def test_normal_gate_accumulates_motion_since_accepted_scan(self):
         localizer = ScanLocalizer()
+        graph = PoseGraph(loop_check_interval=5)
         def run(x, yaw=0):
-            return register_scan(localizer, scan(x=x, yaw=yaw), TURTLEBOT_COORDS, SERVER_COORDS)[0]
+            return register_scan(localizer, graph, scan(x=x, yaw=yaw), TURTLEBOT_COORDS, SERVER_COORDS)[0]
         self.assertEqual(run(0).status, 'first_scan')
         with patch('map.localization.icp', wraps=__import__('map.icp', fromlist=['icp']).icp) as icp:
             self.assertEqual(run(0.01).status, 'skipped_motion')
@@ -35,9 +37,10 @@ class MotionGateTest(unittest.TestCase):
     def test_rotation_and_angle_wrap(self):
         for kind in ('normal', 'kiss'):
             localizer = ScanLocalizer() if kind == 'normal' else OdometryICP2D()
+            graph = PoseGraph(loop_check_interval=5) if kind == 'normal' else None
             def run(yaw):
                 item = scan(yaw=math.radians(yaw))
-                return (register_scan(localizer, item, TURTLEBOT_COORDS, SERVER_COORDS)[0]
+                return (register_scan(localizer, graph, item, TURTLEBOT_COORDS, SERVER_COORDS)[0]
                         if kind == 'normal' else localizer.register_scan(item))
             self.assertEqual(run(179).status, 'first_scan')
             self.assertEqual(run(-179).status, 'skipped_motion')

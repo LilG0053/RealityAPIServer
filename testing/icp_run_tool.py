@@ -13,6 +13,7 @@ import numpy as np
 
 from map.icp_diagnostics import ICPDiagnostics
 from map.localization import ScanLocalizer
+from map.pose_graph import PoseGraph
 from map.scan_pipeline import register_scan
 from server import SERVER_COORDS, TURTLEBOT_COORDS
 from realityapi_pb2 import RawLidarScan
@@ -25,6 +26,8 @@ def main():
     parser.add_argument('--device', help='device ID, required for a recording with multiple devices')
     parser.add_argument('--name', help='custom name for the new replay files')
     parser.add_argument('--point-matches', action='store_true', help='save nearest-point distances for each scan')
+    parser.add_argument('--loop-check-interval', type=int, default=5, help='check for loop closures every N added nodes')
+    parser.add_argument('--no-pose-graph', action='store_true', help='replay the localizer only for comparison')
     args = parser.parse_args()
     scans = []
     skipped_unregistered = 0
@@ -53,6 +56,10 @@ def main():
             print(f'Skipped {skipped_unregistered} scans from unregistered devices.')
 
         localizer = ScanLocalizer()
+        graph = PoseGraph(loop_check_interval=args.loop_check_interval)
+        if args.no_pose_graph:
+            # Keep the live pipeline call unchanged while measuring a localizer-only baseline.
+            graph.update_pose_graph = lambda points, pose: False
         recorder = ICPDiagnostics(args.output_dir, name=args.name)
         matches_file = None
         try:
@@ -65,7 +72,7 @@ def main():
             for scan_number, scan in enumerate(scans, 1):
                 start = time.perf_counter()
                 result, predicted, _, reference_count = register_scan(
-                    localizer, scan, TURTLEBOT_COORDS, SERVER_COORDS,
+                    localizer, graph, scan, TURTLEBOT_COORDS, SERVER_COORDS,
                     include_point_matches=args.point_matches)
                 elapsed = (time.perf_counter() - start) * 1000
                 recorder.write(scan, result, predicted, elapsed, reference_count)
@@ -89,6 +96,14 @@ def main():
               f"skipped for motion: {sum(row['status'] == 'skipped_motion' for row in rows)}; "
               f"other non-updates: {sum(row['accepted'] == 'False' and row['status'] != 'skipped_motion' for row in rows)}")
         print(f'Median registration time: {statistics.median(times):.2f} ms')
+        print(f'Pose graph: {len(graph.nodes)} nodes, {len(graph.edges)} edges, '
+              f'{max(0, len(graph.edges) - max(0, len(graph.nodes) - 1))} loop edges '
+              f'({"disabled" if args.no_pose_graph else "enabled"}).')
+        if graph.nodes:
+            print(f'Graph final node x/z: {graph.nodes[-1].robot_transform[0, 2]:.3f}, '
+                  f'{graph.nodes[-1].robot_transform[1, 2]:.3f} m')
+            print('The node pose is a snapshot; CSV pose and travel metrics are from the localizer, '
+                  'not the optimized graph.')
         if fitted:
             print(f'Median inlier RMSE: {statistics.median(fitted):.4f} m')
         print(f"Final distance from first pose: {float(rows[-1]['distance_from_first_m']):.3f} m; "

@@ -18,6 +18,7 @@ from map.lidar import LIDAR_EPSILON, simplify_lidar_2d, points_to_lidar
 from map.localization import ScanLocalizer
 from map.scan_pipeline import register_scan
 from map.icp_diagnostics import ICPDiagnostics
+from map.pose_graph import PoseGraph
 import numpy as np
 import logging
 
@@ -48,6 +49,7 @@ server_map = Map()
 
 # unique scan localizer for each device_id
 scan_localizers: dict[str, ScanLocalizer] = {}
+pose_graphs: dict[str, PoseGraph] = {}
 icp_diagnostics: ICPDiagnostics | None = None
 
 def translate_vec3(vec: Vector3, offset=OFFSET) -> Vector3:
@@ -120,11 +122,14 @@ def handle_raw_lidar_scan(raw_scan: RawLidarScan) -> Response:
     # ScanLocalizer consumes odometry-placed server-coordinate points.
     if raw_scan.id not in scan_localizers:
         scan_localizers[raw_scan.id] = ScanLocalizer()
+    if raw_scan.id not in pose_graphs:
+        pose_graphs[raw_scan.id] = PoseGraph(loop_check_interval=5)
+    graph = pose_graphs[raw_scan.id]
 
     localizer = scan_localizers[raw_scan.id]
     started = time.perf_counter()
     result, predicted_pose, corrected_robot_transform, reference_count = register_scan(
-        localizer, raw_scan, TURTLEBOT_COORDS, SERVER_COORDS)
+        localizer, graph, raw_scan, TURTLEBOT_COORDS, SERVER_COORDS)
     elapsed_ms = (time.perf_counter() - started) * 1000
     if icp_diagnostics is not None:
         try:

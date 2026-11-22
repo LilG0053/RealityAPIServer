@@ -21,16 +21,27 @@ class PoseEdge:
     confidence: int
     
 class PoseGraph:
-    def __init__(self):
+    def __init__(self, loop_check_interval: int = 1):
+        if not isinstance(loop_check_interval, int) or isinstance(loop_check_interval, bool) or loop_check_interval < 1:
+            raise ValueError('loop_check_interval must be a positive integer')
         self.nodes = []
         self.edges = []
+        # loop check interval is the number of nodes added before checking loop closure
+        self.loop_check_interval = loop_check_interval
         # converts from the localizer to updated values in the graph
         self.localizer_to_graph = np.eye(3)
 
     def add_node(self, lidar_points: np.ndarray, robot_transform: np.ndarray):
         robot_graph_pose = self.localizer_to_graph @ robot_transform
-        new_node = PoseNode(id=len(self.nodes), lidar_points=lidar_points, robot_transform=robot_graph_pose)
+        rotation = self.localizer_to_graph[:2, :2]
+        translation = self.localizer_to_graph[:2, 2]
+
+        lidar_graph_points = lidar_points @ rotation.T + translation
+        
+        new_node = PoseNode(id=len(self.nodes), lidar_points=lidar_graph_points, robot_transform=robot_graph_pose)
         self.nodes.append(new_node)
+
+        
 
         # if more than one node exists, add an edge to connect new node to graph
         if len(self.nodes) > 1:
@@ -58,15 +69,14 @@ class PoseGraph:
         best_match = self.confirm_candidate(index_list, node.lidar_points, 0.3)
         if (best_match != None):
             logger.debug("Candidates found, performing loop closure")
-            # not sure what all these transforms are doing
-            corrected_current_pose = best_match["correction"] @ node.robot_transform
-            matching_candidate = self.nodes[best_match["index"]].robot_transform
+
+            canditate_transform = self.nodes[best_match["index"]].robot_transform
 
             # transform from the source node to the candidate node
             relative_pose = (
                 np.linalg.inv(node.robot_transform)
                 @ best_match["correction"]
-                @ matching_candidate
+                @ canditate_transform
             )
             
             self.add_edge(node.id, best_match["index"], relative_pose, 1)
@@ -156,13 +166,15 @@ class PoseGraph:
             # measure the distance between that transform
             transform_change = new_transform @ np.linalg.inv(old_transform)
 
-            # need to also change each lidar scans position based on the transform, this needs to connect to the lidar images
+            # for the latest node to update the localizer_to_graph matrix
+            if node.id == self.nodes[-1].id:
+                self.localizer_to_graph = transform_change @ self.localizer_to_graph
+
+            # update each lidar scans position based on the transform, this needs to connect to the lidar images
             rotation_change = transform_change[:2, :2]
             translation_change = transform_change[:2, 2]
 
             node.lidar_points = node.lidar_points @ rotation_change.T + translation_change
-            
-            # need to also send the updated transform back to localizer
 
     def closure_algorithm(self,):
         # measured_edges is array of transforms between vertices that stays fixed
@@ -183,7 +195,22 @@ class PoseGraph:
             angle_errors = errors[2::3]
             errors[2::3] = np.arctan2(np.sin(angle_errors), np.cos(angle_errors))
 
-            return errors
+            # divide by the standard deviation, this makes less confident measurements weigh less
+            # since we know the rotation is more error prone, give the rotation higher SD
+            standard_deviations = np.array([
+                0.10,             # x: meters
+                0.10,             # y: meters
+                np.deg2rad(20),   # rotation: radians
+            ])
+
+            # One row per edge: [x_error, y_error, angle_error]
+            errors = errors.reshape(-1, 3)
+
+            # NumPy divides each row by the three standard deviations.
+            weighted_errors = errors / standard_deviations
+
+            # Return a 1D array to least_squares.
+            return weighted_errors.ravel()
 
         # run least squares which uses residual function and takes all node values (remove first three because x0, y0, theta0 is fixed)
         result = least_squares(residuals, x0[3:])
@@ -254,4 +281,39 @@ class PoseGraph:
 
         return best_match
 
+    def update_pose_graph(self, lidar_points: np.ndarray, robot_transform: np.ndarray):
+        """Add a node if the robot has moved enough since the last saved node."""
+
+        # The first accepted scan becomes the first node.
+        if not self.nodes:
+            self.add_node(lidar_points, robot_transform)
+            return True
+
+        # Compare both poses in the graph frame.
+        current_pose = self.localizer_to_graph @ robot_transform
+        previous_pose = self.nodes[-1].robot_transform
+
+        distance = np.linalg.norm(
+            current_pose[:2, 2] - previous_pose[:2, 2]
+        )
+
+        current_angle = np.arctan2(current_pose[1, 0], current_pose[0, 0])
+        previous_angle = np.arctan2(previous_pose[1, 0], previous_pose[0, 0])
+
+        # Wrap the difference so, for example, 179° to -179° is a 2° turn.
+        angle_difference = np.arctan2(
+            np.sin(current_angle - previous_angle),
+            np.cos(current_angle - previous_angle),
+        )
+
+        if distance > 0.5 or abs(angle_difference) > np.deg2rad(10):
+            self.add_node(lidar_points, robot_transform)
+
+            # Count newly added nodes after the initial node.
+            if self.nodes[-1].id % self.loop_check_interval == 0:
+                self.check_closure(self.nodes[-1])
+            
+            return True
+
+        return False
 

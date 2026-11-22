@@ -12,6 +12,7 @@ from map.icp import icp
 from map.icp_diagnostics import ICPDiagnostics
 from map.kiss_icp_2d import ICPConfig, OdometryICP2D, pose_matrix
 from map.localization import ScanLocalizer
+from map.pose_graph import PoseGraph
 from map.scan_pipeline import register_scan
 from server import SERVER_COORDS, TURTLEBOT_COORDS
 from testing.compare_recorded_trials import load_scans
@@ -29,6 +30,7 @@ def main():
                 print(label, flush=True)
                 localizer = (ScanLocalizer() if method == 'normal' else
                              OdometryICP2D(ICPConfig(initial_sigma=cutoff / 3)))
+                graph = PoseGraph(loop_check_interval=5) if method == 'normal' else None
 
                 def tuned_icp(*args, **kwargs):
                     kwargs['distance_threshold'] = cutoff
@@ -41,7 +43,7 @@ def main():
                             for scan, stamp in scans:
                                 start = time.perf_counter()
                                 if method == 'normal':
-                                    result, predicted, _, count = register_scan(localizer, scan, TURTLEBOT_COORDS, SERVER_COORDS)
+                                    result, predicted, _, count = register_scan(localizer, graph, scan, TURTLEBOT_COORDS, SERVER_COORDS)
                                 else:
                                     predicted = localizer.map_from_odom @ pose_matrix(scan.transform)
                                     count = sum(map(len, localizer.local_map.voxels.values()))
@@ -64,6 +66,8 @@ def main():
                         writer.writerows(rows)
                 last = rows[-1]
                 summary.append({'trial': trial, 'method': method, 'initial_cutoff_m': cutoff,
+                                'graph_nodes': len(graph.nodes) if graph else None,
+                                'graph_loop_edges': len(graph.edges) - max(0, len(graph.nodes) - 1) if graph else None,
                                 'path_m': float(last['corrected_path_length_m']),
                                 'end_m': float(last['distance_from_first_m']),
                                 'heading_deg': float(last['heading_from_first_deg']),

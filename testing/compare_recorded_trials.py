@@ -16,6 +16,7 @@ from map.icp import icp
 from map.icp_diagnostics import ICPDiagnostics
 from map.kiss_icp_2d import ICPConfig, OdometryICP2D, pose_matrix
 from map.localization import ScanLocalizer
+from map.pose_graph import PoseGraph
 from map.scan_pipeline import register_scan
 from realityapi_pb2 import RawLidarScan
 from server import SERVER_COORDS, TURTLEBOT_COORDS
@@ -49,6 +50,7 @@ def run_variant(scans, name, method, parameter, output_dir):
         return icp(*args, **kwargs)
 
     localizer = ScanLocalizer() if method == 'normal' else OdometryICP2D(ICPConfig(voxel_size=parameter))
+    graph = PoseGraph(loop_check_interval=5) if method == 'normal' else None
     with tempfile.TemporaryDirectory(prefix='icp-comparison-') as temporary:
         with open(Path(temporary) / 'console.txt', 'w') as quiet, contextlib.redirect_stdout(quiet):
             recorder = ICPDiagnostics(temporary, name='results')
@@ -57,7 +59,7 @@ def run_variant(scans, name, method, parameter, output_dir):
                     for scan, stamp in scans:
                         start = time.perf_counter()
                         if method == 'normal':
-                            result, predicted, _, reference_count = register_scan(localizer, scan, TURTLEBOT_COORDS, SERVER_COORDS)
+                            result, predicted, _, reference_count = register_scan(localizer, graph, scan, TURTLEBOT_COORDS, SERVER_COORDS)
                         else:
                             predicted = localizer.map_from_odom @ pose_matrix(scan.transform)
                             reference_count = sum(len(bucket) for bucket in localizer.local_map.voxels.values())
@@ -74,6 +76,8 @@ def run_variant(scans, name, method, parameter, output_dir):
     number = lambda key: float(last[key])
     return {
         'variant': name, 'scans': len(rows),
+        'graph_nodes': len(graph.nodes) if graph else None,
+        'graph_loop_edges': len(graph.edges) - max(0, len(graph.nodes) - 1) if graph else None,
         'updates': sum(r['status'] == 'updated' for r in rows),
         'no_update': sum(r['status'] not in ('first_scan', 'updated') for r in rows),
         'odom_path_m': number('odom_path_length_m'), 'corrected_path_m': number('corrected_path_length_m'),

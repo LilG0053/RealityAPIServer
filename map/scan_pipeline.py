@@ -10,9 +10,10 @@ from map.icp_diagnostics import pose_matrix
 from map.lidar import scan_to_world_points
 from map.motion_gate import below_motion_threshold
 from map.localization import ScanLocalizer
+from map.pose_graph import PoseGraph
 
 
-def register_scan(localizer: ScanLocalizer, raw_scan, robot_coords, server_coords, *, include_point_matches=False):
+def register_scan(localizer: ScanLocalizer, pose_graph: PoseGraph, raw_scan, robot_coords, server_coords, *, include_point_matches=False):
     """Return corrected server points and ROS-frame metrics for one raw scan."""
     # converts the raw robot transform into its predicted transform
     raw_server_pose = convert_transform(raw_scan.transform, robot_coords, server_coords)
@@ -32,18 +33,29 @@ def register_scan(localizer: ScanLocalizer, raw_scan, robot_coords, server_coord
     odom_xy = np.array([raw_scan.transform.position.x, raw_scan.transform.position.y])
     odom_yaw = float(raw_scan.transform.rotation.z)
 
-    # motion gate, if the robot doesn't move do not run
-    if below_motion_threshold(odom_xy, odom_yaw, localizer.last_icp_odom_xy, localizer.last_icp_odom_yaw):
-        status, corrected_points = 'skipped_motion', localizer.corrected_lidar(server_points)
+    if below_motion_threshold(
+        odom_xy, odom_yaw,
+        localizer.last_icp_odom_xy, localizer.last_icp_odom_yaw,
+    ):
+        status = 'skipped_motion'
+        corrected_points = localizer.corrected_lidar(server_points)
         localizer.last_iterations = 0
         localizer.last_stop_reason = 'skipped_motion'
     else:
         status, corrected_points = localizer.update_correction(server_points)
-        if status in ('first_scan', 'updated'):
-            localizer.last_icp_odom_xy = odom_xy.copy()
-            localizer.last_icp_odom_yaw = odom_yaw
+
     corrected_server_pose = localizer.corrected_transform(raw_server_pose, (0, 0, 0))
     corrected_ros_pose = convert_transform(corrected_server_pose, server_coords, robot_coords)
+
+    if status in ('first_scan', 'updated'):
+        localizer.last_icp_odom_xy = odom_xy.copy()
+        localizer.last_icp_odom_yaw = odom_yaw
+
+        graph_pose = server_pose_matrix(corrected_server_pose)
+        graph_points = corrected_points[:, [0, 2]]
+        pose_graph.update_pose_graph(graph_points, graph_pose)
+            
+    
     
     # comapres the previous scan to the new one, evaluates how well its alignment including rmse, fitness, etc.
     count, ratio, rmse = 0, 0.0, float('inf')
@@ -67,3 +79,21 @@ def register_scan(localizer: ScanLocalizer, raw_scan, robot_coords, server_coord
         point_matches=point_matches,
     )
     return result, pose_matrix(predicted_ros_pose), corrected_server_pose, len(reference) if reference is not None else 0
+
+def server_pose_matrix(server_pose):
+    """Convert a server-coordinate Transform into a 2D x/z pose matrix."""
+    x = float(server_pose.position.x)
+    z = float(server_pose.position.z)
+
+    # Rotation in the x/z plane has the opposite sign from server rotation
+    # about the positive y-axis, matching ScanLocalizer's convention.
+    angle = -float(server_pose.rotation.y)
+
+    c = np.cos(angle)
+    s = np.sin(angle)
+
+    return np.array([
+        [c, -s, x],
+        [s,  c, z],
+        [0.0, 0.0, 1.0],
+    ])

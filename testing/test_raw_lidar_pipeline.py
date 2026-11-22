@@ -25,16 +25,19 @@ class RawLidarPipelineTest(unittest.TestCase):
     def setUp(self):
         self.original_map = server.server_map
         self.original_localizers = server.scan_localizers
+        self.original_graphs = server.pose_graphs
         self.original_directory = Path.cwd()
         self.temporary_directory = tempfile.TemporaryDirectory()
         os.chdir(self.temporary_directory.name)
         Path("dashboard").mkdir()
         server.server_map = Map()
         server.scan_localizers = {}
+        server.pose_graphs = {}
 
     def tearDown(self):
         server.server_map = self.original_map
         server.scan_localizers = self.original_localizers
+        server.pose_graphs = self.original_graphs
         os.chdir(self.original_directory)
         self.temporary_directory.cleanup()
 
@@ -74,6 +77,7 @@ class RawLidarPipelineTest(unittest.TestCase):
             ServerRequest(post_raw_lidar_scan=scan)
         )
         self.assertTrue(scan_response.HasField("ok"))
+        self.assertEqual(len(server.pose_graphs[device_id].nodes), 1)
 
         all_devices_response = self.dispatch(
             ServerRequest(fetch_all_device_info=Empty())
