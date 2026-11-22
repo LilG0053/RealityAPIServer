@@ -219,8 +219,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-dashboard/occupancy_grid.json
-dashboard/occupancy_grid.json.tmp
+# Occupancy grid the server saves while robots map (map/map.py TURTLEBOT_OCCUPANCY_PATH)
+assets/occupancy_grid_*.json
+assets/occupancy_grid_*.json.tmp
 saved_scans/
 
 # Dashboard tooling
