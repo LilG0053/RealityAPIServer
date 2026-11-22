@@ -2,11 +2,10 @@
 
 <!-- One or two sentences. Link the issue if there is one. -->
 
-## Where the code went
+## Checklist
 
-- [ ] New pure math or algorithms are in `map/algorithms/` and import only external packages, protobuf types and `common/`
-- [ ] Localization logic lives in `map/device/`, not in `Map` (`Map` only stores state)
-- [ ] Coordinate conversions are in `common/` and run on the client side
+- [ ] `lint-imports` passes (code follows the layers in `AGENTS.md`)
+- [ ] `python -m pytest testing` passes, so nothing broke
 - [ ] If `realityapi.proto` changed: `realityapi_pb2.py`, `realityapi_pb2.pyi` and `dashboard/gen/` are regenerated
 - [ ] New behavior has a test in `testing/`
 
