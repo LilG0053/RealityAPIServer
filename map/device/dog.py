@@ -1,33 +1,42 @@
 """The robot dog: 3D poses and point clouds, in server coordinates.
 
-Its point cloud is flattened into a ring of points and matched with ICP
-against the dog's own accumulated map; the ICP correction is applied to the
-ring (its live scan) and to the pose it sends.
+Its point cloud is flattened into a smoothed ring and matched with ICP against
+the dog's own accumulated map. StaticLocalizer then fixes that frame against
+the room walls (branch and bound, then Monte Carlo); its delta is folded into
+the ICP correction, which is applied to the ring and to the pose.
 """
 
 from __future__ import annotations
 
 from typing import Any, ClassVar
 
+import numpy as np
 from google.protobuf.json_format import ParseDict
 
 from common.transform2 import transform2_from_transform3
+from map.bandb_dog import StaticLocalizer
 from map.algorithms.lidar import simplify_points
-from map.algorithms.localization import ScanLocalizer
-from map.algorithms.pointcloud import raw_cloud_to_ring
+from map.algorithms.localization import ScanLocalizer, apply
+from map.algorithms.pointcloud import RingAccumulator, raw_cloud_to_ring
 from map.device.device import Device, _message_dict
+from map.room import polygon_array
+from map.wallgrid import WallGrid
 from realityapi_pb2 import DeviceInfo, DeviceType, Lidar3, Response, Transform3, Vector3
 
 
 class Dog(Device):
     DEVICE_TYPE: ClassVar[int] = DeviceType.DOG
 
-    def __init__(self, id: str, timestamp: float = 0.0) -> None:
+    def __init__(self, id: str, wall_grid: WallGrid, timestamp: float = 0.0) -> None:
         super().__init__(id, timestamp)
         self.transform3 = Transform3()
         self.lidar3 = Lidar3()
-        # ICP against the dog's own accumulated map.
         self.localizer = ScanLocalizer()
+        self.ring = RingAccumulator()
+        room, *obstacles = (polygon_array(p) for p in wall_grid.room.polygons())
+        self.static = StaticLocalizer(wall_grid, room, obstacles)
+        # Set after a whole-room fix; Map clears the 3D cloud map once and resets it.
+        self.reset_cloud = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], **kwargs: Any) -> Dog:
@@ -39,42 +48,50 @@ class Dog(Device):
     def handle_device_info(self, device_info: DeviceInfo) -> Response:
         self.heartbeat()
         if device_info.HasField("raw_point_cloud"):
-            ring, height = raw_cloud_to_ring(device_info.raw_point_cloud)
-            # Nothing in range keeps the last scan.
+            raw = device_info.raw_point_cloud
+            ring, height = raw_cloud_to_ring(raw, self.ring)
             if len(ring):
                 self.localizer.update(ring)
-                corrected = simplify_points(self.localizer.correct_points(ring))
-                self.lidar3 = Lidar3(points=[Vector3(x=float(x), y=height, z=float(z)) for x, z in corrected])
+                self._locate(ring, raw.transform)
+                pts = simplify_points(self.localizer.correct_points(ring))
+                self.lidar3 = Lidar3(points=[Vector3(x=float(x), y=height, z=float(z)) for x, z in pts])
         elif device_info.HasField("lidar3"):
             self.lidar3.CopyFrom(device_info.lidar3)
 
-        # Corrected after the scan, so the pose gets this scan's ICP correction.
         if device_info.HasField("transform3"):
             self.transform3 = self._corrected(device_info.transform3)
         elif device_info.HasField("raw_point_cloud"):
             self.transform3 = self._corrected(device_info.raw_point_cloud.transform)
-        # The dog does not take on the corrected pose; the server applies ICP to every post.
         return self.reply()
 
+    def _locate(self, ring: np.ndarray, transform: Transform3) -> None:
+        loc = self.localizer
+        p = transform.position
+        pos = loc.correct_points(np.array([[p.x, p.z]]))[0]
+        fix = self.static.locate(loc.correct_points(ring), pos, correction=loc.correction)
+        if fix is None:
+            return
+        loc.correction = fix.delta @ loc.correction
+        if loc.accumulated_scan is not None:
+            loc.accumulated_scan = apply(fix.delta, loc.accumulated_scan)
+        if fix.global_search:
+            self.reset_cloud = True
+
     def _corrected(self, transform: Transform3) -> Transform3:
-        """A server-coordinate Transform3 with the ICP correction applied on the ground plane."""
         pose = transform2_from_transform3(transform)
         corrected = self.localizer.correct_pose(pose)
         p, r = transform.position, transform.rotation
-        # Heading is a rotation about the server's UP axis, which is rotation.y;
-        # Transform2's Vector2.y carries the server's Z.
         return Transform3(
             position=Vector3(x=corrected.position.x, y=p.y, z=corrected.position.y),
             rotation=Vector3(x=r.x, y=r.y + (corrected.rotation - pose.rotation), z=r.z),
         )
 
     def accumulated_points(self):
-        """The ICP map: server-frame (N, 2) X/Z points, or None before any scan."""
         return self.localizer.accumulated_scan
 
     def clear_scan(self) -> None:
-        """Forget the accumulated map; the pose is no longer corrected."""
         self.localizer.clear_scan()
+        self.static.reset()
 
     def get_device_info(self) -> DeviceInfo:
         info = super().get_device_info()

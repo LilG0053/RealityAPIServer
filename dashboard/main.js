@@ -22,8 +22,9 @@ const roomCorners = [
   { x: 9.07, z: 0 }
 ];
 
-// Keep this aligned with server.py's DOG_START_POSITION.
-const dogStartPosition = { x: 1.0, z: 14.0 };
+// Where the dog's odometry starts, in the drawn frame: DOG_START (0.9, 0.0)
+// in dog_protocol.py plus the room origin (0.1, 2.0).
+const dogStartPosition = { x: 1.0, z: 2.0 };
 
 // Scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -43,6 +44,13 @@ camera.lookAt(0, 0, 0);
 
 // Mirror the full scene so positive sensor Z values match the physical room layout.
 scene.scale.z = -1;
+
+// Everything the server reports (robots, scans, the accumulated map) is in the
+// server frame, which is the drawn frame minus the room origin. This group
+// puts it back; the origin is refreshed from the server's room bounds.
+const serverGroup = new THREE.Group();
+serverGroup.position.set(0.1, 0, 2.0);
+scene.add(serverGroup);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -223,7 +231,7 @@ function updateRobotMarker(key, device) {
     marker.add(createChevron(material));
     marker.position.set(position.x, 0.3, position.z);
     marker.rotation.set(rotation.x, -rotation.y, rotation.z);
-    scene.add(marker);
+    serverGroup.add(marker);
     robotMarkers[key] = marker;
   }
 }
@@ -252,13 +260,13 @@ function updateLidarMarkers(devices) {
 
   if (points.length > lidarCapacity) {
     if (lidarMarkers) {
-      scene.remove(lidarMarkers);
+      serverGroup.remove(lidarMarkers);
       lidarMarkers.dispose();
     }
     lidarCapacity = points.length;
     lidarMarkers = new THREE.InstancedMesh(lidarGeometry, lidarMaterial, lidarCapacity);
     lidarMarkers.renderOrder = 2;
-    scene.add(lidarMarkers);
+    serverGroup.add(lidarMarkers);
   }
 
   if (lidarMarkers) points.forEach((point, index) => {
@@ -285,7 +293,7 @@ const lidarLine = new THREE.LineSegments(
 );
 lidarLine.renderOrder = 2;
 lidarLine.visible = false;
-scene.add(lidarLine);
+serverGroup.add(lidarLine);
 
 function updateLidarLine(devices) {
   const coordinates = [];
@@ -326,13 +334,13 @@ function updateMapMarkers(points) {
   }
   if (points.length > mapCapacity) {
     if (mapMarkers) {
-      scene.remove(mapMarkers);
+      serverGroup.remove(mapMarkers);
       mapMarkers.dispose();
     }
     // The map only grows, so leave headroom instead of reallocating every poll.
     mapCapacity = Math.max(points.length, mapCapacity * 2);
     mapMarkers = new THREE.InstancedMesh(mapGeometry, mapMaterial, mapCapacity);
-    scene.add(mapMarkers);
+    serverGroup.add(mapMarkers);
   }
 
   if (!mapMarkers) return;
@@ -529,6 +537,7 @@ function connect() {
 
   socket.addEventListener("open", () => {
     loadTunables();
+    loadRoomOrigin();
   });
 
   socket.addEventListener("close", () => {
@@ -549,6 +558,19 @@ function request(data) {
     pendingRequests.set(reqUuid, { resolve, reject });
     socket.send(toBinary(ServerRequestSchema, message));
   });
+}
+
+// Where the server frame's (0, 0) sits in the drawn frame.
+async function loadRoomOrigin() {
+  try {
+    const response = await request({ case: "fetchRoomBounds", value: {} });
+    if (response.data.case === "roomBounds" && response.data.value.origin) {
+      const origin = response.data.value.origin;
+      serverGroup.position.set(origin.x, 0, origin.y);
+    }
+  } catch (error) {
+    console.error("Error loading room origin:", error);
+  }
 }
 
 // Track device positions
@@ -601,7 +623,7 @@ function updateDevices(devices) {
   // Remove devices the server no longer reports
   Object.keys(robotMarkers).forEach(key => {
     if (!currentKeys.has(key)) {
-      scene.remove(robotMarkers[key]);
+      serverGroup.remove(robotMarkers[key]);
       delete robotMarkers[key];
       delete lastPositions[key];
     }

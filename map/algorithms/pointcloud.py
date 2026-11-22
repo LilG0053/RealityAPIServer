@@ -5,8 +5,11 @@ without the robot.
 
 The server's localizer and dashboard work on a flat ring of points, like the
 TurtleBot's. The dog sends a full 3D cloud, so we keep a horizontal slice around
-the dog's body, keep the nearest return per bearing, and hand back at most
+the dog's body, keep one return per bearing, and hand back at most
 DOG_SCAN_BINS points at a constant height.
+
+Clouds arrive in the server's axes (x, y up, z). Everything that crops by
+height first swaps to (x, z, y) so column 2 is up.
 """
 
 import math
@@ -15,20 +18,19 @@ from time import monotonic
 
 import numpy as np
 
-from realityapi_pb2 import Lidar3, RawPointCloud, Vector3
+from realityapi_pb2 import RawPointCloud
 
 # Slice of the cloud kept, in meters relative to the dog's pose z. The floor
 # sits below the low edge and the ceiling above the high one. This band is above
 # table tops and chair seats, so the ring is mostly walls and pillars, which is
-# what the room-blockout localizer matches against. (The old band, -0.15 to 0.25,
-# saw chair bases, table legs and bags near the floor.)
+# what the room-blockout localizer matches against.
 DOG_SCAN_Z_MIN = -0.15
 DOG_SCAN_Z_MAX = 0.25
 # Horizontal range kept around the dog (meters).
 DOG_SCAN_RANGE_MIN = 0.1
 DOG_SCAN_RANGE_MAX = 20.0
-# Angular bins around the dog; one point (the nearest) survives per bin. This
-# also caps the scan size, which keeps the server's 2D ICP fast.
+# Angular bins around the dog; one point survives per bin. This also caps the
+# scan size, which keeps the server's 2D ICP fast.
 DOG_SCAN_BINS = 180
 
 # Ring smoothing (see RingAccumulator). The dog's lidar returns only a few points
@@ -152,53 +154,26 @@ class RingAccumulator:
         min_points = DOG_RING_MIN_POINTS if len(self._slices) > 1 else 1
         return ring_from_points(xy, origin, min_points=min_points)
 
+    def clear(self) -> None:
+        self._slices.clear()
 
-def raw_cloud_to_ring(raw: RawPointCloud) -> tuple[np.ndarray, float]:
+
+def raw_cloud_to_ring(
+    raw: RawPointCloud, accumulator: "RingAccumulator | None" = None
+) -> tuple[np.ndarray, float]:
     """Flatten a server-coordinate 3D cloud into (ring, height).
 
     The cloud and transform use the server's Y-up axes. The returned ring is
-    server-frame X/Z and height is the dog's Y position.
+    server-frame X/Z and height is the dog's Y position. With an accumulator the
+    ring is built from the last few clouds; without one, from this cloud alone.
     """
     p = raw.transform.position
     origin = np.array([p.x, p.z, p.y], dtype=np.float64)
     if not np.isfinite(origin).all():
         raise ValueError("point cloud transform has a non-finite position")
-    ring = flatten_to_scan(decode_xyz(raw.xyz)[:, [0, 2, 1]], origin)
+    pts = decode_xyz(raw.xyz)[:, [0, 2, 1]]
+    ring = flatten_to_scan(pts, origin) if accumulator is None else accumulator.update(pts, origin)
     return ring, float(p.y)
-
-
-def raw_cloud_to_scan(raw: RawPointCloud, accumulator: "RingAccumulator | None" = None) -> Lidar3:
-    """Flatten a dog cloud into a constant-height ring in the sender's axes.
-
-    The cloud and ``raw.transform.position`` must share a frame and axes (the
-    dog sends raw ROS odom axes for both). Output points stay in that world
-    frame at z = the dog's z, so the caller converts them with
-    ``convert_lidar(scan, DOG_COORDS, SERVER_COORDS)``. An empty Lidar means
-    nothing was in range.
-    """
-    p = raw.transform.position
-    origin = np.array([p.x, p.y, p.z], dtype=np.float64)
-    if not np.isfinite(origin).all():
-        raise ValueError("point cloud transform has a non-finite position")
-
-    cloud = decode_xyz(raw.xyz)
-    if accumulator is None:
-        ring = flatten_to_scan(cloud, origin)
-    else:
-        ring = accumulator.update(cloud, origin)
-    if len(ring) == 0:
-        finite_z = cloud[np.isfinite(cloud).all(axis=1), 2] - origin[2]
-        if len(finite_z):
-            percentiles = np.percentile(finite_z, [10, 50, 90])
-            print(
-                "[ring] empty ring: "
-                f"pose_z={origin[2]:.2f} m, "
-                f"relative_z_p10/p50/p90={percentiles[0]:.2f}/"
-                f"{percentiles[1]:.2f}/{percentiles[2]:.2f} m"
-            )
-        else:
-            print("[ring] empty ring: no finite points in cloud")
-    return Lidar3(points=[Vector3(x=x, y=float(origin[2]), z=y) for x, y in ring.tolist()])
 
 
 def cloud_to_points(
@@ -213,9 +188,9 @@ def cloud_to_points(
 ) -> np.ndarray:
     """Crop a 3D cloud around the dog and thin it. Returns an (M, 3) array.
 
-    ``points`` and ``origin`` share a frame (the sender's world frame, ROS axes
-    for the dog). Heights and ranges are measured from ``origin``, but the points
-    that come back are still in the world frame, not relative to the dog.
+    ``points`` and ``origin`` share a frame and a layout where column 2 is up.
+    Heights and ranges are measured from ``origin``, but the points that come
+    back are still in that frame, not relative to the dog.
     """
     # 1. Drop NaN / infinite rows; they would break floor() and astype(int) below.
     points = points[np.isfinite(points).all(axis=1)]
@@ -257,12 +232,17 @@ def cloud_to_points(
 
 
 def raw_cloud_to_points(raw: RawPointCloud) -> np.ndarray:
-    """Decode a dog cloud and run cloud_to_points around the dog's position."""
+    """Decode a dog cloud and crop it around the dog's position.
+
+    Takes and returns server axes (x, y up, z): the crop runs in (x, z, y)
+    so height is the last column, then the columns are swapped back.
+    """
     p = raw.transform.position
-    origin = np.array([p.x, p.y, p.z], dtype=np.float64)
+    origin = np.array([p.x, p.z, p.y], dtype=np.float64)
     if not np.isfinite(origin).all():
         raise ValueError("point cloud transform has a non-finite position")
-    return cloud_to_points(decode_xyz(raw.xyz), origin, range_min=DOG_CLOUD_RANGE_MIN)
+    pts = cloud_to_points(decode_xyz(raw.xyz)[:, [0, 2, 1]], origin, range_min=DOG_CLOUD_RANGE_MIN)
+    return pts[:, [0, 2, 1]]
 
 
 def raw_cloud_to_evidence(raw: RawPointCloud) -> np.ndarray:
@@ -271,7 +251,9 @@ def raw_cloud_to_evidence(raw: RawPointCloud) -> np.ndarray:
     The map only keeps points up to DOG_CLOUD_Z_MAX above the dog, but the lidar
     also sees the ceiling and far walls through where an old point used to be.
     That is exactly the evidence needed to erase the old point, so it must not be
-    cropped away. Only the dog's own body is dropped. Returns (M, 3) in the world frame.
+    cropped away. Only the dog's own body is dropped. Returns (M, 3) in server
+    axes (x, y up, z); only distances to the dog are used here, so the axis
+    order does not matter for the crop.
     """
     p = raw.transform.position
     origin = np.array([p.x, p.y, p.z], dtype=np.float64)

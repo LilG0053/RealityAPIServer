@@ -41,10 +41,12 @@ class Map:
         self._last_map_size3d = -1
         self._room = Room.from_json(blockout_path)
         # The wall grid each device type localizes against: the shared room and,
-        # through it, the occupancy grid that type maps into. Devices of a type
-        # share theirs; dashboards fetch the occupancy grid per type.
+        # for types that map into an occupancy grid, that grid too. Devices of a
+        # type share theirs; dashboards fetch the occupancy grid per type. The
+        # dog localizes against the room walls only.
         self.wall_grids: dict[int, WallGrid] = {
             DeviceType.TURTLE: WallGrid(self._room, OccupancyGrid(self._room, TURTLEBOT_OCCUPANCY_PATH)),
+            DeviceType.DOG: WallGrid(self._room),
         }
 
     @property
@@ -54,8 +56,7 @@ class Map:
 
     def _device_kwargs(self, cls: type[Device], device_type: int) -> dict[str, Any]:
         """What a device class's constructor needs beyond its id."""
-        # 2D devices localize against their type's shared wall grid.
-        if issubclass(cls, Device2D):
+        if issubclass(cls, (Device2D, Dog)):
             return {"wall_grid": self.wall_grids[device_type]}
         return {}
 
@@ -118,14 +119,20 @@ class Map:
 
         response = device.handle_device_info(info)
         if isinstance(device, Dog) and info.HasField("raw_point_cloud"):
-            cloud = raw_cloud_to_points(info.raw_point_cloud)
-            evidence = raw_cloud_to_evidence(info.raw_point_cloud)
-            p = info.raw_point_cloud.transform.position
-            origin = np.array([p.x, p.z, p.y], dtype=np.float64)
-            cloud = cloud[:, [0, 2, 1]]
-            evidence = evidence[:, [0, 2, 1]]
+            raw = info.raw_point_cloud
+            p = raw.transform.position
             cloud_map = self._cloud_maps.setdefault(info.id, CloudMap())
-            cloud_map.add(cloud, device.localizer.correction, origin, evidence)
+            if device.reset_cloud:
+                # A whole-room fix moved the dog's frame; older points no longer line up.
+                device.reset_cloud = False
+                cloud_map.clear()
+            # Server axes (x, y up, z) throughout, which is what CloudMap takes.
+            cloud_map.add(
+                raw_cloud_to_points(raw),
+                device.localizer.correction,
+                np.array([p.x, p.y, p.z], dtype=np.float64),
+                raw_cloud_to_evidence(raw),
+            )
         if device.id != info.id:
             # Renamed: the reply tells the device its new id.
             self._devices[device.id] = self._devices.pop(info.id)

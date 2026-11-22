@@ -1,0 +1,7 @@
+{
+  "name": "reality-api-server",
+  "private": true,
+  "scripts": {
+    "build:proto": "npm --prefix dashboard run build:proto"
+  }
+}
