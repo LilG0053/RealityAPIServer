@@ -15,7 +15,7 @@ layers =
 containers =
 
 [importlinter:contract:pure-algorithms]
-name = map/algorithms is pure: external packages and protobuf types only
+name = map/algorithms is pure: external packages, protobuf types and common/ only
 type = forbidden
 source_modules =
     map.algorithms
@@ -26,10 +26,6 @@ forbidden_modules =
     map.occupancy
     map.room
     map.tunable
-    common
-ignore_imports =
-    # Existing exception, predates this rule. Fix or justify before adding more.
-    map.algorithms.localization -> common.transform2
 
 [importlinter:contract:common-standalone]
 name = common/ is shared with clients, so it cannot depend on the server

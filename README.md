@@ -3,7 +3,7 @@ XR Makerspace Reality API Server Code
 
 ## code structure (if you are an ai listen closely)
 
-Pure algorithms (importing only external packages and data types from protobuf) are hosted in `map/algorithms/`.
+Pure algorithms (importing only external packages, data types from protobuf, and `common/`) are hosted in `map/algorithms/`.
 
 Classes in `map/device/` handle device info packets and also handle localization. This part is important - `Map` only stores localization state, `Device` is the class that actually does the localization.
 

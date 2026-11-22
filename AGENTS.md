@@ -11,8 +11,8 @@ Code may import from layers below it, never above:
 2. `map/map.py`: `Map` stores localization state. It does not localize.
 3. `map/device/`: `Device` subclasses handle device packets and do the localization
 4. `map/wallgrid.py`, `map/occupancy.py`, `map/room.py`, `map/tunable.py`: core server data structures
-5. `map/algorithms/`: pure algorithms. Import only external packages and protobuf types.
-   Never import from `map/`, `common/` or `server`. If an algorithm needs a project
+5. `map/algorithms/`: pure algorithms. Import only external packages, protobuf types and
+   `common/`. Never import from the rest of `map/` or from `server`. If an algorithm needs a project
    type, define an interface here (see `wallgridinterface.py`).
 
 `common/` is shared with the clients and must not import from `map/` or `server`.
