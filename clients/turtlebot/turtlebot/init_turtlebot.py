@@ -61,6 +61,10 @@ class TurtleBotPose:
         self.correction = None
 
 
-def create_turtlebot(custom_id: str = 'turtlebot1') -> TurtleBotPose:
-    """Return the pose state for this robot. Call this from any node."""
+def create_turtlebot(custom_id: str | None = None) -> TurtleBotPose:
+    """Return the pose state for this robot. Call this from any node.
+
+    The id defaults to this machine's hostname, so several robots get
+    distinct ids without configuration.
+    """
     return TurtleBotPose(custom_id or socket.gethostname())
