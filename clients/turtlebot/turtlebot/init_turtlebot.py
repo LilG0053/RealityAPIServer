@@ -1,5 +1,6 @@
 import socket
 import sys
+from uuid import uuid4
 from pathlib import Path
 
 # Let any node import the common package and realityapi_pb2 from the project root.
@@ -63,8 +64,6 @@ class TurtleBotPose:
 
 def create_turtlebot(custom_id: str | None = None) -> TurtleBotPose:
     """Return the pose state for this robot. Call this from any node.
-
-    The id defaults to this machine's hostname, so several robots get
-    distinct ids without configuration.
+    The id defaults to the hostname plus a random suffix, since turtlebots have the hostname turtlebot4.
     """
-    return TurtleBotPose(custom_id or socket.gethostname())
+    return TurtleBotPose(custom_id or f'{socket.gethostname()}-{uuid4().hex[:4]}')
