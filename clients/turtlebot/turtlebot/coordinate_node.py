@@ -38,9 +38,10 @@ class CoordinateNode(Node):
        A reply with no pose means the server lost the robot: back to 1.
     """
 
-    def __init__(self, server_uri: str = SERVER_URI):
+    def __init__(self, server_uri: str = SERVER_URI, device_id: str | None = None):
         super().__init__('coordinate_node')
-        self.robot = create_turtlebot()
+        self.robot = create_turtlebot(device_id)
+        self.get_logger().info(f'Device id {self.robot.id}')
         self.get_logger().info(f'Connecting to {server_uri}')
         self.ws = connect(server_uri)
 
@@ -171,6 +172,11 @@ def parse_args(args=None) -> argparse.Namespace:
         default=SERVER_URI,
         help=f'websocket URI of the server (default: {SERVER_URI})',
     )
+    parser.add_argument(
+        '--id',
+        dest='device_id',
+        help='device id to register with; must differ between robots (default: hostname)',
+    )
     # ROS arguments (--ros-args ...) are for rclpy, not this parser.
     return parser.parse_args(remove_ros_args(args if args is not None else sys.argv)[1:])
 
@@ -178,7 +184,7 @@ def parse_args(args=None) -> argparse.Namespace:
 def main(args=None):
     options = parse_args(args)
     rclpy.init(args=args)
-    node = CoordinateNode(options.server_uri)
+    node = CoordinateNode(options.server_uri, options.device_id)
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
