@@ -338,32 +338,32 @@ export declare type DeviceInfo = Message<"realityapi.DeviceInfo"> & {
   timestamp: number;
 
   /**
-   * @generated from field: optional realityapi.Transform3 transform3 = 4;
+   * @generated from field: realityapi.Transform3 transform3 = 4;
    */
   transform3?: Transform3 | undefined;
 
   /**
-   * @generated from field: optional realityapi.Lidar3 lidar3 = 5;
+   * @generated from field: realityapi.Lidar3 lidar3 = 5;
    */
   lidar3?: Lidar3 | undefined;
 
   /**
-   * @generated from field: optional realityapi.Transform2 transform2 = 6;
+   * @generated from field: realityapi.Transform2 transform2 = 6;
    */
   transform2?: Transform2 | undefined;
 
   /**
-   * @generated from field: optional realityapi.Lidar2 lidar2 = 7;
+   * @generated from field: realityapi.Lidar2 lidar2 = 7;
    */
   lidar2?: Lidar2 | undefined;
 
   /**
-   * @generated from field: optional realityapi.RawLidar2Scan raw_lidar2_scan = 8;
+   * @generated from field: realityapi.RawLidar2Scan raw_lidar2_scan = 8;
    */
   rawLidar2Scan?: RawLidar2Scan | undefined;
 
   /**
-   * @generated from field: optional realityapi.RawPointCloud raw_point_cloud = 9;
+   * @generated from field: realityapi.RawPointCloud raw_point_cloud = 9;
    */
   rawPointCloud?: RawPointCloud | undefined;
 };
@@ -499,12 +499,12 @@ export declare type Command = Message<"realityapi.Command"> & {
   /**
    * multiple demands can be packaged into one command
    *
-   * @generated from field: optional realityapi.Transform3 transform3 = 2;
+   * @generated from field: realityapi.Transform3 transform3 = 2;
    */
   transform3?: Transform3 | undefined;
 
   /**
-   * @generated from field: optional realityapi.Transform2 transform2 = 3;
+   * @generated from field: realityapi.Transform2 transform2 = 3;
    */
   transform2?: Transform2 | undefined;
 };

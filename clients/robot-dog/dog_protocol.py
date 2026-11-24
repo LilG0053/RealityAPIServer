@@ -17,9 +17,7 @@ from realityapi_pb2 import (
     DeviceType,
     RawPointCloud,
     ServerRequest,
-    Transform2,
     Transform3,
-    Vector2,
     Vector3,
 )
 
@@ -30,12 +28,9 @@ LIDAR_TOPIC = "/utlidar/cloud_deskewed"
 # access, but Value("DOG") works on every version.
 DOG_DEVICE_TYPE = DeviceType.Value("DOG")
 
-# Where the dog's odometry starts in the room, on the server's ground plane:
-# position Vector2(x=X, y=Z) in meters, and rotation the way it faces there
-# (radians: 0 = toward +X, pi/2 = toward +Z). The dog's own odometry always
-# starts at (0, 0) facing "forward", so this decides where that start is.
-# Change it to match where you set the dog down.
-DOG_START = Transform2(position=Vector2(x=0.9, y=0.0), rotation=math.pi)
+# The dog reports in its own odometry frame, converted to server axes but not
+# placed in the room. The server finds where that frame sits in the room by
+# global localization, so no start pose is needed.
 
 POINT_FIELD_FLOAT32 = 7
 POINT_FIELD_FLOAT64 = 8
@@ -60,30 +55,14 @@ def _device_request(**fields: Any) -> ServerRequest:
     )
 
 
-def _place(points: np.ndarray) -> np.ndarray:
-    """Turn server-axis (N, 3) points about the dog's start heading and move them to its start."""
-    c, s = math.cos(DOG_START.rotation), math.sin(DOG_START.rotation)
-    placed = points.copy()
-    placed[:, 0] = c * points[:, 0] - s * points[:, 2] + DOG_START.position.x
-    placed[:, 2] = s * points[:, 0] + c * points[:, 2] + DOG_START.position.y
-    return placed
-
-
 def server_transform(pose: Transform3) -> Transform3:
-    """A raw ROS pose (see ros_pose) as a Transform3 in server coordinates."""
-    converted = convert_transform(pose, DOG_COORDS, SERVER_COORDS)
-    p, r = converted.position, converted.rotation
-    placed = _place(np.array([[p.x, p.y, p.z]]))[0]
-    return Transform3(
-        position=Vector3(x=float(placed[0]), y=float(placed[1]), z=float(placed[2])),
-        # Heading is a rotation about the server's UP axis, which is rotation.y.
-        rotation=Vector3(x=r.x, y=r.y + DOG_START.rotation, z=r.z),
-    )
+    """A raw ROS pose (see ros_pose) as a Transform3 in server axes."""
+    return convert_transform(pose, DOG_COORDS, SERVER_COORDS)
 
 
 def server_points(xyz: np.ndarray) -> np.ndarray:
-    """Raw ROS (N, 3) cloud points in server coordinates."""
-    return _place(convert_points(xyz, DOG_COORDS, SERVER_COORDS))
+    """Raw ROS (N, 3) cloud points in server axes."""
+    return convert_points(xyz, DOG_COORDS, SERVER_COORDS)
 
 
 def _yaw(orientation: Any) -> float:
@@ -105,7 +84,7 @@ def ros_pose(message: Any) -> Transform3:
 
 
 def pose_request(pose: Transform3) -> ServerRequest:
-    """Build a pose-only update from a raw ROS pose (see ros_pose), in server coordinates."""
+    """Build a pose-only update from a raw ROS pose (see ros_pose), in server axes."""
     return _device_request(transform3=server_transform(pose))
 
 
@@ -163,10 +142,10 @@ def cloud_request(message: Any, pose: Transform3) -> ServerRequest:
     """Pack a native sensor_msgs/msg/PointCloud2 for the server to process.
 
     The client does no filtering: it decodes the cloud, converts it and the
-    dog's raw ROS pose (see ros_pose) to server coordinates, and sends both in
-    one device update. The server flattens the cloud to a 2D scan
-    (map/pointcloud.py). Cloud and pose must share a ROS frame (the client logs
-    a warning if the frame_ids differ).
+    dog's raw ROS pose (see ros_pose) to server axes, and sends both in one
+    device update. The server flattens the cloud to a 2D scan and localizes it
+    in the room. Cloud and pose must share a ROS frame (the client logs a
+    warning if the frame_ids differ).
     """
     transform = server_transform(pose)
     xyz = server_points(_cloud_xyz(message))

@@ -22,9 +22,8 @@ const roomCorners = [
   { x: 9.07, z: 0 }
 ];
 
-// Where the dog's odometry starts, in the drawn frame: DOG_START (0.9, 0.0)
-// in dog_protocol.py plus the room origin (0.1, 2.0).
-const dogStartPosition = { x: 1.0, z: 2.0 };
+
+const dogStartPosition = { x: 1.0, z: 14.0 };
 
 // Scene, camera, and renderer
 const scene = new THREE.Scene();
@@ -182,6 +181,35 @@ const roomOutline = new THREE.LineLoop(
   new THREE.LineBasicMaterial({ color: 0xffffff })
 );
 scene.add(roomOutline);
+
+// Obstacles (pillars, cabinets) from the server's room bounds, drawn as
+// translucent boxes like the walls. The blockout has no heights, so they share one.
+const OBSTACLE_HEIGHT = 1.5;
+const obstacleGroup = new THREE.Group();
+scene.add(obstacleGroup);
+const obstacleMaterial = new THREE.MeshStandardMaterial({
+  color: 0xe8e8e8,
+  roughness: 0.8,
+  transparent: true,
+  opacity: 0.65,
+  side: THREE.DoubleSide
+});
+const obstacleEdgeMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
+
+function drawObstacles(polygons) {
+  obstacleGroup.children.forEach(child => child.geometry.dispose());
+  obstacleGroup.clear();
+  for (const polygon of polygons) {
+    if (polygon.vertices.length < 3) continue;
+    // Vector2.y carries Z. Extrude along shape-Z, then lay the shape flat so it rises along +Y.
+    const shape = new THREE.Shape(polygon.vertices.map(v => new THREE.Vector2(v.x, v.y)));
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: OBSTACLE_HEIGHT, bevelEnabled: false });
+    geometry.rotateX(Math.PI / 2);
+    geometry.translate(0, OBSTACLE_HEIGHT, 0);
+    obstacleGroup.add(new THREE.Mesh(geometry, obstacleMaterial));
+    obstacleGroup.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry), obstacleEdgeMaterial));
+  }
+}
 
 // Store 3D markers by device ID
 const robotMarkers = {};
@@ -537,7 +565,7 @@ function connect() {
 
   socket.addEventListener("open", () => {
     loadTunables();
-    loadRoomOrigin();
+    loadRoom();
   });
 
   socket.addEventListener("close", () => {
@@ -560,16 +588,17 @@ function request(data) {
   });
 }
 
-// Where the server frame's (0, 0) sits in the drawn frame.
-async function loadRoomOrigin() {
+// The room bounds: where the server frame's (0, 0) sits in the drawn frame, and the obstacles.
+async function loadRoom() {
   try {
     const response = await request({ case: "fetchRoomBounds", value: {} });
     if (response.data.case === "roomBounds" && response.data.value.origin) {
       const origin = response.data.value.origin;
       serverGroup.position.set(origin.x, 0, origin.y);
     }
+    if (response.data.case === "roomBounds") drawObstacles(response.data.value.obstacles);
   } catch (error) {
-    console.error("Error loading room origin:", error);
+    console.error("Error loading room bounds:", error);
   }
 }
 

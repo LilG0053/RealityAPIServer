@@ -97,12 +97,12 @@ message DeviceInfo {
   DeviceType device_type = 2;
   float timestamp = 3;
 
-  optional Transform3 transform3 = 4;
-  optional Lidar3 lidar3 = 5;
-  optional Transform2 transform2 = 6;
-  optional Lidar2 lidar2 = 7;
-  optional RawLidar2Scan raw_lidar2_scan = 8;
-  optional RawPointCloud raw_point_cloud = 9;
+  Transform3 transform3 = 4;
+  Lidar3 lidar3 = 5;
+  Transform2 transform2 = 6;
+  Lidar2 lidar2 = 7;
+  RawLidar2Scan raw_lidar2_scan = 8;
+  RawPointCloud raw_point_cloud = 9;
 }
 
 message AllDeviceInfo {
@@ -139,8 +139,8 @@ message Command {
   string target_id = 1;
 
   // multiple demands can be packaged into one command
-  optional Transform3 transform3 = 2;
-  optional Transform2 transform2 = 3;
+  Transform3 transform3 = 2;
+  Transform2 transform2 = 3;
 }
 
 message OccupancyGridReq {

@@ -18,7 +18,7 @@ from common.transform2 import make_transform2, transform2_from_transform3
 from map.bandb_dog import StaticLocalizer
 from map.algorithms.lidar import simplify_points
 from map.algorithms.localization import ScanLocalizer, apply
-from map.algorithms.pointcloud import RingAccumulator, raw_cloud_to_ring
+from map.algorithms.pointcloud import RingAccumulator, decode_xyz, raw_cloud_to_ring
 from map.device.device import Device, _message_dict
 from map.occupancy import OccupancyGrid
 from map.room import polygon_array
@@ -27,6 +27,14 @@ from realityapi_pb2 import DeviceInfo, DeviceType, Lidar3, Response, Transform3,
 
 # Seconds between ring updates to the occupancy grid (each one walks every ray in Python).
 OCCUPANCY_INTERVAL = 1.0
+# The whole-room search matches the accumulated ICP map within this range of the dog,
+# thinned to one point per voxel and at most GLOBAL_SCAN_MAX points.
+GLOBAL_SCAN_RANGE = 10.0
+GLOBAL_SCAN_VOXEL = 0.2
+GLOBAL_SCAN_MAX = 150
+# Seconds between [dog] diagnostic lines, and the height edges (m vs the pose) they count points in.
+DIAG_INTERVAL = 5.0
+DIAG_EDGES = (-0.5, -0.25, -0.15, 0.05, 0.25, 0.5, 1.0, 2.0)
 
 
 class Dog(Device):
@@ -45,6 +53,7 @@ class Dog(Device):
         # Display-only grid of the placed ring; never blended into localization.
         self.occupancy = occupancy
         self._mapped_at = -OCCUPANCY_INTERVAL
+        self._diag_at = -DIAG_INTERVAL
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], **kwargs: Any) -> Dog:
@@ -58,6 +67,7 @@ class Dog(Device):
         if device_info.HasField("raw_point_cloud"):
             raw = device_info.raw_point_cloud
             ring, height = raw_cloud_to_ring(raw, self.ring)
+            self._diag(raw, ring)
             if len(ring):
                 self.localizer.update(ring)
                 self._locate(ring, raw.transform)
@@ -77,7 +87,14 @@ class Dog(Device):
         loc = self.localizer
         p = transform.position
         pos = loc.correct_points(np.array([[p.x, p.z]]))[0]
-        fix = self.static.locate(loc.correct_points(ring), pos, correction=loc.correction)
+        was = self.static.located
+        scan = loc.correct_points(ring) if was else self._global_scan(ring, pos)
+        fix = self.static.locate(scan, pos, correction=loc.correction)
+        if was and not self.static.located:
+            # Lost: the old map and 3D cloud belong to a place the dog may have left.
+            loc.accumulated_scan = None
+            self.ring.clear()
+            self.reset_cloud = True
         if fix is None:
             return
         loc.correction = fix.delta @ loc.correction
@@ -85,6 +102,32 @@ class Dog(Device):
             loc.accumulated_scan = apply(fix.delta, loc.accumulated_scan)
         if fix.global_search:
             self.reset_cloud = True
+
+    def _diag(self, raw, ring: np.ndarray) -> None:
+        now = monotonic()
+        if now - self._diag_at < DIAG_INTERVAL:
+            return
+        self._diag_at = now
+        z = decode_xyz(raw.xyz)[:, 1] - raw.transform.position.y
+        z = z[np.isfinite(z)]
+        n = np.histogram(z, bins=DIAG_EDGES)[0]
+        bands = " ".join(f"{lo:+.2f}..{hi:+.2f}:{c}" for lo, hi, c in zip(DIAG_EDGES, DIAG_EDGES[1:], n))
+        print(f"[dog] placed={self.static.located} ring={len(ring)} pts; points by height vs pose: {bands}")
+
+    def _global_scan(self, ring: np.ndarray, pos: np.ndarray) -> np.ndarray:
+        """What the whole-room search matches: the accumulated map near the dog, thinned."""
+        loc = self.localizer
+        acc = loc.accumulated_scan
+        if acc is None:
+            return loc.correct_points(ring)
+        near = acc[np.hypot(acc[:, 0] - pos[0], acc[:, 1] - pos[1]) <= GLOBAL_SCAN_RANGE]
+        if len(near) == 0:
+            return loc.correct_points(ring)
+        _, keep = np.unique(np.floor(near / GLOBAL_SCAN_VOXEL).astype(int), axis=0, return_index=True)
+        near = near[keep]
+        if len(near) > GLOBAL_SCAN_MAX:
+            near = near[:: -(-len(near) // GLOBAL_SCAN_MAX)]
+        return near
 
     def _map_ring(self, ring: np.ndarray, transform: Transform3) -> None:
         now = monotonic()
