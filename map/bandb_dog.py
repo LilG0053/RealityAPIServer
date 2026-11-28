@@ -11,6 +11,7 @@ Everything is in the server frame (the room polygons come from Room.polygons()).
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from time import monotonic
 
@@ -33,9 +34,11 @@ TRACK_MIN_SCORE = 0.30
 # Where the dog is in the room when it starts, as an (x, z) server-frame spot in
 # meters. It is not a pose: every heading is still searched, but only within
 # GLOBAL_XY_WINDOW of this spot, which rules out look-alike poses elsewhere in
-# the room (the old behavior). None searches the whole room, which is ambiguous
-# with a weak ring. Server frame = the dashboard's drawn position minus (0.1, 2.0).
-GLOBAL_HINT: tuple[float, float] | None = (0.9, 0.0)
+# the room (the old behavior). None (default) searches the whole room, which the
+# multi-hypothesis placer handles by waiting until one pose is unambiguous. If you set
+# it, remember server frame = the dashboard's drawn position minus (0.1, 2.0): drawn
+# (1.0, 14.0) is server (0.9, 12.0), NOT (0.9, 0.0).
+GLOBAL_HINT: tuple[float, float] | None = None
 # Search radius around GLOBAL_HINT, at most TILE_RADIUS.
 GLOBAL_XY_WINDOW = 3.0
 TILE_RADIUS = 3.0
@@ -49,6 +52,32 @@ AMBIG_TURN = math.radians(30.0)
 FIRM_MARGIN = 0.08
 FIRM_SHIFT = 0.3
 FIRM_TURN = math.radians(6.0)
+
+# --- Multi-hypothesis global localization (AMCL-style initialization) ---------------------
+# Instead of committing to the single best branch-and-bound pose, score a lattice of
+# (x, z, heading) poses over the whole room, keep every plausible one as a particle, and let
+# odometry plus later scans thin them out. A pose is only handed to the caller once one
+# cluster holds nearly all particles AND passes the same firmness (nudge) test as before, so a
+# flat wall that cannot fix z keeps the dog "unplaced" until it moves and sees a corner.
+# False falls back to the old tile search (GLOBAL_HINT / _decide above).
+MULTI_HYPOTHESIS = True
+SEED_POS_STEP = 0.20              # lattice spacing in x and z (m)
+SEED_HEADING_STEP = math.radians(5.0)
+SEED_BEAMS = 60                   # scan points scored per pose
+SEED_MIN_SCORE = 0.35             # a seed pose must at least score this ...
+SEED_MARGIN = 0.30                # ... and be within this of the best pose
+SEED_PARTICLES = 4000
+HYP_TEMPERATURE = 2.0             # lower than TRACK_TEMPERATURE: sharpen faster while placing
+HYP_COMMIT_FRACTION = 0.90        # share of particles within the radius/turn below of the estimate
+HYP_COMMIT_RADIUS = 0.5
+HYP_COMMIT_TURN = math.radians(20.0)
+HYP_COMMIT_UPDATES = 3            # consecutive updates the commit test must hold
+RIVAL_REFINE = 3                 # distinct rival basins refined exactly before committing
+RIVAL_RETRY = 1.5                 # seconds between rival checks (each re-scores the whole room, ~1 s)
+HYP_LOST_FIT = 0.30               # a hypothesis cloud fitting worse than this for LOST_AFTER_MISSES updates is reseeded
+# Directory to write a .npz of every seeding and commit/decision (see testing/diagnose_dog_ring.py).
+# Set DOG_DUMP_DIR in the environment, or assign this.
+DUMP_DIR: str | None = os.environ.get("DOG_DUMP_DIR")
 
 TRACK_INTERVAL = 0.2
 LOST_AFTER_MISSES = 15
@@ -97,6 +126,14 @@ class _TemperedMonteCarlo(MonteCarlo):
 
     temperature = 1.0
 
+    def seed(self, particles: np.ndarray) -> None:
+        """Start from an arbitrary (N, 3) cloud of (x, z, heading) hypotheses instead of one pose."""
+        self.particles = np.asarray(particles, dtype=float).copy()
+        self.weights = np.full(len(self.particles), 1.0 / len(self.particles))
+        p = self.particles[0]
+        self.pose = make_transform2(float(p[0]), float(p[1]), float(p[2]))
+        self.fit = None
+
     def update(self, scan):
         scan = np.asarray(scan, dtype=float).reshape(-1, 2)
         if len(scan) == 0 or len(self.particles) == 0:
@@ -132,6 +169,14 @@ class StaticLocalizer:
         self._job: dict | None = None
         self._mc: MonteCarlo | None = None
         self._prev_raw: np.ndarray | None = None
+        # Multi-hypothesis placement: the cloud of candidate poses, and how long it has held a verdict.
+        self._hyp: _TemperedMonteCarlo | None = None
+        self._hyp_ok = 0
+        self._hyp_bad = 0
+        self._lattice: np.ndarray | None = None
+        self._rival_after = -math.inf
+        self._dump_n = 0
+        self.status = "idle"   # idle | seeded | placing | tracking, for the dashboard / logs
 
     def reset(self) -> None:
         self.located = False
@@ -145,6 +190,11 @@ class StaticLocalizer:
         self._job = None
         self._mc = None
         self._prev_raw = None
+        self._hyp = None
+        self._hyp_ok = 0
+        self._hyp_bad = 0
+        self._rival_after = -math.inf
+        self.status = "idle"
 
     def locate(
         self,
@@ -164,6 +214,12 @@ class StaticLocalizer:
             if now - self._last_track < TRACK_INTERVAL:
                 return None
             self._last_track = now
+        elif MULTI_HYPOTHESIS:
+            # Seeding is rate-limited like the old global search; once seeded the cloud is
+            # stepped at the tracking rate.
+            limit = TRACK_INTERVAL if self._hyp is not None else GLOBAL_RETRY
+            if now - self._last_global < limit:
+                return None
         elif self._job is None:
             if now - self._last_global < GLOBAL_RETRY:
                 return None
@@ -178,6 +234,12 @@ class StaticLocalizer:
         dist = np.hypot(rel[:, 0], rel[:, 1])
         rel = rel[(dist >= MATCH_RANGE_MIN) & (dist <= MATCH_RANGE_MAX)]
 
+        if not self.located and MULTI_HYPOTHESIS:
+            if len(rel) < MATCH_MIN_POINTS:
+                self._warn(f"[static] only {len(rel)} ring points within {MATCH_RANGE_MIN}-{MATCH_RANGE_MAX} m "
+                           f"(need {MATCH_MIN_POINTS}); not placing", now)
+                return None
+            return self._hypotheses(rel, raw, pos, corr, now)
         if not self.located:
             if self._job is None and len(rel) < MATCH_MIN_POINTS:
                 self._warn(f"[static] only {len(rel)} ring points within {MATCH_RANGE_MIN}-{MATCH_RANGE_MAX} m "
@@ -192,6 +254,214 @@ class StaticLocalizer:
         if now - self._warned_at >= 3.0:
             self._warned_at = now
             print(msg)
+
+    # ---- multi-hypothesis placement -----------------------------------------------------------
+
+    def _positions(self) -> np.ndarray:
+        """Lattice of free (x, z) spots in the room, once. Honors GLOBAL_HINT as an optional prior."""
+        if self._lattice is None:
+            lo, hi = self.room.min(axis=0), self.room.max(axis=0)
+            xs = np.arange(lo[0] + SEED_POS_STEP / 2, hi[0], SEED_POS_STEP)
+            zs = np.arange(lo[1] + SEED_POS_STEP / 2, hi[1], SEED_POS_STEP)
+            pts = np.array([(x, z) for x in xs for z in zs if self._valid(float(x), float(z))])
+            self._lattice = pts.reshape(-1, 2)
+        pts = self._lattice
+        if GLOBAL_HINT is not None:
+            near = np.hypot(pts[:, 0] - GLOBAL_HINT[0], pts[:, 1] - GLOBAL_HINT[1]) <= GLOBAL_XY_WINDOW
+            pts = pts[near]
+        return pts
+
+    def score_poses(self, rel: np.ndarray, positions: np.ndarray, headings: np.ndarray) -> np.ndarray:
+        """Mean wall likelihood of scan `rel` at every (position, heading): shape (P, H).
+
+        Public so testing/diagnose_dog_ring.py scores exactly what the seeder scores.
+        """
+        rel = np.asarray(rel, dtype=float).reshape(-1, 2)
+        beams = rel[np.linspace(0, len(rel) - 1, min(SEED_BEAMS, len(rel))).astype(int)]
+        lik, origin, res = self.grid.likelihood, np.asarray(self.grid.origin), self.grid.resolution
+        out = np.empty((len(positions), len(headings)))
+        for j, h in enumerate(headings):
+            c, s = math.cos(h), math.sin(h)
+            placed = positions[:, None, :] + (beams @ np.array([[c, -s], [s, c]]).T)[None]
+            idx = np.floor((placed - origin) / res).astype(int)
+            ok = (idx[..., 0] >= 0) & (idx[..., 0] < lik.shape[0]) & (idx[..., 1] >= 0) & (idx[..., 1] < lik.shape[1])
+            vals = np.zeros(ok.shape)
+            vals[ok] = lik[idx[..., 0][ok], idx[..., 1][ok]]
+            out[:, j] = vals.mean(axis=1)
+        return out
+
+    def _lattice_scores(self, rel: np.ndarray):
+        """(positions, headings, scores) of the scan at every lattice pose in the room."""
+        pts = self._positions()
+        heads = np.arange(-math.pi, math.pi, SEED_HEADING_STEP)
+        if len(pts) == 0:
+            return pts, heads, np.zeros((0, len(heads)))
+        return pts, heads, self.score_poses(rel, pts, heads)
+
+    def _seed_particles(self, rel: np.ndarray, rng: np.random.Generator):
+        """(particles, best score, poses kept) for every plausible (x, z, heading); particles None if nothing fits."""
+        pts, heads, score = self._lattice_scores(rel)
+        if score.size == 0:
+            return None, 0.0, 0
+        best = float(score.max())
+        floor = max(SEED_MIN_SCORE, best - SEED_MARGIN)
+        pi, hi = np.nonzero(score >= floor)
+        if len(pi) == 0:
+            return None, best, 0
+        w = score[pi, hi] ** 4
+        take = rng.choice(len(pi), size=SEED_PARTICLES, p=w / w.sum())
+        jitter = rng.uniform(-0.5, 0.5, (SEED_PARTICLES, 3)) * (SEED_POS_STEP, SEED_POS_STEP, SEED_HEADING_STEP)
+        parts = np.column_stack((pts[pi[take], 0], pts[pi[take], 1], heads[hi[take]])) + jitter
+        parts[:, 2] = wrap_angle(parts[:, 2])
+        return parts, best, len(pi)
+
+    def _rival(self, rel: np.ndarray, x: float, z: float, th: float):
+        """Best pose in the whole room that is distinct from (x, z, th), as (x, z, heading, score), or None.
+
+        The lattice only finds where to look (it is too coarse to score a basin's peak), so the top
+        few distinct lattice maxima are refined with an exact branch-and-bound in a small window.
+        """
+        pts, heads, score = self._lattice_scores(rel)
+        if score.size == 0:
+            return None
+        far = np.hypot(pts[:, 0] - x, pts[:, 1] - z) > AMBIG_DIST
+        turned = np.abs(wrap_angle(heads - th)) > AMBIG_TURN
+        distinct = far[:, None] | turned[None, :]
+        s = np.where(distinct, score, -1.0)
+        found: list[tuple[float, float, float, float]] = []
+        for _ in range(RIVAL_REFINE):
+            i, j = np.unravel_index(int(np.argmax(s)), s.shape)
+            if s[i, j] < SEED_MIN_SCORE:
+                break
+            cx, cz, ch = float(pts[i, 0]), float(pts[i, 1]), float(heads[j])
+            res = self.matcher.search(rel, make_transform2(cx, cz, ch), SEED_POS_STEP, SEED_HEADING_STEP, 0.0)
+            if res is not None:
+                pose, sc = res
+                found.append((float(pose.position.x), float(pose.position.y), float(wrap_angle(pose.rotation)), sc))
+            # Suppress this basin so the next pick is a different place.
+            near = (np.hypot(pts[:, 0] - cx, pts[:, 1] - cz) <= AMBIG_DIST)[:, None] & (
+                np.abs(wrap_angle(heads - ch)) <= AMBIG_TURN)[None, :]
+            s = np.where(near, -1.0, s)
+        found = [f for f in found if math.hypot(f[0] - x, f[1] - z) > AMBIG_DIST
+                 or abs(float(wrap_angle(f[2] - th))) > AMBIG_TURN]
+        return max(found, key=lambda f: f[3]) if found else None
+
+    def _new_hypotheses(self) -> _TemperedMonteCarlo:
+        mc = _TemperedMonteCarlo(
+            self.grid,
+            min_particles=TRACK_MIN_PARTICLES,
+            max_particles=SEED_PARTICLES,
+            initial_particles=SEED_PARTICLES,
+            initial_std=TRACK_INIT_STD,
+            alphas=TRACK_ALPHAS,
+            max_beams=TRACK_BEAMS,
+            z_hit=TRACK_Z_HIT,
+            z_rand=1.0 - TRACK_Z_HIT,
+            seed=TRACK_SEED,
+        )
+        mc.temperature = HYP_TEMPERATURE
+        return mc
+
+    @staticmethod
+    def _share(mc: MonteCarlo) -> float:
+        """Share of particles within the commit radius/turn of the estimate (weights are uniform after resampling)."""
+        p, est = mc.particles, mc.pose
+        near = np.hypot(p[:, 0] - est.position.x, p[:, 1] - est.position.y) <= HYP_COMMIT_RADIUS
+        turn = np.abs(wrap_angle(p[:, 2] - est.rotation)) <= HYP_COMMIT_TURN
+        return float(np.mean(near & turn))
+
+    def _hypotheses(self, rel, raw, pos, corr, now) -> StaticFix | None:
+        self._last_global = now
+        if self._hyp is None:
+            mc = self._new_hypotheses()
+            res = self._seed_particles(rel, mc.rng)
+            if res is None or res[0] is None:
+                best = None if res is None else res[1]
+                print("[static] no pose in the room scores "
+                      f"{SEED_MIN_SCORE:.2f} or better" + ("" if best is None else f" (best {best:.2f})") + "; will retry")
+                self._dump("noseed", rel, raw, pos, corr)
+                return None
+            parts, best, kept = res
+            mc.seed(parts)
+            self._hyp, self._prev_raw, self._hyp_ok, self._hyp_bad = mc, raw.copy(), 0, 0
+            self.status = "seeded"
+            print(f"[static] seeded {len(parts)} hypotheses from {kept} poses scoring >= "
+                  f"{max(SEED_MIN_SCORE, best - SEED_MARGIN):.2f} (best {best:.2f}) over {len(self._positions())} spots")
+            self._dump("seed", rel, raw, pos, corr, particles=parts)
+            return None
+
+        mc = self._hyp
+        mc.predict(make_transform2(float(self._prev_raw[0]), float(self._prev_raw[1]), 0.0),
+                   make_transform2(float(raw[0]), float(raw[1]), 0.0))
+        self._prev_raw = raw.copy()
+        pose = mc.update(rel)
+        if pose is None or mc.fit is None:
+            return None
+        x, z, th = pose.position.x, pose.position.y, float(wrap_angle(pose.rotation))
+        share = self._share(mc)
+
+        if mc.fit < HYP_LOST_FIT:
+            self._hyp_bad += 1
+            if self._hyp_bad >= LOST_AFTER_MISSES:
+                print(f"[static] hypotheses stopped fitting (fit {mc.fit:.2f}); reseeding")
+                self._hyp, self._hyp_ok, self._last_global = None, 0, -math.inf
+                return None
+        else:
+            self._hyp_bad = 0
+
+        holds = share >= HYP_COMMIT_FRACTION and mc.fit >= GLOBAL_MIN_SCORE and self._valid(x, z)
+        self._hyp_ok = self._hyp_ok + 1 if holds else 0
+        self.status = "placing"
+        self._warn(f"[static] placing: {len(mc.particles)} particles, {share:.0%} agree on "
+                   f"({x:.2f}, {z:.2f}, {math.degrees(th):.0f} deg), fit {mc.fit:.2f}", now)
+        if self._hyp_ok < HYP_COMMIT_UPDATES:
+            return None
+
+        firm = self._firm(rel, x, z, th)
+        if firm < FIRM_MARGIN:
+            self._warn(f"[static] ({x:.2f}, {z:.2f}) fits {mc.fit:.2f} but nudging it costs only {firm:.2f} "
+                       f"(needs {FIRM_MARGIN}): the view does not pin it down (long wall); keep moving", now)
+            return None
+        if now < self._rival_after:
+            return None
+        self._rival_after = now + RIVAL_RETRY
+        rival = self._rival(rel, x, z, th)
+        here = self.grid.score(rel @ _pose_mat(0.0, 0.0, th)[:2, :2].T + (x, z))
+        if rival is not None and rival[3] >= here - AMBIG_MARGIN:
+            rx, rz, rh, rs = rival
+            print(f"[static] ambiguous: ({x:.2f}, {z:.2f}, {math.degrees(th):.0f} deg) scores {here:.2f} but "
+                  f"({rx:.2f}, {rz:.2f}, {math.degrees(rh):.0f} deg) scores {rs:.2f}; keep moving for a view that tells them apart")
+            self._dump("ambiguous", rel, raw, pos, corr, particles=mc.particles, pose=np.array([x, z, th]),
+                       rival=np.array(rival))
+            if rs > here:   # the cloud collapsed onto the worse of the two: start over from the richer scan
+                self._hyp, self._hyp_ok, self._last_global = None, 0, -math.inf
+            return None
+        rival_txt = "none" if rival is None else f"{rival[3]:.2f}"
+        print(f"[static] placed at ({x:.2f}, {z:.2f}) heading {math.degrees(th):.0f} deg, fit {mc.fit:.2f}, "
+              f"{share:.0%} of {len(mc.particles)} hypotheses agree, firmness {firm:.2f}, best distinct rival {rival_txt}")
+        self._dump("placed", rel, raw, pos, corr, particles=mc.particles, pose=np.array([x, z, th]))
+        self._hyp = None
+        self._start_tracker(x, z, th, raw)
+        return self._fix(x, z, th, mc.fit, raw, pos, corr, global_search=True)
+
+    def _dump(self, tag: str, rel, raw, pos, corr, **extra) -> None:
+        """Write one decision's inputs to DUMP_DIR for testing/diagnose_dog_ring.py."""
+        if not DUMP_DIR:
+            return
+        try:
+            os.makedirs(DUMP_DIR, exist_ok=True)
+            self._dump_n += 1
+            parts = extra.pop("particles", None)
+            if parts is not None and len(parts) > 600:
+                parts = parts[:: -(-len(parts) // 600)]
+            np.savez_compressed(
+                os.path.join(DUMP_DIR, f"static_{self._dump_n:04d}_{tag}.npz"),
+                rel=np.asarray(rel), raw=np.asarray(raw), pos=np.asarray(pos), corr=np.asarray(corr),
+                particles=np.zeros((0, 3)) if parts is None else parts,
+                **{k: np.asarray(v) for k, v in extra.items()},
+            )
+        except OSError as e:  # a full disk must never take localization down
+            print(f"[static] could not write dump: {e}")
 
     def _tiles(self) -> tuple[list[tuple[float, float]], float]:
         if GLOBAL_HINT is not None:
@@ -321,6 +591,7 @@ class StaticLocalizer:
         delta = target @ np.linalg.inv(corr)
         moved = delta[:2, :2] @ pos + delta[:2, 2]
         self.located = True
+        self.status = "tracking"
         self._misses = 0
         self.last_score = float(score)
         return StaticFix(
